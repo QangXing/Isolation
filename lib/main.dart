@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'providers/plugin_provider.dart';
+import 'providers/macro_provider.dart';
 import 'screens/about_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/macros_screen.dart';
 import 'screens/manage_screen.dart';
 import 'widgets/bottom_nav_bar.dart';
 
@@ -25,8 +27,11 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => PluginProvider()..load(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => PluginProvider()..load()),
+        ChangeNotifierProvider(create: (_) => MacroProvider()..load()),
+      ],
       child: MaterialApp(
         title: 'isolation',
         debugShowCheckedModeBanner: false,
@@ -54,6 +59,7 @@ class _MainScreenState extends State<MainScreen> {
 
   final List<Widget> _screens = const [
     HomeScreen(),
+    MacrosScreen(),
     ManageScreen(),
     AboutScreen(),
   ];

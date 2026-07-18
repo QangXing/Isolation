@@ -12,6 +12,7 @@ class BottomNavBar extends StatelessWidget {
 
   final List<_NavItem> _items = const [
     _NavItem(icon: Icons.home_rounded, label: '主页'),
+    _NavItem(icon: Icons.smart_button_rounded, label: '宏'),
     _NavItem(icon: Icons.dashboard_customize_rounded, label: '管理'),
     _NavItem(icon: Icons.help_outline_rounded, label: '说明'),
   ];

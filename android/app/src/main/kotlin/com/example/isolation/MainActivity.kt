@@ -60,6 +60,45 @@ class MainActivity : FlutterActivity() {
                     executeAction(type, params)
                     result.success(null)
                 }
+                "startMacroRecording" -> {
+                    val started = InputAccessibilityService.startRecording(this)
+                    result.success(started)
+                }
+                "stopMacroRecording" -> {
+                    val steps = InputAccessibilityService.stopRecording(this)
+                    result.success(steps)
+                }
+                "executeMacro" -> {
+                    val macroId = call.argument<String>("macroId") ?: ""
+                    val loop = call.argument<Boolean>("loop") ?: false
+                    val smartRecognition = call.argument<Boolean>("smartRecognition") ?: false
+                    val steps = call.argument<List<Map<String, Any>>>("steps") ?: emptyList()
+                    InputAccessibilityService.executeMacro(this, macroId, steps, loop, smartRecognition)
+                    result.success(true)
+                }
+                "stopMacroExecution" -> {
+                    val stopped = InputAccessibilityService.stopExecution(this)
+                    result.success(stopped)
+                }
+                "isRecording" -> {
+                    result.success(InputAccessibilityService.isRecording())
+                }
+                "isExecuting" -> {
+                    result.success(InputAccessibilityService.isExecuting())
+                }
+                "setMacroConfig" -> {
+                    val macroId = call.argument<String>("macroId") ?: ""
+                    val loop = call.argument<Boolean>("loop") ?: false
+                    val smartRecognition = call.argument<Boolean>("smartRecognition") ?: false
+                    val steps = call.argument<List<Map<String, Any>>>("steps")
+                    InputAccessibilityService.setMacroConfig(macroId, loop, smartRecognition, steps)
+                    result.success(null)
+                }
+                "showFloatingBallToast" -> {
+                    val message = call.argument<String>("message") ?: ""
+                    FloatingBallService.showToast(this, message)
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }

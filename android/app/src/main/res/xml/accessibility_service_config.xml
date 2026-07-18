@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeViewFocused"
-    android:accessibilityFlags="flagDefault"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeViewFocused|typeViewClicked"
+    android:accessibilityFlags="flagDefault|flagIncludeNotImportantViews|flagReportViewIds"
     android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
+    android:canPerformGestures="true"
     android:settingsActivity="com.example.isolation.MainActivity" />
