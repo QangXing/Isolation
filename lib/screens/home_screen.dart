@@ -52,6 +52,7 @@ class HomeScreen extends StatelessWidget {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final plugin = plugins[index];
+                      final isMacro = plugin.actions.any((a) => a.type == 'macro');
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 14),
                         child: PluginCard(
@@ -59,8 +60,16 @@ class HomeScreen extends StatelessWidget {
                           onEnabledChanged: (value) {
                             provider.setEnabled(plugin.id, value);
                           },
+                          trailing: isMacro && plugin.enabled
+                              ? _RunButton(
+                                  running: provider.runningMacroId == plugin.id,
+                                  onTap: () => _runMacro(context, provider, plugin.id),
+                                )
+                              : null,
                           onTap: () {
-                            if (plugin.actions.isNotEmpty) {
+                            if (isMacro) {
+                              _runMacro(context, provider, plugin.id);
+                            } else if (plugin.actions.isNotEmpty) {
                               _showActions(context, plugin);
                             }
                           },
@@ -76,6 +85,19 @@ class HomeScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _runMacro(BuildContext context, PluginProvider provider, String pluginId) async {
+    final success = await provider.runMacroPlugin(pluginId);
+    if (!success && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('运行失败，请检查辅助功能权限'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 
   void _showActions(BuildContext context, plugin) {
@@ -119,6 +141,47 @@ class HomeScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _RunButton extends StatelessWidget {
+  final bool running;
+  final VoidCallback onTap;
+
+  const _RunButton({required this.running, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: running ? null : onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: running ? Colors.grey.withValues(alpha: 0.2) : Colors.black87,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (running)
+              Container(
+                width: 12,
+                height: 12,
+                margin: const EdgeInsets.only(right: 6),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.black.withValues(alpha: 0.6),
+                ),
+              ),
+            Text(
+              running ? '运行中' : '运行',
+              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

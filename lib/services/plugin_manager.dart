@@ -7,6 +7,7 @@ import '../models/plugin.dart';
 
 class PluginManager {
   static const String _pluginsKey = 'isolation_plugins';
+  static const String _builtInId = 'com.example.isolation.builtin.daily-checkin';
   static final PluginManager _instance = PluginManager._internal();
   factory PluginManager() => _instance;
   PluginManager._internal();
@@ -21,7 +22,9 @@ class PluginManager {
       final List<dynamic> list = jsonDecode(jsonString);
       _plugins = list.map((e) => Plugin.fromJson(e)).toList();
     }
-    _ensureBuiltInPlugin();
+    // Migrate legacy floating keyboard plugin to macro plugin
+    _plugins.removeWhere((p) => p.id == 'com.example.isolation.floating_keyboard');
+    await _ensureBuiltInMacroPlugin();
   }
 
   Future<void> savePlugins() async {
@@ -30,23 +33,62 @@ class PluginManager {
     await prefs.setString(_pluginsKey, jsonString);
   }
 
-  void _ensureBuiltInPlugin() {
-    final exists = _plugins.any((p) => p.id == 'com.example.isolation.floating_keyboard');
+  void replacePlugins(List<Plugin> plugins) {
+    _plugins = List.from(plugins);
+  }
+
+  Future<void> _ensureBuiltInMacroPlugin() async {
+    final exists = _plugins.any((p) => p.id == _builtInId);
     if (!exists) {
-      _plugins.insert(0, _builtInPlugin());
+      final plugin = await _createBuiltInMacroPlugin();
+      _plugins.insert(0, plugin);
+      await savePlugins();
     }
   }
 
-  Plugin _builtInPlugin() {
-    return Plugin(
-      id: 'com.example.isolation.floating_keyboard',
-      name: '悬浮球小键盘',
-      version: '1.0.0',
-      description: '启用后显示可拖动悬浮球，单击唤起输入法，长按打开迷你键盘。',
-      author: 'isolation',
-      builtIn: true,
-      enabled: false,
-    );
+  Future<Plugin> _createBuiltInMacroPlugin() async {
+    final pluginDir = await _pluginDirectory();
+    final targetDir = Directory('${pluginDir.path}/$_builtInId');
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
+
+    const macroFileName = 'macro.json';
+    final macroFile = File('${targetDir.path}/$macroFileName');
+    if (!await macroFile.exists()) {
+      final exampleSteps = [
+        {
+          'type': 'clickNode',
+          'delay': 0,
+          'target': {
+            'text': '签到',
+            'className': 'android.widget.Button',
+            'bounds': [100, 200, 300, 400],
+          },
+        },
+      ];
+      await macroFile.writeAsString(jsonEncode(exampleSteps));
+    }
+
+    final manifest = {
+      'id': _builtInId,
+      'name': '每日签到宏',
+      'version': '1.0.0',
+      'description': '打开目标 App 后自动点击签到按钮（示例宏，请录制替换）。',
+      'author': 'isolation',
+      'actions': [
+        {
+          'type': 'macro',
+          'label': '运行签到宏',
+          'macroFile': macroFileName,
+        }
+      ],
+    };
+
+    final manifestFile = File('${targetDir.path}/manifest.json');
+    await manifestFile.writeAsString(jsonEncode(manifest));
+
+    return Plugin.fromManifest(manifest, builtIn: true);
   }
 
   Future<bool> importPlugin(String zipPath) async {

@@ -7,12 +7,14 @@ class PluginCard extends StatefulWidget {
   final Plugin plugin;
   final ValueChanged<bool> onEnabledChanged;
   final VoidCallback? onTap;
+  final Widget? trailing;
 
   const PluginCard({
     super.key,
     required this.plugin,
     required this.onEnabledChanged,
     this.onTap,
+    this.trailing,
   });
 
   @override
@@ -68,6 +70,10 @@ class _PluginCardState extends State<PluginCard> {
                 ),
               ),
               const SizedBox(width: 8),
+              if (widget.trailing != null) ...[
+                widget.trailing!,
+                const SizedBox(width: 8),
+              ],
               _buildSwitch(plugin),
             ],
           ),

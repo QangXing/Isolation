@@ -56,9 +56,34 @@ class MainActivity : FlutterActivity() {
                 }
                 "executeAction" -> {
                     val type = call.argument<String>("type")
+                    @Suppress("UNCHECKED_CAST")
                     val params = call.argument<Map<String, Any>>("params")
                     executeAction(type, params)
                     result.success(null)
+                }
+                "startRecording" -> {
+                    val started = InputAccessibilityService.startRecording(this)
+                    result.success(started)
+                }
+                "stopRecording" -> {
+                    val steps = InputAccessibilityService.stopRecording(this)
+                    result.success(steps)
+                }
+                "executeMacro" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val steps = call.argument<List<*>>("steps") as? List<Map<String, Any>>
+                    if (steps != null) {
+                        InputAccessibilityService.executeMacro(this, steps)
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "dispatchClick" -> {
+                    val x = call.argument<Int>("x") ?: 0
+                    val y = call.argument<Int>("y") ?: 0
+                    val dispatched = InputAccessibilityService.dispatchClick(this, x, y)
+                    result.success(dispatched)
                 }
                 else -> result.notImplemented()
             }

@@ -1,8 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../providers/plugin_provider.dart';
 import '../widgets/glass_card.dart';
+import 'recording_screen.dart';
 
 class ManageScreen extends StatelessWidget {
   const ManageScreen({super.key});
@@ -30,26 +32,56 @@ class ManageScreen extends StatelessWidget {
             SliverPadding(
               padding: const EdgeInsets.all(20),
               sliver: SliverToBoxAdapter(
-                child: GlassCard(
-                  onTap: () => _importPlugin(context, provider),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.add_rounded,
-                        color: Colors.black.withValues(alpha: 0.7),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '导入插件',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.black.withValues(alpha: 0.8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: GlassCard(
+                        onTap: () => _createMacro(context),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.fiber_manual_record_rounded,
+                              color: Colors.black.withValues(alpha: 0.7),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '新建宏',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.black.withValues(alpha: 0.8),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GlassCard(
+                        onTap: () => _importPlugin(context, provider),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.add_rounded,
+                              color: Colors.black.withValues(alpha: 0.7),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '导入插件',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.black.withValues(alpha: 0.8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -72,6 +104,7 @@ class ManageScreen extends StatelessWidget {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final plugin = plugins[index];
+                      final isMacro = plugin.actions.any((a) => a.type == 'macro');
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: GlassCard(
@@ -90,7 +123,7 @@ class ManageScreen extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'v${plugin.version}',
+                                      'v${plugin.version}${isMacro ? ' · 宏' : ''}',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: Colors.grey.withValues(alpha: 0.6),
@@ -99,6 +132,23 @@ class ManageScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
+                              if (isMacro)
+                                GestureDetector(
+                                  onTap: () => _exportPlugin(context, provider, plugin.id),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.05),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(
+                                      Icons.share_rounded,
+                                      color: Colors.black.withValues(alpha: 0.6),
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
                               GestureDetector(
                                 onTap: () => provider.deletePlugin(plugin.id),
                                 child: Container(
@@ -130,6 +180,12 @@ class ManageScreen extends StatelessWidget {
     );
   }
 
+  void _createMacro(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RecordingScreen()),
+    );
+  }
+
   Future<void> _importPlugin(BuildContext context, PluginProvider provider) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -151,5 +207,23 @@ class ManageScreen extends StatelessWidget {
         ),
       );
     }
+  }
+
+  Future<void> _exportPlugin(BuildContext context, PluginProvider provider, String pluginId) async {
+    final path = await provider.exportMacroPlugin(pluginId);
+    if (path == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('导出失败'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+
+    await Share.shareXFiles([XFile(path)]);
   }
 }

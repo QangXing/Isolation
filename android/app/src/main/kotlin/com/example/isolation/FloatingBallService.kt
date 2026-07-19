@@ -17,7 +17,11 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 
 class FloatingBallService : Service() {
     companion object {
@@ -25,6 +29,7 @@ class FloatingBallService : Service() {
         const val ACTION_HIDE = "ACTION_HIDE"
         const val CHANNEL_ID = "isolation_floating_ball"
         const val NOTIFICATION_ID = 1
+        const val ENABLED_MACRO_FILE = "enabled_macro.json"
     }
 
     private var windowManager: WindowManager? = null
@@ -84,7 +89,7 @@ class FloatingBallService : Service() {
         )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("isolation")
-            .setContentText("悬浮球小键盘正在运行")
+            .setContentText("悬浮球宏正在运行")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -137,7 +142,7 @@ class FloatingBallService : Service() {
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
                     if (kotlin.math.abs(dx) < 10 && kotlin.math.abs(dy) < 10) {
-                        InputAccessibilityService.showInputMethod(this)
+                        runEnabledMacro()
                     }
                     true
                 }
@@ -145,7 +150,7 @@ class FloatingBallService : Service() {
             }
         }
         ball.setOnLongClickListener {
-            toggleKeyboard()
+            openMainActivity()
             true
         }
 
@@ -159,23 +164,74 @@ class FloatingBallService : Service() {
         }
     }
 
-    private fun toggleKeyboard() {
-        if (keyboardView == null) {
-            showKeyboard()
-        } else {
-            hideKeyboard()
-        }
-    }
-
-    private fun showKeyboard() {
-        if (keyboardView != null) return
-        keyboardView = KeyboardOverlayView(this)
-        keyboardView?.show()
-    }
-
     private fun hideKeyboard() {
         keyboardView?.hide()
         keyboardView = null
+    }
+
+    private fun openMainActivity() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        startActivity(intent)
+    }
+
+    private fun runEnabledMacro() {
+        if (!InputAccessibilityService.isEnabled(this)) {
+            Toast.makeText(this, "请先开启辅助功能权限", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val steps = loadEnabledMacroSteps()
+        if (steps.isEmpty()) {
+            Toast.makeText(this, "请先启用一个宏", Toast.LENGTH_SHORT).show()
+            return
+        }
+        InputAccessibilityService.executeMacro(this, steps)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun loadEnabledMacroSteps(): List<Map<String, Any>> {
+        val file = File(filesDir, ENABLED_MACRO_FILE)
+        if (!file.exists()) return emptyList()
+        return try {
+            val json = file.readText()
+            val array = JSONArray(json)
+            val result = mutableListOf<Map<String, Any>>()
+            for (i in 0 until array.length()) {
+                result.add(jsonObjectToMap(array.getJSONObject(i)))
+            }
+            result
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun jsonObjectToMap(obj: JSONObject): Map<String, Any> {
+        val map = mutableMapOf<String, Any>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val value = obj.get(key)
+            map[key] = when (value) {
+                is JSONObject -> jsonObjectToMap(value)
+                is JSONArray -> jsonArrayToList(value)
+                else -> value
+            }
+        }
+        return map
+    }
+
+    private fun jsonArrayToList(array: JSONArray): List<Any> {
+        val list = mutableListOf<Any>()
+        for (i in 0 until array.length()) {
+            val value = array.get(i)
+            list.add(when (value) {
+                is JSONObject -> jsonObjectToMap(value)
+                is JSONArray -> jsonArrayToList(value)
+                else -> value
+            })
+        }
+        return list
     }
 
     override fun onDestroy() {

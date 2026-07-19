@@ -69,4 +69,45 @@ class NativeChannel {
       // Ignore
     }
   }
+
+  static Future<bool> startRecording() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('startRecording');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> stopRecording() async {
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>('stopRecording');
+      return result?.cast<Map<String, dynamic>>() ?? [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  static Future<bool> executeMacro(List<Map<String, dynamic>> steps) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('executeMacro', {
+        'steps': steps,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> dispatchClick(int x, int y) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('dispatchClick', {
+        'x': x,
+        'y': y,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
 }
