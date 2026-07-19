@@ -55,6 +55,31 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Pre-download Gradle distribution
+        run: |
+          GRADLE_ZIP="${{ github.workspace }}/android/gradle/gradle-9.1.0-all.zip"
+          mkdir -p "$(dirname "$GRADLE_ZIP")"
+          if [ ! -f "$GRADLE_ZIP" ]; then
+            echo "Downloading Gradle 9.1.0 ..."
+            curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 600 \
+              -o "$GRADLE_ZIP" \
+              "https://mirrors.cloud.tencent.com/gradle/gradle-9.1.0-all.zip" || \
+            curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 600 \
+              -o "$GRADLE_ZIP" \
+              "https://mirrors.huaweicloud.com/gradle/gradle-9.1.0-all.zip" || \
+            curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 600 \
+              -o "$GRADLE_ZIP" \
+              "https://services.gradle.org/distributions/gradle-9.1.0-all.zip"
+          fi
+          if [ ! -f "$GRADLE_ZIP" ] || [ ! -s "$GRADLE_ZIP" ]; then
+            echo "Failed to download Gradle distribution"
+            exit 1
+          fi
+          ls -lh "$GRADLE_ZIP"
+          # 让 wrapper 直接读本地文件，不再走网络
+          printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\ndistributionUrl=file\\://%s\n' "$GRADLE_ZIP" > "${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
+          cat "${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
+
       - name: Build APK
         run: flutter build apk --release
 
