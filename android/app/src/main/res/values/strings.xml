@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="accessibility_service_description">isolation 辅助功能服务，用于查找当前焦点输入框并注入文字，以及唤起系统输入法。</string>
+    <string name="accessibility_service_description">isolation 辅助功能服务，用于录制界面点击、回放自动化宏、识别屏幕像素颜色以及注入文字。</string>
 </resources>

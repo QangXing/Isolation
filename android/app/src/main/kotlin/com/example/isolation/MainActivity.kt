@@ -35,6 +35,13 @@ class MainActivity : FlutterActivity() {
                     startService(intent)
                     result.success(true)
                 }
+                "updateFloatingBallMacro" -> {
+                    val intent = Intent(this, FloatingBallService::class.java).apply {
+                        action = FloatingBallService.ACTION_UPDATE_MACRO
+                    }
+                    startService(intent)
+                    result.success(true)
+                }
                 "checkOverlayPermission" -> {
                     result.success(Settings.canDrawOverlays(this))
                 }
@@ -59,6 +66,34 @@ class MainActivity : FlutterActivity() {
                     val params = call.argument<Map<String, Any>>("params")
                     executeAction(type, params)
                     result.success(null)
+                }
+                "startRecording" -> {
+                    result.success(InputAccessibilityService.startRecording())
+                }
+                "stopRecording" -> {
+                    Thread {
+                        val steps = InputAccessibilityService.stopRecording()
+                        runOnUiThread { result.success(steps) }
+                    }.start()
+                }
+                "executeMacro" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val steps = call.argument<List<Map<String, Any>>>("steps") ?: emptyList()
+                    val loop = call.argument<Boolean>("loop") ?: false
+                    val smartRecognition = call.argument<Boolean>("smartRecognition") ?: false
+                    result.success(InputAccessibilityService.executeMacro(steps, loop, smartRecognition))
+                }
+                "cancelMacro" -> {
+                    InputAccessibilityService.cancelExecution()
+                    result.success(true)
+                }
+                "isMacroExecuting" -> {
+                    result.success(InputAccessibilityService.isExecuting())
+                }
+                "dispatchClick" -> {
+                    val x = call.argument<Int>("x") ?: 0
+                    val y = call.argument<Int>("y") ?: 0
+                    result.success(InputAccessibilityService.dispatchClick(x, y))
                 }
                 else -> result.notImplemented()
             }

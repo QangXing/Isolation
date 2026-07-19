@@ -19,6 +19,11 @@ class PluginAction {
       params: params,
     );
   }
+
+  bool get isMacro => type == 'macro';
+  String? get macroFile => params['macroFile'] as String?;
+  bool get loop => params['loop'] as bool? ?? false;
+  bool get smartRecognition => params['smartRecognition'] as bool? ?? false;
 }
 
 class Plugin {
