@@ -17,6 +17,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -255,18 +256,28 @@ class InputAccessibilityService : AccessibilityService() {
         return try {
             val latch = CountDownLatch(1)
             var color: Int? = null
-            val executor = { command: Runnable -> screenshotHandler.post(command) }
-            takeScreenshot(Display.DEFAULT_DISPLAY, executor) { screenshot ->
-                try {
-                    val bitmap = screenshot.bitmap
-                    if (x in 0 until bitmap.width && y in 0 until bitmap.height) {
-                        color = bitmap.getPixel(x, y)
+            val executor = Executor { command -> screenshotHandler.post(command) }
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                executor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: AccessibilityService.Screenshot) {
+                        try {
+                            val bitmap = screenshot.bitmap
+                            if (x in 0 until bitmap.width && y in 0 until bitmap.height) {
+                                color = bitmap.getPixel(x, y)
+                            }
+                            bitmap.recycle()
+                        } catch (_: Exception) {
+                        }
+                        latch.countDown()
                     }
-                    bitmap.recycle()
-                } catch (_: Exception) {
+
+                    override fun onFailure(errorCode: Int) {
+                        latch.countDown()
+                    }
                 }
-                latch.countDown()
-            }
+            )
             latch.await(2, TimeUnit.SECONDS)
             color
         } catch (e: Exception) {
