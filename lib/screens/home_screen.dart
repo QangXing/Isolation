@@ -52,16 +52,29 @@ class HomeScreen extends StatelessWidget {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final plugin = plugins[index];
+                      final isMacro = plugin.actions.any((a) => a.isMacro);
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 14),
                         child: PluginCard(
                           plugin: plugin,
+                          executing: provider.executing && plugin.enabled,
                           onEnabledChanged: (value) {
                             provider.setEnabled(plugin.id, value);
                           },
-                          onTap: () {
-                            if (plugin.actions.isNotEmpty) {
+                          onRun: () async {
+                            if (isMacro) {
+                              if (provider.executing) {
+                                await provider.stopMacro();
+                              } else {
+                                await provider.runMacro(plugin);
+                              }
+                            } else if (plugin.actions.isNotEmpty) {
                               _showActions(context, plugin);
+                            }
+                          },
+                          onEdit: () {
+                            if (isMacro) {
+                              _editMacro(context, plugin);
                             }
                           },
                         ),
@@ -75,6 +88,17 @@ class HomeScreen extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  void _editMacro(BuildContext context, plugin) {
+    // Handled in manage screen; show a hint for built-in macro.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('请在管理页长按或导出宏插件'),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.black87,
+      ),
     );
   }
 

@@ -7,12 +7,18 @@ class PluginCard extends StatefulWidget {
   final Plugin plugin;
   final ValueChanged<bool> onEnabledChanged;
   final VoidCallback? onTap;
+  final VoidCallback? onRun;
+  final VoidCallback? onEdit;
+  final bool executing;
 
   const PluginCard({
     super.key,
     required this.plugin,
     required this.onEnabledChanged,
     this.onTap,
+    this.onRun,
+    this.onEdit,
+    this.executing = false,
   });
 
   @override
@@ -21,6 +27,8 @@ class PluginCard extends StatefulWidget {
 
 class _PluginCardState extends State<PluginCard> {
   bool _expanded = false;
+
+  bool get _isMacro => widget.plugin.actions.any((a) => a.isMacro);
 
   @override
   Widget build(BuildContext context) {
@@ -71,19 +79,42 @@ class _PluginCardState extends State<PluginCard> {
               _buildSwitch(plugin),
             ],
           ),
-          if (_expanded && plugin.actions.isNotEmpty) ...[
+          if (_expanded || (_isMacro && plugin.enabled)) ...[
             const SizedBox(height: 12),
             const Divider(height: 1, color: Color(0xFFEAEAEA)),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: plugin.actions.map((action) {
-                return _ActionChip(
-                  label: action.label,
-                  onTap: () => widget.onTap?.call(),
-                );
-              }).toList(),
+            Row(
+              children: [
+                if (_isMacro)
+                  _ActionChip(
+                    label: widget.executing ? '停止' : '运行',
+                    icon: widget.executing
+                        ? Icons.stop_rounded
+                        : Icons.play_arrow_rounded,
+                    onTap: () => widget.onRun?.call(),
+                  ),
+                if (_isMacro && !plugin.builtIn) ...[
+                  const SizedBox(width: 8),
+                  _ActionChip(
+                    label: '编辑',
+                    icon: Icons.edit_rounded,
+                    onTap: () => widget.onEdit?.call(),
+                  ),
+                ],
+                if (!_isMacro && plugin.actions.isNotEmpty)
+                  Expanded(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: plugin.actions.map((action) {
+                        return _ActionChip(
+                          label: action.label,
+                          onTap: () => widget.onTap?.call(),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+              ],
             ),
           ],
         ],
@@ -113,7 +144,7 @@ class _PluginCardState extends State<PluginCard> {
         border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
       ),
       child: Icon(
-        plugin.builtIn ? Icons.touch_app_rounded : Icons.extension_rounded,
+        _isMacro ? Icons.touch_app_rounded : Icons.extension_rounded,
         color: Colors.black54,
         size: 24,
       ),
@@ -144,9 +175,10 @@ class _PluginCardState extends State<PluginCard> {
 
 class _ActionChip extends StatelessWidget {
   final String label;
-  final VoidCallback onTap;
+  final IconData? icon;
+  final VoidCallback? onTap;
 
-  const _ActionChip({required this.label, required this.onTap});
+  const _ActionChip({required this.label, this.icon, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -159,9 +191,18 @@ class _ActionChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
         ),
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.black87),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 14, color: Colors.black87),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          ],
         ),
       ),
     );
