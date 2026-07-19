@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
+import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/plugin_card.dart';
 
@@ -88,6 +89,13 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _runMacro(BuildContext context, PluginProvider provider, String pluginId) async {
+    final data = await provider.loadMacroData(pluginId);
+    if (data != null && data.settings.smartRecognition) {
+      final granted = await NativeChannel.checkScreenCapturePermission();
+      if (!granted) {
+        await NativeChannel.requestScreenCapturePermission();
+      }
+    }
     final success = await provider.runMacroPlugin(pluginId);
     if (!success && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

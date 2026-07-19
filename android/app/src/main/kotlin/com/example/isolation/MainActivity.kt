@@ -11,30 +11,18 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val channel = "com.example.isolation/native"
+    private val CHANNEL = "com.example.isolation"
+    private var pendingResult: MethodChannel.Result? = null
+
+    companion object {
+        const val REQUEST_OVERLAY = 1001
+        const val REQUEST_SCREEN_CAPTURE = 1002
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel).setMethodCallHandler { call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "startFloatingBall" -> {
-                    val intent = Intent(this, FloatingBallService::class.java).apply {
-                        action = FloatingBallService.ACTION_SHOW
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
-                    result.success(true)
-                }
-                "stopFloatingBall" -> {
-                    val intent = Intent(this, FloatingBallService::class.java).apply {
-                        action = FloatingBallService.ACTION_HIDE
-                    }
-                    startService(intent)
-                    result.success(true)
-                }
                 "checkOverlayPermission" -> {
                     result.success(Settings.canDrawOverlays(this))
                 }
@@ -43,8 +31,8 @@ class MainActivity : FlutterActivity() {
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:$packageName")
                     )
-                    startActivity(intent)
-                    result.success(null)
+                    startActivityForResult(intent, REQUEST_OVERLAY)
+                    result.success(true)
                 }
                 "checkAccessibilityPermission" -> {
                     result.success(InputAccessibilityService.isEnabled(this))
@@ -52,7 +40,29 @@ class MainActivity : FlutterActivity() {
                 "requestAccessibilityPermission" -> {
                     val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                     startActivity(intent)
-                    result.success(null)
+                    result.success(true)
+                }
+                "startFloatingBall" -> {
+                    if (!Settings.canDrawOverlays(this)) {
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
+                    val serviceIntent = Intent(this, FloatingBallService::class.java).apply {
+                        action = FloatingBallService.ACTION_SHOW
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(serviceIntent)
+                    } else {
+                        startService(serviceIntent)
+                    }
+                    result.success(true)
+                }
+                "stopFloatingBall" -> {
+                    val serviceIntent = Intent(this, FloatingBallService::class.java).apply {
+                        action = FloatingBallService.ACTION_HIDE
+                    }
+                    startService(serviceIntent)
+                    result.success(true)
                 }
                 "executeAction" -> {
                     val type = call.argument<String>("type")
@@ -62,7 +72,8 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "startRecording" -> {
-                    val started = InputAccessibilityService.startRecording(this)
+                    val captureColors = call.argument<Boolean>("captureColors") ?: false
+                    val started = InputAccessibilityService.startRecording(this, captureColors)
                     result.success(started)
                 }
                 "stopRecording" -> {
@@ -71,9 +82,12 @@ class MainActivity : FlutterActivity() {
                 }
                 "executeMacro" -> {
                     @Suppress("UNCHECKED_CAST")
-                    val steps = call.argument<List<*>>("steps") as? List<Map<String, Any>>
+                    val settings = (call.argument<Map<String, Any>>("settings") ?: emptyMap()).toMap()
+                    @Suppress("UNCHECKED_CAST")
+                    val rawSteps = call.argument<List<Map<String, Any>>>("steps")
+                    val steps = rawSteps?.map { it.toMap() }
                     if (steps != null) {
-                        InputAccessibilityService.executeMacro(this, steps)
+                        InputAccessibilityService.executeMacro(this, settings, steps)
                         result.success(true)
                     } else {
                         result.success(false)
@@ -85,8 +99,31 @@ class MainActivity : FlutterActivity() {
                     val dispatched = InputAccessibilityService.dispatchClick(this, x, y)
                     result.success(dispatched)
                 }
+                "checkScreenCapturePermission" -> {
+                    result.success(ScreenCaptureHelper.isGranted(this))
+                }
+                "requestScreenCapturePermission" -> {
+                    pendingResult = result
+                    ScreenCaptureHelper.requestPermission(this, REQUEST_SCREEN_CAPTURE)
+                }
+                "captureScreenColor" -> {
+                    val x = call.argument<Int>("x") ?: 0
+                    val y = call.argument<Int>("y") ?: 0
+                    val color = ScreenCaptureHelper.captureColor(this, x, y)
+                    result.success(color)
+                }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_SCREEN_CAPTURE) {
+            val granted = ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+            pendingResult?.success(granted)
+            pendingResult = null
         }
     }
 
@@ -94,22 +131,19 @@ class MainActivity : FlutterActivity() {
         when (type) {
             "open_url" -> {
                 val url = params?.get("url") as? String ?: return
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
                 startActivity(intent)
             }
             "launch_app" -> {
-                val packageName = params?.get("package") as? String ?: return
-                val intent = packageManager.getLaunchIntentForPackage(packageName)
-                if (intent != null) {
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(intent)
-                } else {
-                    Toast.makeText(this, "无法打开应用", Toast.LENGTH_SHORT).show()
-                }
+                val packageName = params?.get("packageName") as? String ?: return
+                val intent = packageManager.getLaunchIntentForPackage(packageName) ?: return
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                startActivity(intent)
             }
             "show_toast" -> {
-                val message = params?.get("message") as? String ?: "Hello"
+                val message = params?.get("message") as? String ?: return
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             }
         }

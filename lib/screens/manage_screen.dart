@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/plugin_provider.dart';
 import '../widgets/glass_card.dart';
+import 'macro_settings_screen.dart';
 import 'recording_screen.dart';
 
 class ManageScreen extends StatelessWidget {
@@ -132,7 +133,23 @@ class ManageScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              if (isMacro)
+                              if (isMacro) ...[
+                                GestureDetector(
+                                  onTap: () => _openMacroSettings(context, plugin.id),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.05),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(
+                                      Icons.settings_rounded,
+                                      color: Colors.black.withValues(alpha: 0.6),
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
                                 GestureDetector(
                                   onTap: () => _exportPlugin(context, provider, plugin.id),
                                   child: Container(
@@ -149,6 +166,7 @@ class ManageScreen extends StatelessWidget {
                                     ),
                                   ),
                                 ),
+                              ],
                               GestureDetector(
                                 onTap: () => provider.deletePlugin(plugin.id),
                                 child: Container(
@@ -183,6 +201,12 @@ class ManageScreen extends StatelessWidget {
   void _createMacro(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const RecordingScreen()),
+    );
+  }
+
+  void _openMacroSettings(BuildContext context, String pluginId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => MacroSettingsScreen(pluginId: pluginId)),
     );
   }
 

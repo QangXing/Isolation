@@ -56,18 +56,24 @@ class PluginManager {
     const macroFileName = 'macro.json';
     final macroFile = File('${targetDir.path}/$macroFileName');
     if (!await macroFile.exists()) {
-      final exampleSteps = [
-        {
-          'type': 'clickNode',
-          'delay': 0,
-          'target': {
-            'text': '签到',
-            'className': 'android.widget.Button',
-            'bounds': [100, 200, 300, 400],
-          },
+      final exampleMacro = {
+        'settings': {
+          'smartRecognition': false,
+          'loopCount': 1,
         },
-      ];
-      await macroFile.writeAsString(jsonEncode(exampleSteps));
+        'steps': [
+          {
+            'type': 'clickNode',
+            'delay': 0,
+            'target': {
+              'text': '签到',
+              'className': 'android.widget.Button',
+              'bounds': [100, 200, 300, 400],
+            },
+          },
+        ],
+      };
+      await macroFile.writeAsString(jsonEncode(exampleMacro));
     }
 
     final manifest = {

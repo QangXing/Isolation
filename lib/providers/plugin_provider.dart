@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import '../models/macro.dart';
 import '../models/plugin.dart';
 import '../services/native_channel.dart';
 import '../services/plugin_manager.dart';
@@ -69,43 +70,19 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _writeEnabledMacro(Plugin plugin) async {
-    final macroAction = plugin.actions.firstWhere((a) => a.type == 'macro');
-    final macroFile = macroAction.params['macroFile'] as String?;
-    if (macroFile == null) return;
-
-    final pluginDir = await _pluginDirectory();
-    final macroPath = '${pluginDir.path}/${plugin.id}/$macroFile';
-    final file = File(macroPath);
-    if (!await file.exists()) return;
-
-    final content = await file.readAsString();
-    final filesDir = await getApplicationSupportDirectory();
-    final enabledMacroFile = File('${filesDir.path}/enabled_macro.json');
-    await enabledMacroFile.writeAsString(content);
-  }
-
-  Future<void> _clearEnabledMacro() async {
-    final filesDir = await getApplicationSupportDirectory();
-    final enabledMacroFile = File('${filesDir.path}/enabled_macro.json');
-    if (await enabledMacroFile.exists()) {
-      await enabledMacroFile.delete();
-    }
-  }
-
   Future<void> executeAction(PluginAction action) async {
     await NativeChannel.executeAction(action.type, action.params);
   }
 
   // Recording
 
-  Future<bool> startRecording() async {
+  Future<bool> startRecording({bool captureColors = false}) async {
     final hasAccessibility = await NativeChannel.checkAccessibilityPermission();
     if (!hasAccessibility) {
       await NativeChannel.requestAccessibilityPermission();
       return false;
     }
-    final started = await NativeChannel.startRecording();
+    final started = await NativeChannel.startRecording(captureColors: captureColors);
     if (started) {
       _recording = true;
       _recordedSteps = [];
@@ -142,27 +119,7 @@ class PluginProvider extends ChangeNotifier {
     if (enabledMacro.id.isEmpty) {
       return;
     }
-
-    final macroAction = enabledMacro.actions.firstWhere((a) => a.type == 'macro');
-    final macroFile = macroAction.params['macroFile'] as String?;
-    if (macroFile == null) return;
-
-    final pluginDir = await _pluginDirectory();
-    final macroPath = '${pluginDir.path}/${enabledMacro.id}/$macroFile';
-    final file = File(macroPath);
-    if (!await file.exists()) return;
-
-    final content = await file.readAsString();
-    final List<dynamic> decoded = jsonDecode(content);
-    final steps = decoded.cast<Map<String, dynamic>>();
-
-    _runningMacroId = enabledMacro.id;
-    notifyListeners();
-
-    await NativeChannel.executeMacro(steps);
-
-    _runningMacroId = null;
-    notifyListeners();
+    await runMacroPlugin(enabledMacro.id);
   }
 
   Future<bool> runMacroPlugin(String pluginId) async {
@@ -187,16 +144,82 @@ class PluginProvider extends ChangeNotifier {
     if (!await file.exists()) return false;
 
     final content = await file.readAsString();
-    final List<dynamic> decoded = jsonDecode(content);
-    final steps = decoded.cast<Map<String, dynamic>>();
+    final decoded = jsonDecode(content);
+    final macroData = MacroData.fromJson(decoded);
 
     _runningMacroId = plugin.id;
     notifyListeners();
 
-    await NativeChannel.executeMacro(steps);
+    final success = await NativeChannel.executeMacro(
+      macroData.settings.toJson(),
+      macroData.steps,
+    );
 
     _runningMacroId = null;
     notifyListeners();
+    return success;
+  }
+
+  // Macro data / settings
+
+  Future<MacroData?> loadMacroData(String pluginId) async {
+    final plugin = _plugins.firstWhere(
+      (p) => p.id == pluginId,
+      orElse: () => Plugin(id: '', name: '', version: '', description: '', author: ''),
+    );
+    if (plugin.id.isEmpty) return null;
+
+    final macroAction = plugin.actions.firstWhere(
+      (a) => a.type == 'macro',
+      orElse: () => PluginAction(type: '', label: '', params: {}),
+    );
+    if (macroAction.type.isEmpty) return null;
+
+    final macroFile = macroAction.params['macroFile'] as String?;
+    if (macroFile == null) return null;
+
+    final pluginDir = await _pluginDirectory();
+    final macroPath = '${pluginDir.path}/${plugin.id}/$macroFile';
+    final file = File(macroPath);
+    if (!await file.exists()) return null;
+
+    final content = await file.readAsString();
+    final decoded = jsonDecode(content);
+    return MacroData.fromJson(decoded);
+  }
+
+  Future<bool> updateMacroSettings(String pluginId, MacroSettings settings) async {
+    final plugin = _plugins.firstWhere(
+      (p) => p.id == pluginId,
+      orElse: () => Plugin(id: '', name: '', version: '', description: '', author: ''),
+    );
+    if (plugin.id.isEmpty) return false;
+
+    final macroAction = plugin.actions.firstWhere(
+      (a) => a.type == 'macro',
+      orElse: () => PluginAction(type: '', label: '', params: {}),
+    );
+    if (macroAction.type.isEmpty) return false;
+
+    final macroFile = macroAction.params['macroFile'] as String?;
+    if (macroFile == null) return false;
+
+    final pluginDir = await _pluginDirectory();
+    final macroPath = '${pluginDir.path}/${plugin.id}/$macroFile';
+    final file = File(macroPath);
+    if (!await file.exists()) return false;
+
+    final content = await file.readAsString();
+    final decoded = jsonDecode(content);
+    final macroData = MacroData.fromJson(decoded);
+    final updated = MacroData(settings: settings, steps: macroData.steps);
+    await file.writeAsString(jsonEncode(updated.toJson()));
+
+    // If this is the enabled macro, update the floating ball copy
+    if (plugin.enabled) {
+      await _writeEnabledMacro(plugin);
+    }
+
     return true;
   }
 
@@ -206,6 +229,7 @@ class PluginProvider extends ChangeNotifier {
     required String name,
     required String description,
     required List<Map<String, dynamic>> steps,
+    MacroSettings settings = const MacroSettings(),
     String? pluginId,
     String? iconPath,
   }) async {
@@ -221,7 +245,8 @@ class PluginProvider extends ChangeNotifier {
 
     final macroFileName = 'macro.json';
     final macroFile = File('${targetDir.path}/$macroFileName');
-    await macroFile.writeAsString(jsonEncode(steps));
+    final macroData = MacroData(settings: settings, steps: steps);
+    await macroFile.writeAsString(jsonEncode(macroData.toJson()));
 
     final manifest = {
       'id': id,
@@ -281,6 +306,30 @@ class PluginProvider extends ChangeNotifier {
     if (encoded == null) return null;
     await exportFile.writeAsBytes(encoded);
     return exportFile.path;
+  }
+
+  Future<void> _writeEnabledMacro(Plugin plugin) async {
+    final macroAction = plugin.actions.firstWhere((a) => a.type == 'macro');
+    final macroFile = macroAction.params['macroFile'] as String?;
+    if (macroFile == null) return;
+
+    final pluginDir = await _pluginDirectory();
+    final macroPath = '${pluginDir.path}/${plugin.id}/$macroFile';
+    final file = File(macroPath);
+    if (!await file.exists()) return;
+
+    final content = await file.readAsString();
+    final filesDir = await getApplicationSupportDirectory();
+    final enabledMacroFile = File('${filesDir.path}/enabled_macro.json');
+    await enabledMacroFile.writeAsString(content);
+  }
+
+  Future<void> _clearEnabledMacro() async {
+    final filesDir = await getApplicationSupportDirectory();
+    final enabledMacroFile = File('${filesDir.path}/enabled_macro.json');
+    if (await enabledMacroFile.exists()) {
+      await enabledMacroFile.delete();
+    }
   }
 
   Future<void> _addDirectoryToArchive(Directory dir, String rootPath, Archive archive) async {
