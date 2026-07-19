@@ -27,6 +27,16 @@ class NativeChannel {
     }
   }
 
+  static Future<bool> updateFloatingBallMacro() async {
+    try {
+      final result =
+          await _channel.invokeMethod<bool>('updateFloatingBallMacro');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<bool> checkOverlayPermission() async {
     try {
       final result =

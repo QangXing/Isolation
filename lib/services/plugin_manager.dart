@@ -220,7 +220,7 @@ class PluginManager {
         archive.addFile(ArchiveFile(name, bytes.length, bytes));
       }
     }
-    return ZipEncoder().encode(archive);
+    return ZipEncoder().encode(archive) ?? [];
   }
 
   Future<void> deletePlugin(String id) async {
