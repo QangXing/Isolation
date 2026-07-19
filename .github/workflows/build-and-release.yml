@@ -17,7 +17,6 @@ permissions:
   contents: write
 
 env:
-  # 强制 Java 优先使用 IPv4，避免 GitHub Actions runner 上 IPv6 解析导致 Connection refused
   JAVA_TOOL_OPTIONS: "-Djava.net.preferIPv4Stack=true"
   GRADLE_OPTS: "-Djava.net.preferIPv4Stack=true"
 
@@ -76,7 +75,6 @@ jobs:
             exit 1
           fi
           ls -lh "$GRADLE_ZIP"
-          # 让 wrapper 直接读本地文件，不再走网络
           printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\ndistributionUrl=file\\://%s\n' "$GRADLE_ZIP" > "${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
           cat "${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
 
