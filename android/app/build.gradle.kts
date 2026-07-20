@@ -40,6 +40,12 @@ kotlin {
     }
 }
 
+// Force Java 17 for all compile tasks
+tasks.withType<JavaCompile> {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
 flutter {
     source = "../.."
 }
