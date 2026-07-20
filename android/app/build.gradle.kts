@@ -10,8 +10,8 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = "17"
+        targetCompatibility = "17"
     }
 
     defaultConfig {
