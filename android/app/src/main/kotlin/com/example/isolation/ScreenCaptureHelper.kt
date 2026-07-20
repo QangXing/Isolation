@@ -44,13 +44,25 @@ object ScreenCaptureHelper {
 
     private fun initImageReader(context: Context) {
         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val display: Display = windowManager.defaultDisplay
-        val point = Point()
-        display.getRealSize(point)
-        screenWidth = point.x
-        screenHeight = point.y
-        val metrics = context.resources.displayMetrics
-        density = metrics.densityDpi
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val windowMetrics = windowManager.currentWindowMetrics
+            val bounds = windowMetrics.bounds
+            screenWidth = bounds.width()
+            screenHeight = bounds.height()
+            density = context.resources.configuration.densityDpi
+        } else {
+            @Suppress("DEPRECATION")
+            val display: Display = windowManager.defaultDisplay
+            @Suppress("DEPRECATION")
+            val point = Point()
+            @Suppress("DEPRECATION")
+            display.getRealSize(point)
+            screenWidth = point.x
+            screenHeight = point.y
+            @Suppress("DEPRECATION")
+            val metrics = context.resources.displayMetrics
+            density = metrics.densityDpi
+        }
 
         imageReader?.close()
         imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
