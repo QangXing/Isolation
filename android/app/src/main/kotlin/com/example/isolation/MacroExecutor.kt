@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import java.util.concurrent.atomic.AtomicBoolean
 
 interface MacroExecutorListener {
     fun onMacroStatus(message: String)
@@ -256,7 +257,15 @@ class MacroExecutor(private val service: AccessibilityService) {
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
             .build()
-        return service.dispatchGesture(gesture, null, null)
+        // dispatchGesture must be called on the main thread
+        val result = AtomicBoolean(false)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        mainHandler.post {
+            result.set(service.dispatchGesture(gesture, null, null))
+            latch.countDown()
+        }
+        try { latch.await() } catch (_: InterruptedException) { /* ignore */ }
+        return result.get()
     }
 
     private fun postStatus(message: String) {

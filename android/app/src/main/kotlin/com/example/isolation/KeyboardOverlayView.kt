@@ -79,8 +79,8 @@ class KeyboardOverlayView(private val context: Context) {
             text = key
             textSize = 14f
             isAllCaps = false
-            setTextColor(resources.getColor(android.R.color.black, null))
-            background = resources.getDrawable(R.drawable.key_background, null)
+            setTextColor(android.graphics.Color.BLACK)
+            background = context.getDrawable(R.drawable.key_background)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 setMargins(4, 4, 4, 4)
             }
