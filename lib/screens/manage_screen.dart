@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/plugin_provider.dart';
 import '../widgets/glass_card.dart';
+import 'coordinate_debug_screen.dart';
 import 'macro_settings_screen.dart';
+import 'program_macro_screen.dart';
 import 'recording_screen.dart';
 
 class ManageScreen extends StatelessWidget {
@@ -33,54 +35,43 @@ class ManageScreen extends StatelessWidget {
             SliverPadding(
               padding: const EdgeInsets.all(20),
               sliver: SliverToBoxAdapter(
-                child: Row(
+                child: Column(
                   children: [
-                    Expanded(
-                      child: GlassCard(
-                        onTap: () => _createMacro(context),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.fiber_manual_record_rounded,
-                              color: Colors.black.withValues(alpha: 0.7),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '新建宏',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.black.withValues(alpha: 0.8),
-                              ),
-                            ),
-                          ],
+                    // 主操作：3 个等宽按钮
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ActionTile(
+                            icon: Icons.fiber_manual_record_rounded,
+                            label: '新建宏',
+                            onTap: () => _createMacro(context),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ActionTile(
+                            icon: Icons.code_rounded,
+                            label: '编程宏',
+                            onTap: () => _createProgramMacro(context),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ActionTile(
+                            icon: Icons.add_rounded,
+                            label: '导入',
+                            onTap: () => _importPlugin(context, provider),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: GlassCard(
-                        onTap: () => _importPlugin(context, provider),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.add_rounded,
-                              color: Colors.black.withValues(alpha: 0.7),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '导入插件',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.black.withValues(alpha: 0.8),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    const SizedBox(height: 12),
+                    // 辅助操作：坐标调试（占满整行，与主操作区分）
+                    _ActionTile(
+                      icon: Icons.my_location_rounded,
+                      label: '坐标调试',
+                      onTap: () => _openCoordinateDebug(context),
+                      full: true,
                     ),
                   ],
                 ),
@@ -133,54 +124,29 @@ class ManageScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              if (isMacro) ...[
-                                GestureDetector(
+                              if (isMacro)
+                                _IconAction(
+                                  icon: Icons.code_rounded,
+                                  tooltip: '编辑代码',
+                                  onTap: () => _editAsProgramMacro(context, plugin.id),
+                                ),
+                              if (isMacro)
+                                _IconAction(
+                                  icon: Icons.settings_rounded,
+                                  tooltip: '设置',
                                   onTap: () => _openMacroSettings(context, plugin.id),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    margin: const EdgeInsets.only(right: 8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.05),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Icon(
-                                      Icons.settings_rounded,
-                                      color: Colors.black.withValues(alpha: 0.6),
-                                      size: 20,
-                                    ),
-                                  ),
                                 ),
-                                GestureDetector(
+                              if (isMacro)
+                                _IconAction(
+                                  icon: Icons.share_rounded,
+                                  tooltip: '导出',
                                   onTap: () => _exportPlugin(context, provider, plugin.id),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    margin: const EdgeInsets.only(right: 8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.05),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Icon(
-                                      Icons.share_rounded,
-                                      color: Colors.black.withValues(alpha: 0.6),
-                                      size: 20,
-                                    ),
-                                  ),
                                 ),
-                              ],
-                              GestureDetector(
+                              _IconAction(
+                                icon: Icons.delete_outline_rounded,
+                                tooltip: '删除',
+                                danger: true,
                                 onTap: () => provider.deletePlugin(plugin.id),
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: Colors.redAccent,
-                                    size: 20,
-                                  ),
-                                ),
                               ),
                             ],
                           ),
@@ -201,6 +167,26 @@ class ManageScreen extends StatelessWidget {
   void _createMacro(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const RecordingScreen()),
+    );
+  }
+
+  void _createProgramMacro(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ProgramMacroScreen()),
+    );
+  }
+
+  void _editAsProgramMacro(BuildContext context, String pluginId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProgramMacroScreen(pluginId: pluginId),
+      ),
+    );
+  }
+
+  void _openCoordinateDebug(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CoordinateDebugScreen()),
     );
   }
 
@@ -249,5 +235,88 @@ class ManageScreen extends StatelessWidget {
     }
 
     await Share.shareXFiles([XFile(path)]);
+  }
+}
+
+/// 管理页顶部的动作按钮卡片。
+/// 统一高度、统一样式，[full] 控制是否横向占满。
+class _ActionTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool full;
+
+  const _ActionTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.full = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      onTap: onTap,
+      child: SizedBox(
+        height: 48,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: full ? MainAxisSize.max : MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: Colors.black.withValues(alpha: 0.7)),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: Colors.black.withValues(alpha: 0.8),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 插件卡片右侧的图标按钮。统一尺寸与间距，[danger] 标记危险操作。
+class _IconAction extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final bool danger;
+
+  const _IconAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger
+        ? Colors.redAccent
+        : Colors.black.withValues(alpha: 0.6);
+    final bg = danger
+        ? Colors.red.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.05);
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          margin: const EdgeInsets.only(left: 6),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 18),
+        ),
+      ),
+    );
   }
 }

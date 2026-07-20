@@ -8,11 +8,13 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -33,19 +35,41 @@ class FloatingBallService : Service(), MacroExecutorListener {
         const val CHANNEL_ID = "isolation_floating_ball"
         const val NOTIFICATION_ID = 1
         const val ENABLED_MACRO_FILE = "enabled_macro.json"
+        private const val BALL_SIZE_DP = 56
+        private const val BUBBLE_GAP_DP = 12
+        private const val BUBBLE_AUTO_HIDE_MS = 2500L
+        private const val CLICK_SLOP_PX = 12
+        private const val LONG_CLICK_TIMEOUT_MS = 600L
     }
 
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
+    private var floatingParams: WindowManager.LayoutParams? = null
     private var bubbleView: TextView? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
     private var keyboardView: KeyboardOverlayView? = null
+
     private var initialX = 0
     private var initialY = 0
     private var initialTouchX = 0f
     private var initialTouchY = 0f
+    private var downTime = 0L
+    private var hasMoved = false
+    private var longClickFired = false
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bubbleHideRunnable = Runnable { hideBubble() }
+    private val longClickRunnable = Runnable {
+        if (!hasMoved && !longClickFired) {
+            longClickFired = true
+            openMainActivity()
+        }
+    }
+
+    private val ballSizePx: Int by lazy {
+        val density = resources.displayMetrics.density
+        (BALL_SIZE_DP * density).toInt()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -126,13 +150,15 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 100
             y = 300
         }
+        floatingParams = params
 
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_ball, null)
         val ball = floatingView!!.findViewById<ImageView>(R.id.floating_ball_image)
@@ -143,40 +169,88 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     initialY = params.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
+                    downTime = System.currentTimeMillis()
+                    hasMoved = false
+                    longClickFired = false
                     ball.animate().scaleX(0.9f).scaleY(0.9f).setDuration(100).start()
+                    mainHandler.postDelayed(longClickRunnable, LONG_CLICK_TIMEOUT_MS)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager?.updateViewLayout(floatingView, params)
+                    val dx = event.rawX - initialTouchX
+                    val dy = event.rawY - initialTouchY
+                    if (kotlin.math.abs(dx) > CLICK_SLOP_PX || kotlin.math.abs(dy) > CLICK_SLOP_PX) {
+                        hasMoved = true
+                        mainHandler.removeCallbacks(longClickRunnable)
+                    }
+                    params.x = initialX + dx.toInt()
+                    params.y = initialY + dy.toInt()
+                    clampToScreen(params)
+                    try {
+                        windowManager?.updateViewLayout(floatingView, params)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    mainHandler.removeCallbacks(longClickRunnable)
                     ball.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
-                    if (kotlin.math.abs(dx) < 10 && kotlin.math.abs(dy) < 10) {
+                    if (!longClickFired &&
+                        kotlin.math.abs(dx) < CLICK_SLOP_PX &&
+                        kotlin.math.abs(dy) < CLICK_SLOP_PX
+                    ) {
+                        // 单击悬浮球：先反馈再触发宏
                         MacroExecutor.notifyFloatingBallClick(this)
                         runEnabledMacro()
                     }
                     true
                 }
+                MotionEvent.ACTION_CANCEL -> {
+                    mainHandler.removeCallbacks(longClickRunnable)
+                    ball.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                    true
+                }
                 else -> false
             }
-        }
-        ball.setOnLongClickListener {
-            openMainActivity()
-            true
         }
 
         windowManager?.addView(floatingView, params)
     }
 
+    /** 把悬浮球坐标限制在屏幕范围内，避免被拖到看不见的地方 */
+    private fun clampToScreen(params: WindowManager.LayoutParams) {
+        val size = screenSize()
+        val maxX = size.x - ballSizePx
+        val maxY = size.y - ballSizePx
+        if (params.x < 0) params.x = 0
+        if (params.x > maxX) params.x = maxX
+        if (params.y < 0) params.y = 0
+        if (params.y > maxY) params.y = maxY
+    }
+
+    private fun screenSize(): Point {
+        val out = Point()
+        val wm = windowManager ?: return out
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getRealMetrics(metrics)
+        out.x = metrics.widthPixels
+        out.y = metrics.heightPixels
+        return out
+    }
+
     private fun hideFloatingBall() {
         if (floatingView != null) {
-            windowManager?.removeView(floatingView)
+            try {
+                windowManager?.removeView(floatingView)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             floatingView = null
+            floatingParams = null
         }
         hideBubble()
     }
@@ -194,14 +268,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun runEnabledMacro() {
-        if (!InputAccessibilityService.isEnabled(this)) {
-            Toast.makeText(this, "请先开启辅助功能权限", Toast.LENGTH_SHORT).show()
-            showBubble("辅助功能未开启")
-            return
+        val state = InputAccessibilityService.readinessState(this)
+        when (state) {
+            1 -> {
+                showBubble("请先开启辅助功能")
+                return
+            }
+            2 -> {
+                showBubble("辅助服务启动中")
+                return
+            }
         }
         val macro = loadEnabledMacro()
         if (macro == null || macro.steps.isEmpty()) {
-            Toast.makeText(this, "请先启用一个宏", Toast.LENGTH_SHORT).show()
             showBubble("未启用宏")
             return
         }
@@ -215,16 +294,29 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
+    /**
+     * 在悬浮球附近显示气泡。自动选择左右方向，避免超出屏幕；上下方向也会做裁剪。
+     */
     private fun showBubble(message: String) {
         if (windowManager == null || floatingView == null) return
 
+        val density = resources.displayMetrics.density
+        val gap = (BUBBLE_GAP_DP * density).toInt()
+        val screen = screenSize()
+        val ballParams = floatingParams ?: return
+
+        // 悬浮球中心坐标（屏幕坐标系）
+        val ballCenterX = ballParams.x + ballSizePx / 2
+        val ballCenterY = ballParams.y + ballSizePx / 2
+
+        // 先确保气泡存在，能拿到尺寸
         if (bubbleView == null) {
             bubbleView = TextView(this).apply {
                 setBackgroundResource(android.R.drawable.dialog_holo_light_frame)
                 setPadding(24, 12, 24, 12)
                 setTextColor(android.graphics.Color.BLACK)
                 textSize = 13f
-                maxLines = 2
+                maxLines = 3
             }
             bubbleParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -248,19 +340,39 @@ class FloatingBallService : Service(), MacroExecutorListener {
         bubbleView?.text = message
         bubbleView?.visibility = View.VISIBLE
 
-        val ballParams = floatingView?.layoutParams as? WindowManager.LayoutParams
-        if (ballParams != null && bubbleParams != null) {
-            bubbleParams!!.x = ballParams.x + (floatingView?.width ?: 0) + 16
-            bubbleParams!!.y = ballParams.y
-            try {
-                windowManager?.updateViewLayout(bubbleView, bubbleParams)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        // 触发一次测量
+        bubbleView?.measure(
+            View.MeasureSpec.makeMeasureSpec(screen.x, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(screen.y, View.MeasureSpec.AT_MOST)
+        )
+        val bubbleW = bubbleView?.measuredWidth ?: 0
+        val bubbleH = bubbleView?.measuredHeight ?: 0
+
+        // 默认放在悬浮球右侧；右侧空间不足则放左侧
+        val putRight = ballCenterX + ballSizePx / 2 + gap + bubbleW <= screen.x
+        val bubbleX = if (putRight) {
+            ballParams.x + ballSizePx + gap
+        } else {
+            ballParams.x - gap - bubbleW
+        }
+
+        // 垂直方向：相对悬浮球中心对齐，并做边界裁剪
+        var bubbleY = ballCenterY - bubbleH / 2
+        if (bubbleY < 0) bubbleY = 0
+        if (bubbleY + bubbleH > screen.y) bubbleY = screen.y - bubbleH
+
+        bubbleParams?.apply {
+            x = bubbleX
+            y = bubbleY
+        }
+        try {
+            windowManager?.updateViewLayout(bubbleView, bubbleParams)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
         mainHandler.removeCallbacks(bubbleHideRunnable)
-        mainHandler.postDelayed(bubbleHideRunnable, 2500)
+        mainHandler.postDelayed(bubbleHideRunnable, BUBBLE_AUTO_HIDE_MS)
     }
 
     private fun hideBubble() {
@@ -338,6 +450,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(longClickRunnable)
         hideFloatingBall()
         hideKeyboard()
         MacroExecutor.setListener(null)

@@ -152,6 +152,16 @@ class PluginManager {
 
   Future<void> setEnabled(String id, bool enabled) async {
     final plugin = _plugins.firstWhere((p) => p.id == id);
+    final isMacro = plugin.actions.any((a) => a.type == 'macro');
+
+    // 互斥规则：宏插件启用时，强制关闭其他所有宏插件
+    if (enabled && isMacro) {
+      for (final p in _plugins) {
+        if (p.id != id && p.actions.any((a) => a.type == 'macro') && p.enabled) {
+          p.enabled = false;
+        }
+      }
+    }
     plugin.enabled = enabled;
     await savePlugins();
   }

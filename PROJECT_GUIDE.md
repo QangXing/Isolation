@@ -1,0 +1,537 @@
+# Isolation 项目指南
+
+> 本文档整合了 Isolation 项目的原始设计介绍、当前已知问题分析与下一步改进方案，作为后续开发的统一参考。
+
+---
+
+## 一、项目介绍
+
+### 1.1 项目目标
+
+Isolation 是一款 Android 平台的**跨应用自动化宏插件应用**，将原本功能单一的悬浮球小键盘改造为可录制、可回放、可导入导出的自动化触发器。
+
+核心目标：
+
+- 用户能在任意 App 中录制一系列点击操作。
+- 录制结果保存为 `.isoplugin` 宏插件，可导入 / 导出 / 分享。
+- 启用宏后，点击悬浮球即可在目标 App 中自动执行该宏。
+- 优先使用 Accessibility 节点信息回放，节点不可见时回退到屏幕坐标。
+
+### 1.2 技术栈
+
+| 层 | 技术 |
+|----|------|
+| UI 层 | Flutter（Dart） |
+| 原生层 | Kotlin（Android） |
+| 通信 | MethodChannel `com.example.isolation` |
+| 状态管理 | provider |
+| 持久化 | shared_preferences + 应用私有目录文件 |
+| 打包 | `.isoplugin`（zip 压缩包） |
+
+### 1.3 现有架构
+
+```
+┌─────────────────────────────────────────────────┐
+│                  Flutter (Dart)                  │
+│  ┌────────────┐ ┌────────────┐ ┌─────────────┐  │
+│  │ HomeScreen │ │ManageScreen│ │ AboutScreen │  │
+│  └────────────┘ └────────────┘ └─────────────┘  │
+│  ┌──────────────────────────────────────────┐   │
+│  │ RecordingScreen  MacroSettingsScreen     │   │
+│  └──────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────┐   │
+│  │       PluginProvider (ChangeNotifier)    │   │
+│  └──────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────┐   │
+│  │     NativeChannel  ←→  MethodChannel     │   │
+│  └──────────────────────────────────────────┘   │
+└─────────────────────────┬───────────────────────┘
+                          │
+┌─────────────────────────┴───────────────────────┐
+│                Kotlin (Android)                  │
+│  ┌──────────────┐  ┌──────────────────────────┐ │
+│  │ MainActivity │  │  InputAccessibilityService│ │
+│  └──────────────┘  └──────────────────────────┘ │
+│  ┌──────────────────┐  ┌────────────────────┐   │
+│  │ FloatingBallService│  │   MacroExecutor    │   │
+│  └──────────────────┘  └────────────────────┘   │
+│  ┌──────────────────────────────────────────┐   │
+│  │       ScreenCaptureHelper / Keyboard     │   │
+│  └──────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────┘
+```
+
+### 1.4 数据模型
+
+**MacroStep**：单个宏步骤，关键字段：
+
+| 类型 | 说明 | 关键字段 |
+|------|------|----------|
+| `clickNode` | 按节点信息点击 | `target { resourceId, text, className, bounds }` |
+| `clickPoint` | 按坐标点击 | `point { x, y }` |
+| `swipe` | 滑动 | `start, end, duration` |
+| `wait` | 等待 | `duration` |
+| `back` / `home` / `recents` | 系统按键 | - |
+| `launchApp` | 打开指定 App | `packageName` |
+| `inputText` | 向焦点输入框注入文字 | `text` |
+
+**MacroSettings**：宏全局设置，包含 `smartRecognition`（智能识别）、`loopCount`（循环次数，0 表示无限）。
+
+**MacroPlugin（manifest.json）**：
+
+```json
+{
+  "id": "com.example.isolation.macro.xxx",
+  "name": "宏名称",
+  "version": "1.0.0",
+  "actions": [{ "type": "macro", "label": "运行", "macroFile": "macro.json" }]
+}
+```
+
+### 1.5 录制与回放流程
+
+**录制流程**：
+
+1. Flutter 调用 `NativeChannel.startRecording()`。
+2. `InputAccessibilityService` 进入录制状态。
+3. 监听 `AccessibilityEvent.TYPE_VIEW_CLICKED`，过滤本应用包名事件。
+4. 对每个有效点击提取 `resourceId`、`text`、`className`、`bounds`，生成 `MacroStep`。
+5. Flutter 调用 `stopRecording()` 获取步骤列表。
+
+**回放流程**：
+
+1. Flutter 调用 `executeMacro` 并传入步骤数组。
+2. `MacroExecutor` 按顺序执行：
+   - `clickNode`：优先按 `resourceId` 匹配，其次 `text` / `contentDescription`，最后 `className + bounds`，未找到则回退坐标点击。
+   - `clickPoint`：使用 `GestureDescription` 派发点击。
+   - 每步前等待 `delay` 毫秒。
+3. 三连击悬浮球可强制停止循环。
+
+### 1.6 主要文件清单
+
+| 路径 | 说明 |
+|------|------|
+| `lib/main.dart` | 应用入口与底部导航 |
+| `lib/screens/home_screen.dart` | 主页：插件列表 |
+| `lib/screens/manage_screen.dart` | 管理页：新建 / 导入 / 编辑宏 |
+| `lib/screens/recording_screen.dart` | 录制页：录制 + 编辑步骤 |
+| `lib/screens/macro_settings_screen.dart` | 宏设置页 |
+| `lib/screens/about_screen.dart` | 说明页 |
+| `lib/providers/plugin_provider.dart` | 状态管理 |
+| `lib/services/native_channel.dart` | Flutter ↔ 原生通道 |
+| `lib/services/plugin_manager.dart` | 插件管理（导入 / 删除 / 持久化） |
+| `lib/models/macro.dart` | 宏数据模型 |
+| `lib/models/plugin.dart` | 插件数据模型 |
+| `android/.../MainActivity.kt` | 原生入口、MethodChannel 处理 |
+| `android/.../InputAccessibilityService.kt` | 辅助功能服务（录制 + 回放） |
+| `android/.../FloatingBallService.kt` | 悬浮球服务 |
+| `android/.../MacroExecutor.kt` | 宏执行引擎 |
+| `android/.../ScreenCaptureHelper.kt` | 屏幕截图（颜色识别） |
+
+### 1.7 权限
+
+- **悬浮窗权限**（SYSTEM_ALERT_WINDOW）：显示悬浮球。
+- **辅助功能权限**（BIND_ACCESSIBILITY_SERVICE）：录制点击事件并回放宏。
+- **前台服务权限**：保持悬浮球后台运行。
+- **屏幕录制权限**：智能识别模式下读取像素颜色。
+
+---
+
+## 二、当前存在的问题
+
+### 2.1 Bug 1：已开启辅助功能仍提示未开启
+
+**现象**：用户已经在系统设置中授予了辅助功能权限，但使用时仍然提示"请先开启辅助功能权限"。
+
+**根因分析**：
+
+- `InputAccessibilityService.isEnabled(context)` 通过读取 `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` 判断服务是否在系统设置中启用，返回 `true`。
+- 但 `InputAccessibilityService.executeMacro()` 等静态方法内部判断的是 `instance`（即 `onServiceConnected` 中赋值的运行时实例），而**不是** `isEnabled`。
+- 当服务在系统设置中已启用、但 `onServiceConnected` 尚未回调（例如系统重启服务、应用重装、服务被回收后未触发事件）时，`instance` 仍为 `null`。
+- 静态方法此时仅依据 `instance == null` 就弹出"请先开启辅助功能权限"，造成误导。
+
+**位置**：`android/app/src/main/kotlin/com/example/isolation/InputAccessibilityService.kt` 的 `startRecording` / `stopRecording` / `executeMacro` / `dispatchClick` 等静态方法。
+
+### 2.2 Bug 2：其他应用中点击悬浮球无反应
+
+**现象**：悬浮球显示正常，但在其他 App 中点击悬浮球没有任何反馈。
+
+**根因分析**：
+
+- `FloatingBallService.runEnabledMacro()` 内部调用 `InputAccessibilityService.executeMacro()`，当 `instance == null` 时仅弹 `Toast`，没有触发气泡（`showBubble`）反馈，用户看不到。
+- 同时由于 Bug 1 的存在，即使辅助功能已开启，也会因 `instance == null` 提前 return，宏根本没被调度执行。
+- 此外，`FloatingBallService` 中 `ball.setOnOnTouchListener` 直接消费了所有 touch 事件并返回 `true`，长按监听被吞掉（次要问题）。
+- `notifyFloatingBallClick` 与 `runEnabledMacro` 调用顺序导致单次点击也走"三连击停止"的计数逻辑，体验上不够直观。
+
+**位置**：`android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt`、`InputAccessibilityService.kt`。
+
+### 2.3 Bug 3：文字气泡显示位置错误
+
+**现象**：执行宏时弹出的状态气泡位置不在悬浮球附近，有时甚至看不到。
+
+**根因分析**：
+
+- `showBubble()` 中使用 `ballParams.x + floatingView?.width + 16` 作为气泡 x 坐标，但 `floatingView?.width` 在首次显示时常为 0（未完成布局测量）。
+- 当悬浮球位于屏幕右半屏时，气泡会超出屏幕右侧被裁剪。
+- 气泡 y 坐标直接取 `ballParams.y`，未做边界裁剪，悬浮球贴近上下边缘时气泡会被遮挡。
+
+**位置**：`FloatingBallService.kt` 的 `showBubble()` 方法。
+
+---
+
+## 三、改进建议
+
+### 3.1 改进 1：宏互斥启用
+
+**需求**：所有宏插件只能开启一个；启用任意一个时，其余宏插件强制关闭。
+
+**实现思路**：
+
+- 在 `PluginManager.setEnabled(id, enabled)` 中，当 `enabled == true` 且该插件是宏插件时，遍历所有其他宏插件，将它们的 `enabled` 置为 `false`。
+- `PluginProvider.setEnabled()` 调用底层后，同步刷新 UI 状态。
+- 主页 / 管理页的开关 UI 自动反映互斥效果。
+
+**改动文件**：`lib/services/plugin_manager.dart`、`lib/providers/plugin_provider.dart`。
+
+### 3.2 改进 2：可视化编程宏
+
+**需求**：将录制宏的机制改为可视化编程模式，在管理页提供"编程宏"入口，支持内置指令：
+
+| 指令 | 含义 | 示例 |
+|------|------|------|
+| `click` | 点击（坐标或目标） | `click(500, 800)` / `click(text="签到")` |
+| `roll` | 滚动 | `roll(0, 300, 500)` |
+| `print` | 显示悬浮文字 | `print("开始签到")` |
+| `for` | 循环 | `for(5) { click(...); print(...) }` |
+| `find` | 寻找元素 | `find(text="领取") { click(...) }` |
+| `if` | 条件分支 | `if(find(text="领")) { click(...) } else { print("无") }` |
+
+**实现思路**：
+
+- 新增指令类型枚举：`click` / `roll` / `print` / `for` / `find` / `if`。
+- 新增 `ProgramMacroScreen`：代码编辑器 + 指令面板。
+- 在 `ManageScreen` 添加"编程宏"按钮，与"新建宏"并列。
+- 实现 DSL 解析器：`lib/services/macro_program_parser.dart`，将代码字符串解析为步骤树（支持嵌套块）。
+- 原生 `MacroExecutor` 扩展：支持 `roll`（手势滑动）、`print`（通过 listener 回调到 `FloatingBallService.showBubble`）、`for`（循环块）、`find`（节点查找 + 子块执行）、`if`（条件判断）。
+- 步骤数据结构改为支持 `children` 嵌套（树形结构）。
+
+**改动文件**：
+
+- 新增：`lib/screens/program_macro_screen.dart`、`lib/services/macro_program_parser.dart`、`lib/models/macro_instruction.dart`
+- 修改：`lib/screens/manage_screen.dart`、`lib/models/macro.dart`、`lib/providers/plugin_provider.dart`、`android/.../MacroExecutor.kt`、`android/.../FloatingBallService.kt`
+
+### 3.3 改进 3：录制区域显示为可编辑代码
+
+**需求**：录制宏时，录制好的区域不再只显示步骤列表，而是显示为编程代码；用户可手动修改代码后保存。
+
+**实现思路**：
+
+- 在 `RecordingScreen` 的编辑器区域，把已录制的步骤渲染为 DSL 代码文本（`click(...)` / `roll(...)` 等）。
+- 提供可编辑 `TextField`，用户能直接修改代码。
+- 保存时调用 `MacroProgramParser` 将代码解析为步骤树，再走原有 `saveMacroPlugin` 流程。
+- 同时保留"步骤卡片视图"和"代码视图"两种切换。
+
+**改动文件**：`lib/screens/recording_screen.dart`、`lib/services/macro_program_parser.dart`。
+
+---
+
+## 四、验收清单
+
+### Bug 修复验收
+
+- [x] 已开启辅助功能后，点击悬浮球不再误报"未开启辅助功能权限"。
+- [x] 在第三方 App 中点击悬浮球能触发宏执行，并在悬浮球附近显示状态气泡。
+- [x] 气泡显示位置紧邻悬浮球，靠近屏幕边缘时自动避开裁剪。
+
+### 改进验收
+
+- [x] 主页启用一个宏后，其他宏自动关闭。
+- [x] 管理页提供"编程宏"入口，可创建基于代码的宏。
+- [x] 编程宏支持 `click` / `roll` / `print` / `for` / `find` / `if` 指令。
+- [x] 编程宏保存后可被悬浮球执行。
+- [x] 录制页编辑器支持代码视图，可手动修改并保存。
+- [x] 代码视图与步骤卡片视图可互相切换。
+
+---
+
+## 五、实现状态
+
+> 本节记录上述所有 Bug 修复与改进的实际落地情况，便于回归验证与后续维护。
+
+### 5.1 Bug 1 修复：辅助功能就绪状态三态判定
+
+**改动文件**：[InputAccessibilityService.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/InputAccessibilityService.kt)
+
+- 新增 `readinessState(context)`：返回 `0`（就绪）/ `1`（系统设置未启用）/ `2`（已启用但实例未连上）。
+- 新增 `notifyNotReady(context)`：根据状态码显示更准确的 Toast，避免误报"未开启辅助功能"。
+- `startRecording` / `stopRecording` / `executeMacro` / `dispatchClick` 均改为通过 `notifyNotReady` 守卫，仅在 `state == 0` 时继续执行。
+- 新增 `onUnbind` 清理 `instance`，避免服务解绑后残留旧实例。
+
+### 5.2 Bug 2 修复：悬浮球触摸反馈与单击/长按区分
+
+**改动文件**：[FloatingBallService.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt)
+
+- 引入 `CLICK_SLOP_PX` / `LONG_CLICK_TIMEOUT_MS` 常量，使用 `Handler.postDelayed` 实现 600ms 长按判定，替代易被吞掉的 `setOnLongClickListener`。
+- `ACTION_DOWN` 时记录起点并启动长按定时器；`ACTION_MOVE` 超出 slop 立即取消长按；`ACTION_UP` 在 slop 内且未触发长按则视为单击。
+- 单击时先调用 `MacroExecutor.notifyFloatingBallClick`（三连击停止计数），再调用 `runEnabledMacro`，所有状态（未启用宏 / 辅助功能未就绪 / 开始执行）均通过 `showBubble` 给出反馈。
+- 新增 `ACTION_CANCEL` 处理，避免拖动中断时定时器泄漏。
+
+### 5.3 Bug 3 修复：气泡定位算法重写
+
+**改动文件**：[FloatingBallService.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt)
+
+- 引入 `BALL_SIZE_DP` / `BUBBLE_GAP_DP` 常量，使用 `resources.displayMetrics.density` 转 px。
+- `showBubble()` 在定位前先调用 `View.measure()` 触发测量，拿到 `measuredWidth` / `measuredHeight`。
+- 横向：默认放悬浮球右侧，若右侧空间不足则自动切到左侧。
+- 纵向：以悬浮球中心为基准居中对齐，靠近上下边缘时做 `clamp`，避免被裁剪。
+- 新增 `clampToScreen()` 限制悬浮球本身被拖出屏幕，保证后续气泡定位计算始终有效。
+
+### 5.4 改进 1：宏互斥启用
+
+**改动文件**：[plugin_manager.dart](file:///workspace/Isolation/lib/services/plugin_manager.dart)
+
+- 在 `setEnabled(id, enabled)` 中，当 `enabled == true` 且目标插件含 `macro` 类型 action 时，遍历其他所有宏插件并强制 `enabled = false`。
+- 通过 `savePlugins()` 持久化互斥结果，主页 / 管理页的开关会随 `PluginProvider` 通知自动刷新。
+
+### 5.5 改进 2：可视化编程宏
+
+**新增文件**：
+
+- [macro_program_parser.dart](file:///workspace/Isolation/lib/services/macro_program_parser.dart)：DSL 解析与序列化器。
+- [program_macro_screen.dart](file:///workspace/Isolation/lib/screens/program_macro_screen.dart)：编程宏编辑页（代码编辑器 + 指令面板 + 校验 + 保存）。
+
+**改动文件**：
+
+- [manage_screen.dart](file:///workspace/Isolation/lib/screens/manage_screen.dart)：在"新建宏"与"导入"之间新增"编程宏"按钮；宏卡片右侧新增 `Icons.code_rounded` 图标按钮可一键跳转编辑为编程宏。
+- [MacroExecutor.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MacroExecutor.kt)：重构为递归 `executeSteps` / `executeStep`，新增 `executeClickStep` / `executeRollStep` / `executeForStep` / `executeFindStep` / `executeIfStep` / `evaluateCondition`；新增 `dispatchSwipe`、`screenCenter`。保留对 `clickNode` / `clickPoint` / `swipe` / `launchApp` / `inputText` 的兼容。
+
+**DSL 语法示例**：
+
+```
+print("开始签到")
+// 颜色查找命中后点击该位置
+find(color=0xFF5000, tolerance=20) {
+    click()
+    wait(500)
+}
+// 节点文字查找命中后点击该位置
+find(text="签到") {
+    click()
+    roll(0, 300, 400)
+    wait(500)
+}
+for(3) {
+    roll(0, 300, 400)
+    wait(500)
+}
+if(find(color=0x00FF00)) {
+    click()
+} else {
+    print("今日无奖励")
+}
+```
+
+**支持指令总览**：
+
+| 指令 | 形式 | 说明 |
+|------|------|------|
+| `click` | `click(x, y)` 或 `click()` | 坐标点击；无参时点击最近 `find` 命中的坐标 |
+| `roll` | `roll(dx, dy, duration)` | 以屏幕中心为起点派发手势滑动 |
+| `print` | `print("消息")` | 通过 `MacroExecutorListener` 回调到悬浮球气泡 |
+| `wait` | `wait(ms)` | 睡眠等待 |
+| `for` | `for(n) { ... }` | 循环块 |
+| `find` | `find(color=0xRRGGBB, tolerance=20) { ... }` 或 `find(text="..." ) { ... }` | 颜色或节点查找，命中时把坐标压栈并执行子块 |
+| `if` | `if(find(...)) { ... } else { ... }` | 条件分支；条件命中时坐标同样压栈，then 块内可 `click()` |
+| `back` / `home` / `recents` | `back()` 等 | 系统按键 |
+
+> **关于 click 语义**：`click` 仅支持坐标点击（`click(x, y)`）或在 `find` / `if(find)` 块内点击命中位置（`click()`）。
+> 不再提供 `click(text="...")` 形式 —— 文字/颜色查找统一交给 `find`，避免依赖屏幕文字识别（OCR）。
+> 旧录制产生的 `clickNode` 在序列化时会自动转为 `find(target) { click() }` 形式，兼容存量宏。
+
+### 5.6 改进 3：录制页代码视图
+
+**改动文件**：[recording_screen.dart](file:///workspace/Isolation/lib/screens/recording_screen.dart)
+
+- 新增 `_codeView` 开关与 `_codeController`。
+- AppBar 新增切换按钮：`Icons.code_rounded` 切到代码视图，`Icons.list_rounded` 切回步骤卡片视图。
+- 切换前调用 `_syncCodeFromSteps` / `_syncStepsFromCode` 双向同步。
+- "返回录制"按钮与 `_showSaveDialog` 保存逻辑均增加 `if (_codeView) _syncStepsFromCode();` 守卫，确保手动编辑的代码不会丢失。
+- 代码视图使用深色背景（`0xFF1E1E1E`）+ 等宽字体，与 `ProgramMacroScreen` 风格一致。
+
+### 5.7 兼容性说明
+
+- 旧录制产生的 `clickNode` / `clickPoint` / `swipe` 步骤仍可被 `MacroExecutor` 执行（`clickNode` 走节点查找 + 坐标回退；`clickPoint` 直接坐标点击）。
+- `MacroProgramParser.serialize` 在序列化旧类型时自动转为新 DSL 写法：
+  - `swipe` → `roll(dx, dy, duration)`
+  - `clickNode(text="...")` → `find(text="...") { click() }`（保留语义且符合新规范）
+  - `clickNode` 仅有 `bounds` 时 → `click(cx, cy)`（直接转坐标）
+  - `clickPoint` → `click(x, y)`
+- 旧 `.isoplugin` 包导入后仍可用，进入"编程宏"编辑页时会自动序列化为代码形式。
+
+### 5.8 颜色查找实现（v2）
+
+针对"`click(text=...)` 依赖节点信息、在 WebView/游戏/Canvas 场景失效"的问题，DSL 语义已收敛：
+
+- `click` 只接受坐标；文本/颜色查找统一交给 `find`。
+- `find(color=0xRRGGBB, tolerance=20)` 通过 [ScreenCaptureHelper.findColor](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/ScreenCaptureHelper.kt) 全屏扫描像素（默认步长 4，可在性能与精度间权衡）。
+- 命中坐标通过 `MacroExecutor.foundCoordinates` 栈传递给子块，`click()` 无参时取栈顶点击；`if(find(...))` 命中时同样压栈。
+- 颜色查找需要屏幕录制权限，未授权时 `find` 会 postStatus 提示并跳过。
+
+### 5.9 坐标调试页（v2）
+
+**新增文件**：[coordinate_debug_screen.dart](file:///workspace/Isolation/lib/screens/coordinate_debug_screen.dart)
+
+**入口位置**：[manage_screen.dart](file:///workspace/Isolation/lib/screens/manage_screen.dart) 工具栏下方独立卡片"坐标调试"。
+
+**用途**：用户从相册选一张屏幕截图作为背景，在图片上点击任意位置，获取该点的坐标与像素颜色，并一键复制为 `click(x, y)` 或 `find(color=0xRRGGBB, tolerance=20) { click() }` 代码片段。
+
+**核心机制**：
+
+- 用 `file_picker` 选图，`image` 包（`pubspec.yaml` 新增 `image: ^4.2.0`）解码得到像素 buffer。
+- 用 `LayoutBuilder` 计算 `BoxFit.contain` 下图片的实际显示矩形（含 letterbox 偏移）。
+- 点击位置 → Flutter widget 坐标 → 减去 letterbox 偏移 → 按 `image.width / displayWidth` 缩放 → 得到图片像素坐标。
+- **坐标系等价**：图片像素坐标 = Android 屏幕像素坐标。前提是用户上传的截图来自该设备的系统截屏（未裁剪）。
+- 取色：`image.getPixel(imgX, imgY)` 直接读 R/G/B，组合为 `0xRRGGBB`。
+- 预编码：选图时一次性 `img.encodeJpg` 缓存为 `Uint8List`，避免每帧重新编码。
+
+**交互**：
+
+| 操作 | 效果 |
+|------|------|
+| 点击图片 | 在该位置打点，记录 `(x, y, color)` |
+| 点击图片上的点 | 弹出底部菜单：复制 `click(x,y)` / 复制 `find(color=)` 代码 / 删除 |
+| 列表项 `touch_app` 按钮 | 复制 `click(x, y)` |
+| 列表项 `colorize` 按钮 | 复制 `find(color=0xRRGGBB, tolerance=20) { click() }` |
+| 顶部"清空"按钮 | 清除所有采点 |
+| 顶部"选择截图"按钮 | 重新选图 |
+
+**坐标系提示**（页内常驻）：
+
+> 坐标 = 图片像素坐标 = Android 屏幕像素
+> 原点：左上角 (0,0)  ·  单位：像素(px)
+
+### 5.10 UI 设计规范（v2）
+
+全应用统一的视觉与交互规范，新增/修改页面必须遵守。
+
+#### 颜色
+
+| 用途 | 颜色 | 说明 |
+|------|------|------|
+| 主背景 | `Colors.white` | 全局 scaffoldBackgroundColor |
+| 主文本 | `Colors.black.withValues(alpha: 0.85)` | 标题、列表项名称 |
+| 次文本 | `Colors.black.withValues(alpha: 0.6)` / `Colors.grey.withValues(alpha: 0.7)` | 描述、辅助说明 |
+| 主按钮填充 | `Colors.black87` | "保存宏"、"选择截图"、权限检查按钮 |
+| 主按钮文字 | `Colors.white` | 与主按钮填充对比 |
+| 次按钮填充 | `Colors.black.withValues(alpha: 0.05)` | "校验"、"返回录制" |
+| 危险操作 | `Colors.redAccent` + `Colors.red.withValues(alpha: 0.08)` 背景 | 删除按钮 |
+| 强调色 | `Colors.redAccent` | 录制按钮、错误 SnackBar |
+| 警告色 | `Colors.orangeAccent` | 未授权提示 |
+
+#### 字号
+
+| 用途 | 字号 | 字重 |
+|------|------|------|
+| 页面大标题 | 28 | w300 |
+| AppBar 标题 | 默认 | w500 |
+| 卡片标题 | 16 | w600 |
+| 列表项主标题 | 15 | w600 / w500 |
+| 正文 | 13-14 | normal |
+| 辅助文字 | 11-12 | normal |
+| 代码字面量 | 12-14 | monospace |
+
+#### 间距
+
+| 用途 | 数值 |
+|------|------|
+| 页面水平边距 | 20 |
+| 卡片间距 | 12-14 |
+| 卡片内边距 | 16（GlassCard 默认） |
+| 按钮水平间距（同一 Row） | 12 |
+| 图标按钮水平间距 | 6 |
+| 底部安全区下方留白 | 24 |
+
+#### 圆角
+
+| 元素 | 圆角 |
+|------|------|
+| GlassCard | 20（默认） |
+| 主按钮 | 16 |
+| 次按钮 / Chip | 12 |
+| 图标按钮 | 10 |
+| 弹窗 | 20 |
+
+#### 控件样式规范
+
+**主按钮**（"保存宏"、"选择截图"等）：
+```dart
+Container(
+  padding: EdgeInsets.symmetric(vertical: 14, horizontal: 28),
+  decoration: BoxDecoration(
+    color: Colors.black87,
+    borderRadius: BorderRadius.circular(16),
+  ),
+  child: Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(..., color: Colors.white, size: 18),
+      SizedBox(width: 8),
+      Text(..., style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: w600)),
+    ],
+  ),
+)
+```
+
+**次按钮**（"校验"、"返回录制"等）：同主按钮，但 `color: Colors.black.withValues(alpha: 0.05)`，文字 `Colors.black87`。
+
+**图标按钮**（卡片右侧操作）：固定 8 padding + 10 圆角，[manage_screen.dart#L283-L322](file:///workspace/Isolation/lib/screens/manage_screen.dart#L283-L322) 的 `_IconAction`。
+
+**GlassCard 内按钮组**：用 `Row + Expanded + SizedBox(width: 12)` 实现，统一高度 48。
+
+**FilledButton / ElevatedButton / OutlinedButton**：**禁止使用** Material 3 默认按钮，全部用自定义 Container + GestureDetector 风格，确保视觉一致。
+
+#### 页面结构
+
+| 页面类型 | 结构 |
+|----------|------|
+| 主 tab 页（主页/管理/说明） | `CustomScrollView` + `SliverToBoxAdapter` 标题 + `SliverPadding` 内容 |
+| 子页面（录制/编辑/设置/调试） | `Scaffold` + `AppBar`（白底，无阴影）+ `Column`（内容 + 底部按钮栏） |
+| 底部按钮栏 | `Container(margin: EdgeInsets.fromLTRB(20, 0, 20, 24))` + `SafeArea(top: false)` |
+
+#### 已修正的不一致
+
+| 问题 | 修正 |
+|------|------|
+| 管理页顶部按钮高度不齐 | 用 `_ActionTile` 统一高度 48 |
+| 管理页插件卡片右侧按钮无间距 | 用 `_IconAction` 统一 `margin: left 6` |
+| 说明页两个权限按钮各占一整行 | 合并到一张 GlassCard 内，`Row + Expanded` 等宽 |
+| 坐标调试页用 `FilledButton.icon`（蓝色调） | 改为黑色填充圆角按钮，与其他页一致 |
+| 管理页"坐标调试"按钮独占一行但样式同主操作 | 用 `_ActionTile(full: true)` 显式标记为辅助操作 |
+
+---
+
+## 六、关键路径与依赖
+
+```
+[MD 文档]   ← 第一步（已完成）
+    │
+    ▼
+[Bug1 修复] → [Bug2 修复] → [Bug3 修复]   ← 第二步（原生层，已完成）
+    │
+    ▼
+[改进1：宏互斥]                              ← 第三步（Flutter 状态层，已完成）
+    │
+    ▼
+[改进2：编程宏 DSL + 编辑器 + 原生执行]      ← 第四步（端到端，已完成）
+    │
+    ▼
+[改进3：录制页代码视图]                      ← 第五步（Flutter UI 层，已完成）
+```
+
+---
+
+## 七、备注
+
+- 本文档整合自 `README.md` 与 `docs/superpowers/specs/2026-07-17-isolation-macro-design.md`，并加入了新一轮迭代的 Bug 分析与改进建议。
+- 第五节"实现状态"对应所有需求项的实际落地说明，可作为代码走查入口。
+- 后续如需调整范围，请直接修改本文件。

@@ -69,26 +69,43 @@ class AboutScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _buildPermissionButton(
-                  context,
-                  label: '检查悬浮窗权限',
-                  onTap: () async {
-                    final granted = await NativeChannel.checkOverlayPermission();
-                    if (context.mounted) {
-                      _showResult(context, '悬浮窗权限', granted);
-                    }
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildPermissionButton(
-                  context,
-                  label: '检查辅助功能权限',
-                  onTap: () async {
-                    final granted = await NativeChannel.checkAccessibilityPermission();
-                    if (context.mounted) {
-                      _showResult(context, '辅助功能权限', granted);
-                    }
-                  },
+                GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTitle('权限检查'),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _PermissionButton(
+                              label: '悬浮窗',
+                              icon: Icons.picture_in_picture_alt_rounded,
+                              onTap: () async {
+                                final granted = await NativeChannel.checkOverlayPermission();
+                                if (context.mounted) {
+                                  _showResult(context, '悬浮窗权限', granted);
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _PermissionButton(
+                              label: '辅助功能',
+                              icon: Icons.accessibility_new_rounded,
+                              onTap: () async {
+                                final granted = await NativeChannel.checkAccessibilityPermission();
+                                if (context.mounted) {
+                                  _showResult(context, '辅助功能权限', granted);
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -166,35 +183,54 @@ class AboutScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPermissionButton(
-    BuildContext context, {
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return GlassCard(
-      onTap: onTap,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Colors.black87,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showResult(BuildContext context, String name, bool granted) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('$name：${granted ? '已授予' : '未授予'}'),
         behavior: SnackBarBehavior.floating,
         backgroundColor: granted ? Colors.black87 : Colors.orangeAccent,
+      ),
+    );
+  }
+}
+
+/// 权限检查按钮：黑色填充圆角，统一样式。
+class _PermissionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _PermissionButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+          color: Colors.black87,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 16, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

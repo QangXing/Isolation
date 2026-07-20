@@ -2,6 +2,7 @@ package com.example.isolation
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.content.Intent
 import android.graphics.Rect
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
@@ -12,33 +13,54 @@ import java.util.concurrent.atomic.AtomicBoolean
 class InputAccessibilityService : AccessibilityService() {
 
     companion object {
+        private const val TAG = "InputA11yService"
         private var instance: InputAccessibilityService? = null
 
+        /** 服务在系统设置中是否已启用 */
         fun isEnabled(context: Context): Boolean {
             val enabledServices = Settings.Secure.getString(
                 context.contentResolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ) ?: return false
-            val serviceName = "${context.packageName}/${InputAccessibilityService::class.java.canonicalName}"
-            return enabledServices.contains(serviceName)
+            val serviceName = "${context.packageName}/${InputAccessibilityService::class.java.name}"
+            return enabledServices.split(':').any { it.trim() == serviceName }
+        }
+
+        /** 服务实例是否就绪（系统已启用且 onServiceConnected 已回调） */
+        fun isReady(context: Context): Boolean {
+            return isEnabled(context) && instance != null
+        }
+
+        /**
+         * 统一的状态检查：返回当前为何种状态。
+         * - 0：就绪
+         * - 1：系统设置中未启用
+         * - 2：系统设置已启用但服务实例尚未连上
+         */
+        fun readinessState(context: Context): Int {
+            return if (!isEnabled(context)) 1
+            else if (instance == null) 2
+            else 0
+        }
+
+        /** 给用户看的友好提示，避免一直误报"请先开启辅助功能权限" */
+        private fun notifyNotReady(context: Context): Boolean {
+            val state = readinessState(context)
+            when (state) {
+                1 -> Toast.makeText(context, "请先在系统设置中开启辅助功能权限", Toast.LENGTH_SHORT).show()
+                2 -> Toast.makeText(context, "辅助服务正在启动中，请稍后重试", Toast.LENGTH_SHORT).show()
+            }
+            return state == 0
         }
 
         fun startRecording(context: Context, captureColors: Boolean = false): Boolean {
-            val service = instance
-            if (service == null) {
-                Toast.makeText(context, "请先开启辅助功能权限", Toast.LENGTH_SHORT).show()
-                return false
-            }
-            return service.startRecordingInternal(captureColors)
+            if (!notifyNotReady(context)) return false
+            return instance!!.startRecordingInternal(captureColors)
         }
 
         fun stopRecording(context: Context): List<Map<String, Any>> {
-            val service = instance
-            if (service == null) {
-                Toast.makeText(context, "请先开启辅助功能权限", Toast.LENGTH_SHORT).show()
-                return emptyList()
-            }
-            return service.stopRecordingInternal()
+            if (!notifyNotReady(context)) return emptyList()
+            return instance!!.stopRecordingInternal()
         }
 
         fun executeMacro(
@@ -46,26 +68,26 @@ class InputAccessibilityService : AccessibilityService() {
             settings: Map<String, Any>,
             steps: List<Map<String, Any>>
         ): Boolean {
-            val service = instance
-            if (service == null) {
-                Toast.makeText(context, "请先开启辅助功能权限", Toast.LENGTH_SHORT).show()
-                return false
-            }
-            service.executeMacroInternal(settings, steps)
+            if (!notifyNotReady(context)) return false
+            instance!!.executeMacroInternal(settings, steps)
             return true
         }
 
         fun dispatchClick(context: Context, x: Int, y: Int): Boolean {
-            val service = instance
-            if (service == null) {
-                Toast.makeText(context, "请先开启辅助功能权限", Toast.LENGTH_SHORT).show()
-                return false
-            }
-            return MacroExecutor(service).dispatchClickForCompanion(x, y)
+            if (!notifyNotReady(context)) return false
+            return instance!!.dispatchClickForCompanion(x, y)
         }
+
+        /**
+         * 触发一次服务状态轮询。AccessibilityService 由系统管理，无法手动 startService，
+         * 但发送一个无障碍事件监听请求可让系统在合适时机回调 onServiceConnected。
+         * 这里通过返回 readinessState 让调用方决策。
+         */
+        fun tryEnsureReady(context: Context): Int = readinessState(context)
 
         // Legacy helpers for the old floating keyboard behavior (unused after macro migration)
         fun showInputMethod(context: Context) {
+            if (!notifyNotReady(context)) return
             val node = instance?.findFocusedInputNode()
             if (node != null) {
                 node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -76,6 +98,7 @@ class InputAccessibilityService : AccessibilityService() {
         }
 
         fun injectKey(context: Context, key: String) {
+            if (!notifyNotReady(context)) return
             val node = instance?.findFocusedInputNode()
             if (node != null) {
                 val currentText = node.text?.toString() ?: ""
@@ -90,6 +113,7 @@ class InputAccessibilityService : AccessibilityService() {
         }
 
         fun injectBackspace(context: Context) {
+            if (!notifyNotReady(context)) return
             val node = instance?.findFocusedInputNode()
             if (node != null) {
                 val currentText = node.text?.toString() ?: ""
@@ -167,6 +191,11 @@ class InputAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         instance = null
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        instance = null
+        return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
