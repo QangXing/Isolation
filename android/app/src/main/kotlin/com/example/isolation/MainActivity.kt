@@ -9,8 +9,19 @@ import android.widget.Toast
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import org.opencv.android.OpenCVLoader
 
 class MainActivity : FlutterActivity() {
+
+    init {
+        // 静态初始化 OpenCV，避免运行时动态加载失败
+        if (!OpenCVLoader.initLocal()) {
+            android.util.Log.e("OpenCV", "OpenCV 静态初始化失败")
+        } else {
+            android.util.Log.d("OpenCV", "OpenCV 静态初始化成功")
+        }
+    }
+
     private val CHANNEL = "com.example.isolation"
     private var pendingResult: MethodChannel.Result? = null
 
@@ -86,8 +97,9 @@ class MainActivity : FlutterActivity() {
                     @Suppress("UNCHECKED_CAST")
                     val rawSteps = call.argument<List<Map<String, Any>>>("steps")
                     val steps = rawSteps?.map { it.toMap() }
+                    val assetsDir = call.argument<String>("assetsDir")
                     if (steps != null) {
-                        InputAccessibilityService.executeMacro(this, settings, steps)
+                        InputAccessibilityService.executeMacro(this, settings, steps, assetsDir)
                         result.success(true)
                     } else {
                         result.success(false)

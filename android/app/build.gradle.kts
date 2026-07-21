@@ -25,6 +25,12 @@ android {
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            pickFirsts += listOf("lib/arm64-v8a/libopencv_java4.so")
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
@@ -44,6 +50,10 @@ kotlin {
 tasks.withType<JavaCompile> {
     sourceCompatibility = "17"
     targetCompatibility = "17"
+}
+
+dependencies {
+    implementation("org.opencv:opencv:4.12.0")
 }
 
 flutter {

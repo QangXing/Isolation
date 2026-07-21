@@ -240,9 +240,15 @@ class MacroProgramParser {
     }
   }
 
-  /// 把 find 的参数序列化为字符串。支持 color / tolerance / text / resourceId 等。
+  /// 把 find 的参数序列化为字符串。支持 image / threshold / region / color / tolerance / text / resourceId 等。
   static String _serializeFindArgs(Map<String, dynamic> step) {
     final pairs = <String>[];
+    final image = step['image'];
+    if (image != null) pairs.add('image=${_quoteValue(image)}');
+    final threshold = step['threshold'];
+    if (threshold != null) pairs.add('threshold=$threshold');
+    final region = step['region'] as List?;
+    if (region != null) pairs.add('region=[${region.join(', ')}]');
     final color = step['color'];
     if (color != null) {
       // 颜色统一输出 0xRRGGBB 十六进制
@@ -495,6 +501,12 @@ class _BlockParser {
     }
     if (s.startsWith("'") && s.endsWith("'") && s.length >= 2) {
       return s.substring(1, s.length - 1);
+    }
+    // 列表字面量：region=[100, 200, 900, 1200]
+    if (s.startsWith('[') && s.endsWith(']') && s.length >= 2) {
+      final inner = s.substring(1, s.length - 1);
+      final parts = _splitArgs(inner);
+      return parts.map(_parseValue).toList();
     }
     // 十六进制颜色字面量：0xFF0000 / 0XFF0000 / #FF0000
     if (s.startsWith('0x') || s.startsWith('0X')) {

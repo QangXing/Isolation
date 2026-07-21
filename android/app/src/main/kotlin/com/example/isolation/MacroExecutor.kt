@@ -19,7 +19,10 @@ interface MacroExecutorListener {
     fun onMacroStatus(message: String)
 }
 
-class MacroExecutor(private val service: AccessibilityService) {
+class MacroExecutor(
+    private val service: AccessibilityService,
+    private val assetsDir: String? = null
+) {
 
     companion object {
         private var activeExecutor: MacroExecutor? = null
@@ -209,7 +212,31 @@ class MacroExecutor(private val service: AccessibilityService) {
     private fun executeFindStep(step: Map<String, Any>, smartRecognition: Boolean) {
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
 
-        // 1) 颜色查找优先：find(color=0xFF0000, tolerance=20) { ... }
+        // 0) 图片查找优先：find(image="xxx.jpg", threshold=0.8, region=[...]) { ... }
+        val imageName = step["image"] as? String
+        if (imageName != null) {
+            val threshold = (step["threshold"] as? Number)?.toDouble() ?: 0.80
+            val region = step["region"] as? List<*>
+            if (!ScreenCaptureHelper.isGranted(service)) {
+                postStatus("find: 无屏幕录制权限，跳过图片查找")
+                return
+            }
+            val point = ImageFinder.find(service, assetsDir, imageName, threshold, region)
+            if (point != null) {
+                postStatus("find: 图片命中 (${point.x}, ${point.y})")
+                foundCoordinates.push(Pair(point.x, point.y))
+                try {
+                    executeSteps(children, smartRecognition)
+                } finally {
+                    foundCoordinates.poll()
+                }
+            } else {
+                postStatus("find: 未找到图片")
+            }
+            return
+        }
+
+        // 1) 颜色查找：find(color=0xFF0000, tolerance=20) { ... }
         val colorValue = step["color"]
         if (colorValue != null) {
             val targetColor = parseColor(colorValue)
@@ -438,6 +465,7 @@ class MacroExecutor(private val service: AccessibilityService) {
 
     private fun dispatchClick(x: Int, y: Int): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
+        FloatingBallService.showClickAnimation(x.toFloat(), y.toFloat())
         val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
@@ -458,6 +486,7 @@ class MacroExecutor(private val service: AccessibilityService) {
         durationMs: Long
     ): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
+        FloatingBallService.showSwipeAnimation(startX, startY, endX, endY)
         val path = Path().apply {
             moveTo(startX, startY)
             lineTo(endX, endY)
@@ -496,7 +525,7 @@ class MacroExecutor(private val service: AccessibilityService) {
             return
         }
 
-        val tolerance = 20
+        val tolerance = (colorInfo["tolerance"] as? Number)?.toInt() ?: 30
         val maxWaitMs = 10000L
         val checkIntervalMs = 200L
         var waited = 0L

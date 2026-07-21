@@ -11,6 +11,8 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.view.Display
 import android.view.WindowManager
 
@@ -21,6 +23,29 @@ object ScreenCaptureHelper {
     private var screenWidth: Int = 0
     private var screenHeight: Int = 0
     private var density: Int = 0
+
+    // 持续缓存最新一帧屏幕数据，避免每次读取都调用 acquireLatestImage，
+    // 同时让录制时读取的颜色更接近点击发生前的状态。
+    private var latestBuffer: ByteArray? = null
+    private var latestRowStride: Int = 0
+    private var latestPixelStride: Int = 0
+    private var latestWidth: Int = 0
+    private var latestHeight: Int = 0
+    private val bufferLock = Any()
+
+    /**
+     * 最新一帧屏幕像素的包装，便于图像匹配类直接使用。
+     */
+    data class Frame(
+        val buffer: ByteArray,
+        val width: Int,
+        val height: Int,
+        val rowStride: Int,
+        val pixelStride: Int
+    )
+
+    private var handlerThread: HandlerThread? = null
+    private var backgroundHandler: Handler? = null
 
     fun isGranted(context: Context): Boolean {
         return mediaProjection != null
@@ -42,6 +67,18 @@ object ScreenCaptureHelper {
         return true
     }
 
+    private fun startBackgroundThread() {
+        stopBackgroundThread()
+        handlerThread = HandlerThread("ScreenCapture").apply { start() }
+        backgroundHandler = Handler(handlerThread!!.looper)
+    }
+
+    private fun stopBackgroundThread() {
+        backgroundHandler = null
+        handlerThread?.quitSafely()
+        handlerThread = null
+    }
+
     private fun initImageReader(context: Context) {
         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         @Suppress("DEPRECATION")
@@ -56,8 +93,36 @@ object ScreenCaptureHelper {
         val metrics = context.resources.displayMetrics
         density = metrics.densityDpi
 
+        startBackgroundThread()
+
         imageReader?.close()
-        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
+        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 3)
+
+        // 在后台线程持续缓存最新帧，captureColor/findColor 优先读取缓存。
+        imageReader?.setOnImageAvailableListener({ reader ->
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                val planes = image.planes
+                if (planes.isEmpty()) return@setOnImageAvailableListener
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val capacity = buffer.capacity()
+                val bytes = ByteArray(capacity)
+                buffer.get(bytes)
+                synchronized(bufferLock) {
+                    latestBuffer = bytes
+                    latestPixelStride = pixelStride
+                    latestRowStride = rowStride
+                    latestWidth = screenWidth
+                    latestHeight = screenHeight
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                image.close()
+            }
+        }, backgroundHandler)
 
         virtualDisplay?.release()
         virtualDisplay = mediaProjection?.createVirtualDisplay(
@@ -72,11 +137,45 @@ object ScreenCaptureHelper {
         )
     }
 
+    /**
+     * 获取最新一帧屏幕像素数据。返回 null 表示尚未缓存或权限未授予。
+     */
+    fun getLatestFrame(): Frame? {
+        synchronized(bufferLock) {
+            val buf = latestBuffer ?: return null
+            if (latestWidth <= 0 || latestHeight <= 0 || latestPixelStride <= 0) return null
+            return Frame(buf, latestWidth, latestHeight, latestRowStride, latestPixelStride)
+        }
+    }
+
     fun captureColor(context: Context, x: Int, y: Int): Int? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return null
         if (mediaProjection == null || imageReader == null) {
             return null
         }
+
+        // 优先从持续缓存读取，更快且更接近“当前”时刻
+        synchronized(bufferLock) {
+            val buf = latestBuffer
+            if (buf != null && latestPixelStride > 0 && latestRowStride > 0) {
+                try {
+                    val clampedX = x.coerceIn(0, latestWidth - 1)
+                    val clampedY = y.coerceIn(0, latestHeight - 1)
+                    val offset = clampedY * latestRowStride + clampedX * latestPixelStride
+                    if (offset + 2 < buf.size) {
+                        val r = buf[offset].toInt() and 0xFF
+                        val g = buf[offset + 1].toInt() and 0xFF
+                        val b = buf[offset + 2].toInt() and 0xFF
+                        val a = if (latestPixelStride >= 4) buf[offset + 3].toInt() and 0xFF else 0xFF
+                        return (a shl 24) or (r shl 16) or (g shl 8) or b
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+
+        // fallback：直接从 ImageReader 取最新帧
         try {
             val image = imageReader!!.acquireLatestImage() ?: return null
             try {
@@ -125,6 +224,42 @@ object ScreenCaptureHelper {
         val tg = (targetColor shr 8) and 0xFF
         val tb = targetColor and 0xFF
 
+        // 优先从缓存读取
+        synchronized(bufferLock) {
+            val buf = latestBuffer
+            if (buf != null && latestPixelStride > 0 && latestRowStride > 0 && latestWidth > 0 && latestHeight > 0) {
+                try {
+                    val h = latestHeight
+                    val w = latestWidth
+                    var y = 0
+                    while (y < h) {
+                        val rowStart = y * latestRowStride
+                        var x = 0
+                        while (x < w) {
+                            val offset = rowStart + x * latestPixelStride
+                            if (offset + 2 < buf.size) {
+                                val r = buf[offset].toInt() and 0xFF
+                                val g = buf[offset + 1].toInt() and 0xFF
+                                val b = buf[offset + 2].toInt() and 0xFF
+                                if (kotlin.math.abs(r - tr) <= tolerance &&
+                                    kotlin.math.abs(g - tg) <= tolerance &&
+                                    kotlin.math.abs(b - tb) <= tolerance
+                                ) {
+                                    return Point(x, y)
+                                }
+                            }
+                            x += step
+                        }
+                        y += step
+                    }
+                    return null
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+
+        // fallback：直接从 ImageReader 取最新帧
         try {
             val image = imageReader!!.acquireLatestImage() ?: return null
             try {
@@ -174,5 +309,9 @@ object ScreenCaptureHelper {
         imageReader = null
         mediaProjection?.stop()
         mediaProjection = null
+        stopBackgroundThread()
+        synchronized(bufferLock) {
+            latestBuffer = null
+        }
     }
 }

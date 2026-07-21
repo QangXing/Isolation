@@ -66,10 +66,11 @@ class InputAccessibilityService : AccessibilityService() {
         fun executeMacro(
             context: Context,
             settings: Map<String, Any>,
-            steps: List<Map<String, Any>>
+            steps: List<Map<String, Any>>,
+            assetsDir: String? = null
         ): Boolean {
             if (!notifyNotReady(context)) return false
-            instance!!.executeMacroInternal(settings, steps)
+            instance!!.executeMacroInternal(settings, steps, assetsDir)
             return true
         }
 
@@ -224,8 +225,12 @@ class InputAccessibilityService : AccessibilityService() {
         return recordedSteps.map { it.step }
     }
 
-    private fun executeMacroInternal(settings: Map<String, Any>, steps: List<Map<String, Any>>) {
-        MacroExecutor(this).execute(settings, steps)
+    private fun executeMacroInternal(
+        settings: Map<String, Any>,
+        steps: List<Map<String, Any>>,
+        assetsDir: String? = null
+    ) {
+        MacroExecutor(this, assetsDir).execute(settings, steps)
     }
 
     private fun findFocusedInputNode(): AccessibilityNodeInfo? {

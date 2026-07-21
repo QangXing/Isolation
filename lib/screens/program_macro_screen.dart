@@ -1,9 +1,11 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/macro.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
 import '../widgets/glass_card.dart';
+import 'image_crop_screen.dart';
 
 class ProgramMacroScreen extends StatefulWidget {
   /// 编辑现有宏时传入 pluginId；新建时不传。
@@ -22,6 +24,7 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
   bool _infiniteLoop = false;
   bool _loading = true;
   String _initialName = '';
+  List<String> _assets = [];
 
   static const String _template = '''// 编程宏示例
 print("开始")
@@ -67,12 +70,19 @@ print("完成")
             provider.plugins.firstWhere((p) => p.id == widget.pluginId);
         _initialName = plugin.name;
       }
+      _assets = await provider.listMacroAssets(widget.pluginId!);
     } else {
       _codeController.text = _template;
     }
     if (mounted) {
       setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadAssets() async {
+    if (widget.pluginId == null) return;
+    final provider = context.read<PluginProvider>();
+    _assets = await provider.listMacroAssets(widget.pluginId!);
   }
 
   @override
@@ -107,6 +117,7 @@ print("完成")
           : Column(
               children: [
                 _buildInstructionBar(),
+                if (_assets.isNotEmpty) _buildAssetsBar(),
                 Expanded(child: _buildCodeEditor()),
                 _buildSettingsPanel(),
                 _buildBottomBar(context),
@@ -168,6 +179,16 @@ print("完成")
               onTap: () => _insert('find(color=0xFF5000, tolerance=20) {\n    click()\n}'),
             ),
             _InstructionChip(
+              label: 'find(image=)',
+              icon: Icons.image_search_rounded,
+              onTap: () => _insert('find(image="template.jpg") {\n    click()\n}'),
+            ),
+            _InstructionChip(
+              label: '导入图片',
+              icon: Icons.image_rounded,
+              onTap: _importImage,
+            ),
+            _InstructionChip(
               label: 'if',
               icon: Icons.call_split_rounded,
               onTap: () =>
@@ -197,6 +218,118 @@ print("完成")
     _codeController.text = text.substring(0, pos) + snippet + text.substring(pos);
     _codeController.selection = TextSelection.collapsed(offset: newPos);
     setState(() {});
+  }
+
+  Future<void> _importImage() async {
+    if (widget.pluginId == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请先保存宏，再导入图片'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.black87,
+        ),
+      );
+      return;
+    }
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final sourcePath = result.files.single.path;
+    if (sourcePath == null) return;
+
+    if (!mounted) return;
+    final croppedPath = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ImageCropScreen(sourcePath: sourcePath),
+      ),
+    );
+    if (croppedPath == null) return;
+
+    final provider = context.read<PluginProvider>();
+    final fileName = await provider.importMacroAsset(widget.pluginId!, croppedPath);
+    await _loadAssets();
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(fileName != null ? '已导入 $fileName' : '导入失败'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: fileName != null ? Colors.black87 : Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteAsset(String name) async {
+    if (widget.pluginId == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('删除图片'),
+        content: Text('确定删除 $name 吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final provider = context.read<PluginProvider>();
+    await provider.deleteMacroAsset(widget.pluginId!, name);
+    await _loadAssets();
+    if (mounted) setState(() {});
+  }
+
+  Widget _buildAssetsBar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      height: 56,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _assets.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final name = _assets[index];
+          return GestureDetector(
+            onTap: () => _insert('find(image="$name") {\n    click()\n}'),
+            onLongPress: () => _deleteAsset(name),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.image_rounded,
+                      size: 18, color: Colors.black.withValues(alpha: 0.6)),
+                  const SizedBox(width: 6),
+                  Text(
+                    name,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Widget _buildCodeEditor() {

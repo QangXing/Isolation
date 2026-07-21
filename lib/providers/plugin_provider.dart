@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/macro.dart';
@@ -57,11 +58,11 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 在拥有必要权限的前提下启动悬浮球。
+  /// 在拥有悬浮窗权限的前提下启动悬浮球。
+  /// 注意：悬浮球仅依赖悬浮窗权限，不依赖辅助功能权限。
   Future<void> _startFloatingBallIfReady() async {
     final hasOverlay = await NativeChannel.checkOverlayPermission();
-    final hasAccessibility = await NativeChannel.checkAccessibilityPermission();
-    if (!hasOverlay || !hasAccessibility) {
+    if (!hasOverlay) {
       // 权限不足时不启动，也不自动跳转；保持开关开启，用户下次切回可继续操作
       return;
     }
@@ -193,9 +194,11 @@ class PluginProvider extends ChangeNotifier {
     _runningMacroId = plugin.id;
     notifyListeners();
 
+    final assetsDir = '${pluginDir.path}/${plugin.id}/assets';
     final success = await NativeChannel.executeMacro(
       macroData.settings.toJson(),
       macroData.steps,
+      assetsDir: assetsDir,
     );
 
     _runningMacroId = null;
@@ -281,10 +284,28 @@ class PluginProvider extends ChangeNotifier {
     final id = pluginId ?? 'com.example.isolation.macro.${DateTime.now().millisecondsSinceEpoch}';
     final pluginDir = await _pluginDirectory();
     final targetDir = Directory('${pluginDir.path}/$id');
+
+    // 编辑现有插件时先备份图片资源，避免覆盖式保存导致资源丢失
+    String? assetsBackupDir;
+    final existingAssetsDir = Directory('${targetDir.path}/assets');
+    if (pluginId != null && await existingAssetsDir.exists()) {
+      final tempDir = await getTemporaryDirectory();
+      assetsBackupDir = '${tempDir.path}/isolation_assets_backup_${DateTime.now().millisecondsSinceEpoch}';
+      await existingAssetsDir.rename(assetsBackupDir);
+    }
+
     if (await targetDir.exists()) {
       await targetDir.delete(recursive: true);
     }
     await targetDir.create(recursive: true);
+
+    // 恢复备份的图片资源
+    if (assetsBackupDir != null) {
+      final backupDir = Directory(assetsBackupDir);
+      if (await backupDir.exists()) {
+        await backupDir.rename(existingAssetsDir.path);
+      }
+    }
 
     final macroFileName = 'macro.json';
     final macroFile = File('${targetDir.path}/$macroFileName');
@@ -327,6 +348,46 @@ class PluginProvider extends ChangeNotifier {
     await _manager.savePlugins();
     notifyListeners();
     return true;
+  }
+
+  // Macro assets
+
+  /// 将裁剪好的图片复制到插件 assets 目录，返回生成的文件名。
+  Future<String?> importMacroAsset(String pluginId, String imagePath) async {
+    final file = File(imagePath);
+    if (!await file.exists()) return null;
+
+    final pluginDir = await _pluginDirectory();
+    final assetsDir = Directory('${pluginDir.path}/$pluginId/assets');
+    if (!await assetsDir.exists()) {
+      await assetsDir.create(recursive: true);
+    }
+
+    final ext = path.extension(imagePath).toLowerCase();
+    final fileName = 'asset_${DateTime.now().millisecondsSinceEpoch}${ext.isEmpty ? '.jpg' : ext}';
+    final destFile = File('${assetsDir.path}/$fileName');
+    await file.copy(destFile.path);
+    return fileName;
+  }
+
+  /// 列出插件 assets 目录下的所有文件名。
+  Future<List<String>> listMacroAssets(String pluginId) async {
+    final pluginDir = await _pluginDirectory();
+    final assetsDir = Directory('${pluginDir.path}/$pluginId/assets');
+    if (!await assetsDir.exists()) return [];
+    final files = await assetsDir.list().toList();
+    return files.whereType<File>().map((f) => path.basename(f.path)).toList();
+  }
+
+  /// 删除插件 assets 目录下的指定文件。
+  Future<bool> deleteMacroAsset(String pluginId, String fileName) async {
+    final pluginDir = await _pluginDirectory();
+    final file = File('${pluginDir.path}/$pluginId/assets/$fileName');
+    if (await file.exists()) {
+      await file.delete();
+      return true;
+    }
+    return false;
   }
 
   Future<String?> exportMacroPlugin(String pluginId) async {

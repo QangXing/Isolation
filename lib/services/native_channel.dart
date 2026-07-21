@@ -92,12 +92,14 @@ class NativeChannel {
 
   static Future<bool> executeMacro(
     Map<String, dynamic> settings,
-    List<Map<String, dynamic>> steps,
-  ) async {
+    List<Map<String, dynamic>> steps, {
+    String? assetsDir,
+  }) async {
     try {
       final result = await _channel.invokeMethod<bool>('executeMacro', {
         'settings': settings,
         'steps': steps,
+        'assetsDir': assetsDir,
       });
       return result ?? false;
     } catch (e) {

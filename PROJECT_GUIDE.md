@@ -579,6 +579,96 @@ Container(
 
 ---
 
+### 5.13 悬浮球权限解耦与宏执行触摸动画
+
+**问题 1**：授予悬浮窗权限并打开"显示悬浮球"开关后，悬浮球仍未显示。
+
+**根因**：`_startFloatingBallIfReady()` 与管理页的权限检查同时要求悬浮窗权限和辅助功能权限，导致仅授予悬浮窗权限时无法启动悬浮球。
+
+**修复**：
+
+- [plugin_provider.dart](file:///workspace/Isolation/lib/providers/plugin_provider.dart) 的 `_startFloatingBallIfReady()` 仅检查悬浮窗权限；辅助功能权限只在宏执行/启用宏时要求。
+- [manage_screen.dart](file:///workspace/Isolation/lib/screens/manage_screen.dart) 的开关弹窗仅提示并引导用户授予悬浮窗权限。
+- [FloatingBallService.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt) 的 `onStartCommand` 增加 `intent == null` 兜底：系统以 `START_STICKY` 重启服务时，只要权限已授予就自动重新显示悬浮球。
+- `showFloatingBall()` 中对 `windowManager.addView()` 增加 `try-catch`，失败时通过 `Toast` 提示具体错误，避免静默失败。
+
+**问题 2**：宏执行时缺少视觉反馈，用户无法感知当前点击/滑动的位置。
+
+**实现**：
+
+- 新增 [TouchEffect.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/TouchEffect.kt) 定义点击/滑动动画数据模型。
+- 新增 [TouchEffectOverlay.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/TouchEffectOverlay.kt) 全屏透明硬件加速覆盖层，使用 `Handler` 驱动 16ms 帧动画，约 450–550ms 内完成扩散/淡出后自动移除。
+- [FloatingBallService.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt) 提供静态方法 `showClickAnimation` / `showSwipeAnimation`，通过单例引用把效果投递到主线程的覆盖层；服务未运行时调用不会崩溃。
+- [MacroExecutor.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MacroExecutor.kt) 在 `dispatchClick` 与 `dispatchSwipe` 中分别调用上述动画方法，因此 `click`、`roll` 以及旧版 `clickPoint` / `swipe` / `clickNode` 回退手势都会显示反馈。
+
+---
+
+### 5.14 坐标调试页：新增采样点导致图片上移、标记错位
+
+**问题**：`coordinate_debug_screen.dart` 中，图片显示区使用 `Expanded` 占据剩余空间，而底部采样列表仅在 `_points.isNotEmpty` 时才显示。点击第一个点后，采样列表突然出现并挤占了 `Expanded` 的高度，导致图片重新布局、已采集点的 `displayX/displayY` 与实际显示位置不一致。
+
+**修复**：
+
+- 将 `_buildPointsList()` 从 `Column` 的底部子节点改为 `Stack` 上的底部浮层（`Positioned(left:0, right:0, bottom:0)`）。
+- 采样列表使用白色半透明背景 + 顶部圆角 + 上阴影，不再挤压图片显示区。
+- 图片 `LayoutBuilder` 的约束高度始终不变，因此 `_imageDisplayOffset` 和已采集点标记位置保持稳定。
+
+---
+
+### 5.15 智能识别（局部像素颜色）修复
+
+**问题 1**：`InputAccessibilityService` 收到 `TYPE_VIEW_CLICKED` 事件后才调用 `ScreenCaptureHelper.captureColor`，此时页面可能已经跳转，采集到的颜色是“点击后”的状态，导致执行时 `waitForColorMatch` 永远等不到目标颜色，宏卡住或错误点击。
+
+**问题 2**：每次读取颜色都调用 `acquireLatestImage`，不仅慢，而且拿到的帧进一步滞后。
+
+**修复**：
+
+- [ScreenCaptureHelper.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/ScreenCaptureHelper.kt) 重构：
+  - 新增后台 `HandlerThread` 持续监听 `ImageReader.OnImageAvailableListener`。
+  - 把最新一帧像素数据复制到 `latestBuffer` 并加锁缓存。
+  - `captureColor` / `findColor` 优先从缓存读取，命中更快、更接近真实“当前”画面；未命中时 fallback 到 `acquireLatestImage`。
+  - `release()` 中停止后台线程并清空缓存。
+- [MacroExecutor.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MacroExecutor.kt) 的 `waitForColorMatch`：
+  - 容差 `tolerance` 改为从步骤参数读取，默认由 20 放宽到 30，减少轻微色差导致的等待失败。
+
+**仍存在的限制**：
+
+- 智能识别目前仅对点击步骤生效，滑动（`roll`）步骤录制时不会附带颜色信息。
+- 录制时仍依赖 Accessibility 点击事件，采集的颜色是事件触发时的最近帧，不能完全等同于“点击前”一帧；对于极快跳转的页面仍可能偏差。
+
+---
+
+### 5.16 编程宏图片查找 `find(image=...)`
+
+**需求**：在 `find(color=...)` / `find(text=...)` 之外，新增图片模板匹配能力，用于目标没有稳定文字/颜色、但有固定图标的场景。
+
+**实现**：
+
+- 指令语法：
+  ```dsl
+  find(image="button_login.jpg", threshold=0.85, region=[100, 200, 900, 1200]) {
+      click()
+  }
+  ```
+- [ImageFinder.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/ImageFinder.kt) 使用 OpenCV `TM_CCOEFF_NORMED` 在灰度图上做模板匹配，返回命中区域中心坐标。
+- [ScreenCaptureHelper.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/ScreenCaptureHelper.kt) 通过后台线程持续缓存最新帧，匹配时直接从缓存读取，无需反复 `acquireLatestImage`。
+- [MacroExecutor.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MacroExecutor.kt) 在 `executeFindStep` 中新增 `image` 分支，命中后把中心坐标压入坐标栈。
+- 插件资源目录通过 `NativeChannel.executeMacro` 的 `assetsDir` 参数传递到执行引擎，模板图片从 `<pluginDir>/<pluginId>/assets/` 加载。
+- [ProgramMacroScreen](file:///workspace/Isolation/lib/screens/program_macro_screen.dart) 新增：
+  - 工具栏 `导入图片` 按钮。
+  - 已导入图片资源列表（水平滚动），点击即可插入 `find(image="...") { click() }`。
+  - 长按资源可删除。
+- [ImageCropScreen](file:///workspace/Isolation/lib/screens/image_crop_screen.dart) 提供手动矩形裁剪：用户拖动/缩放裁剪框，输出图片最长边不超过 320px。
+- [PluginProvider](file:///workspace/Isolation/lib/providers/plugin_provider.dart) 新增 `importMacroAsset` / `listMacroAssets` / `deleteMacroAsset`，并在 `saveMacroPlugin` 编辑现有插件时备份并恢复 `assets` 目录，避免覆盖式保存丢失图片。
+- [MacroProgramParser](file:///workspace/Isolation/lib/services/macro_program_parser.dart) 支持 `image` / `threshold` / `region` 参数的序列化，以及 `region=[...]` 列表字面量的解析。
+
+**导出/导入**：
+
+- `exportMacroPlugin` 递归打包整个插件目录，assets 中的图片会随 `.isoplugin` 一起导出。
+- `PluginManager.importPlugin` 解压时会保留 assets 子目录，因此导入后图片资源可用。
+
+---
+
 ## 六、关键路径与依赖
 
 ```
