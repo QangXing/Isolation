@@ -256,7 +256,8 @@ class _CoordinateDebugScreenState extends State<CoordinateDebugScreen> {
             ],
           ),
         ),
-        // 图片显示区
+        // 图片显示区：采样列表以浮层方式覆盖在底部，不挤压图片，
+        // 避免新增点时图片重新布局导致已采集标记位置偏移。
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -328,13 +329,19 @@ class _CoordinateDebugScreenState extends State<CoordinateDebugScreen> {
                       ),
                     ),
                   ),
+                  // 底部采样列表浮层
+                  if (_points.isNotEmpty)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: _buildPointsList(),
+                    ),
                 ],
               );
             },
           ),
         ),
-        // 采样列表
-        if (_points.isNotEmpty) _buildPointsList(),
       ],
     );
   }
@@ -342,10 +349,16 @@ class _CoordinateDebugScreenState extends State<CoordinateDebugScreen> {
   Widget _buildPointsList() {
     return Container(
       height: 180,
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.white.withValues(alpha: 0.96),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 12,
+            offset: const Offset(0, -2),
+          ),
+        ],
       ),
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 4),

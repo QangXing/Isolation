@@ -40,6 +40,24 @@ class FloatingBallService : Service(), MacroExecutorListener {
         private const val BUBBLE_AUTO_HIDE_MS = 2500L
         private const val CLICK_SLOP_PX = 12
         private const val LONG_CLICK_TIMEOUT_MS = 400L
+
+        @Volatile
+        private var instance: FloatingBallService? = null
+
+        /**
+         * 显示一次点击动画。坐标为屏幕像素坐标系（左上角原点）。
+         * 即使悬浮球服务未运行也不会崩溃。
+         */
+        fun showClickAnimation(x: Float, y: Float) {
+            instance?.postTouchEffect(TouchEffect.Click(x, y))
+        }
+
+        /**
+         * 显示一次滑动动画。坐标为屏幕像素坐标系（左上角原点）。
+         */
+        fun showSwipeAnimation(startX: Float, startY: Float, endX: Float, endY: Float) {
+            instance?.postTouchEffect(TouchEffect.Swipe(startX, startY, endX, endY))
+        }
     }
 
     private var windowManager: WindowManager? = null
@@ -48,6 +66,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private var bubbleView: TextView? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
     private var keyboardView: KeyboardOverlayView? = null
+    private var animationOverlay: TouchEffectOverlay? = null
 
     private var initialX = 0
     private var initialY = 0
@@ -75,12 +94,20 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
         MacroExecutor.setListener(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        // 兜底：START_STICKY 重启时 intent 可能为 null，只要悬浮球没在显示就重新显示
+        if (intent == null) {
+            if (Settings.canDrawOverlays(this) && floatingView == null) {
+                showFloatingBall()
+            }
+            return START_STICKY
+        }
+        when (intent.action) {
             ACTION_SHOW -> showFloatingBall()
             ACTION_HIDE -> {
                 hideFloatingBall()
@@ -215,7 +242,60 @@ class FloatingBallService : Service(), MacroExecutorListener {
             }
         }
 
-        windowManager?.addView(floatingView, params)
+        try {
+            windowManager?.addView(floatingView, params)
+            ensureAnimationOverlay()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "悬浮球显示失败: ${e.message}", Toast.LENGTH_LONG).show()
+            floatingView = null
+            floatingParams = null
+        }
+    }
+
+    private fun ensureAnimationOverlay() {
+        if (animationOverlay != null) return
+        val wm = windowManager ?: return
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+        animationOverlay = TouchEffectOverlay(this).apply {
+            post {
+                try {
+                    wm.addView(this, params)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    private fun hideAnimationOverlay() {
+        val overlay = animationOverlay ?: return
+        animationOverlay = null
+        try {
+            windowManager?.removeView(overlay)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    internal fun postTouchEffect(effect: TouchEffect) {
+        mainHandler.post {
+            animationOverlay?.postEffect(effect)
+        }
     }
 
     /** 把悬浮球坐标限制在屏幕范围内，避免被拖到看不见的地方 */
@@ -256,6 +336,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
             floatingParams = null
         }
         hideBubble()
+        hideAnimationOverlay()
     }
 
     private fun hideKeyboard() {
@@ -485,6 +566,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         hideFloatingBall()
         hideKeyboard()
         MacroExecutor.setListener(null)
+        instance = null
         super.onDestroy()
     }
 }

@@ -396,18 +396,16 @@ class _FloatingBallToggle extends StatelessWidget {
   Future<void> _onToggle(BuildContext context, bool value) async {
     final provider = context.read<PluginProvider>();
     final hasOverlay = await NativeChannel.checkOverlayPermission();
-    final hasAccessibility = await NativeChannel.checkAccessibilityPermission();
 
-    if (value && (!hasOverlay || !hasAccessibility)) {
-      // 缺少权限时弹出提示，并引导用户去授权
+    if (value && !hasOverlay) {
+      // 缺少悬浮窗权限时弹出提示并引导授权
       if (!context.mounted) return;
       final shouldGrant = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Text('需要权限'),
-          content: Text(
-            '显示悬浮球需要${!hasOverlay ? '悬浮窗' : ''}${!hasOverlay && !hasAccessibility ? '与' : ''}${!hasAccessibility ? '辅助功能' : ''}权限。'),
+          content: const Text('显示悬浮球需要悬浮窗权限。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -421,8 +419,9 @@ class _FloatingBallToggle extends StatelessWidget {
         ),
       );
       if (shouldGrant != true) return;
-      if (!hasOverlay) await NativeChannel.requestOverlayPermission();
-      if (!hasAccessibility) await NativeChannel.requestAccessibilityPermission();
+      await NativeChannel.requestOverlayPermission();
+      // 授权页返回后，仍由用户再次点击开关触发；避免自动判断时序问题
+      return;
     }
 
     await provider.setFloatingBallVisible(value);
