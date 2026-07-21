@@ -172,7 +172,7 @@ class InputAccessibilityService : AccessibilityService() {
         val step = mutableMapOf<String, Any?>(
             "type" to "clickNode",
             "delay" to computeDelay(),
-            "target" to target.filterValues { it != null }
+            "target" to target.filterValues { it != null }.mapValues { it.value!! }
         )
 
         if (captureColors) {
@@ -186,7 +186,7 @@ class InputAccessibilityService : AccessibilityService() {
             }
         }
 
-        recordedSteps.add(RecordedStep(System.currentTimeMillis(), step.filterValues { it != null }))
+        recordedSteps.add(RecordedStep(System.currentTimeMillis(), step.filterValues { it != null }.mapValues { it.value!! }))
     }
 
     override fun onInterrupt() {
@@ -226,6 +226,10 @@ class InputAccessibilityService : AccessibilityService() {
 
     private fun executeMacroInternal(settings: Map<String, Any>, steps: List<Map<String, Any>>) {
         MacroExecutor(this).execute(settings, steps)
+    }
+
+    private fun dispatchClickForCompanion(x: Int, y: Int): Boolean {
+        return MacroExecutor(this).dispatchClickForCompanion(x, y)
     }
 
     private fun findFocusedInputNode(): AccessibilityNodeInfo? {

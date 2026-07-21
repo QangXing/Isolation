@@ -57,7 +57,8 @@ class MacroExecutor(private val service: AccessibilityService) {
      * find 块命中的坐标栈。click() 无参时取栈顶点击。
      * 支持 find 嵌套：内层 find 命中会压栈，块结束自动弹栈。
      */
-    private val foundCoordinates = ArrayDeque<Pair<Int, Int>>()
+    private val foundCoordinates = java.util.ArrayDeque<Pair<Int, Int>>()
+
 
     fun execute(settings: Map<String, Any>, steps: List<Map<String, Any>>) {
         if (running) return

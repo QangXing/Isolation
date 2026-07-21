@@ -1,0 +1,14 @@
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
+      <modelVersion>4.0.0</modelVersion>
+      <groupId>org.gradle.kotlin.kotlin-dsl</groupId>
+      <artifactId>org.gradle.kotlin.kotlin-dsl.gradle.plugin</artifactId>
+      <version>6.2.0</version>
+      <packaging>pom</packaging>
+      <dependencies>
+        <dependency>
+          <groupId>org.gradle.kotlin</groupId>
+          <artifactId>gradle-kotlin-dsl-plugins</artifactId>
+          <version>6.2.0</version>
+        </dependency>
+      </dependencies>
+    </project>

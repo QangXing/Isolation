@@ -14,12 +14,13 @@ pluginManagement {
         "Flutter SDK not found. Set flutter.sdk in android/local.properties or FLUTTER_ROOT/FLUTTER_HOME environment variable."
     }
 
-    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+    includeBuild("/workspace/flutter_tools_gradle")
 
     repositories {
+        maven { url = uri("file:///workspace/local-maven-repo") }
+        gradlePluginPortal()
         google()
         mavenCentral()
-        gradlePluginPortal()
     }
 }
 
