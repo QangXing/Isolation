@@ -186,7 +186,7 @@ class InputAccessibilityService : AccessibilityService() {
             }
         }
 
-        recordedSteps.add(RecordedStep(System.currentTimeMillis(), step.filterValues { it != null }))
+        recordedSteps.add(RecordedStep(System.currentTimeMillis(), step.filterValues { it != null }.mapValues { it.value as Any }))
     }
 
     override fun onInterrupt() {
