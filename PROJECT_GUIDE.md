@@ -508,6 +508,75 @@ Container(
 | 坐标调试页用 `FilledButton.icon`（蓝色调） | 改为黑色填充圆角按钮，与其他页一致 |
 | 管理页"坐标调试"按钮独占一行但样式同主操作 | 用 `_ActionTile(full: true)` 显式标记为辅助操作 |
 
+### 5.11 悬浮球二次检查与修正（v2）
+
+对 [FloatingBallService.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt) 做了一次完整 review，发现并修复了 6 个问题。
+
+| 严重度 | 问题 | 修正 |
+|--------|------|------|
+| 🔴 严重 | 单击时无条件调用 `notifyFloatingBallClick` 累加计数，宏未运行也会被三连击触发"已强制停止" Toast，宏运行时单击会立即累加计数导致刚启动就被停止 | 抽出 `onBallSingleClick()`：宏运行中才走三连击逻辑，宏未运行时直接走 `runEnabledMacro`，互不干扰 |
+| 🟡 中 | 宏运行中再次单击会被 `MacroExecutor.execute` 的 `if (running) return` 静默吞掉，用户无反馈 | `onBallSingleClick` 中通过 `MacroExecutor.isRunning()` 显式判断，未触发停止时显示气泡"宏运行中，三连击停止" |
+| 🟡 中 | `notifyFloatingBallClick` 返回 `void`，调用方无法区分"仅计数"与"触发停止" | 改为返回 `Boolean`，触发停止返回 `true`，调用方据此决定是否还要弹气泡 |
+| 🟡 中 | `MacroExecutor.running` 是 `private`，companion `isRunning()` 无法读取 | 改为 `@Volatile internal var running`，新增 `isRunning()` 和 `stopActive()` 静态方法 |
+| 🟡 中 | 长按阈值 600ms 偏长，用户容易误判为单击失败就抬手 | 缩短到 `LONG_CLICK_TIMEOUT_MS = 400L`（接近 Android 标准 longPressTimeout 500ms 但更灵敏） |
+| 🟡 中 | 气泡用 `android.R.drawable.dialog_holo_light_frame` 背景，是 Holo 时代旧样式，与简洁白色风格不符 | 改用 `GradientDrawable` 自绘：圆角 12dp、白色 95% 透明、1px 灰边 |
+| 🟢 低 | `FLAG_LAYOUT_NO_LIMITS` 让悬浮球可被拖到状态栏/导航栏下被遮挡 | 去掉该 flag，让 WindowManager 自动限制在应用可见区域 |
+| 🟢 低 | `screenSize()` 用 `getRealMetrics`（含系统 UI）做 clamp，与去 flag 后的可见区域不一致 | 改用 `getMetrics`（不含状态栏/导航栏），clamp 更准确 |
+| 🟢 低 | 初始位置 `(100, 300)` 在小屏上可能超出可见区域 | `showFloatingBall` 中设置完 params 后立即调 `clampToScreen(params)` |
+| 🟢 低 | `onDestroy` 只清理 `longClickRunnable`，未清理 `bubbleHideRunnable`，可能内存泄漏 | 同时 `removeCallbacks(bubbleHideRunnable)` |
+| 🟢 低 | 服务销毁时若有宏在运行不会停止，造成线程泄漏 | 新增 `MacroExecutor.stopActive()`，`onDestroy` 中调用 |
+
+**核心改进：单击/三连击逻辑分离**
+
+修正前的逻辑：
+```
+单击 → notifyFloatingBallClick() 计数+1 → runEnabledMacro() 启动宏
+连续单击 3 次 → 第 3 次启动宏 + 触发"已强制停止" Toast → 宏刚启动就被停
+宏未运行时三连击 → 弹"已强制停止循环" Toast → 用户困惑
+```
+
+修正后的逻辑：
+```
+单击 → onBallSingleClick()
+       ├─ MacroExecutor.isRunning() == true
+       │    → notifyFloatingBallClick() 计数+1
+       │    → 达 3 次：stop + Toast"已强制停止循环"
+       │    → 未达 3 次：气泡"宏运行中，三连击停止"
+       └─ MacroExecutor.isRunning() == false
+            → runEnabledMacro()
+            → 检查辅助功能 → 检查已启用宏 → 启动执行
+```
+
+**触摸状态机保留**：长按 400ms → 打开 MainActivity；拖动 > 12px → 取消长按 + 取消单击；ACTION_CANCEL 同 ACTION_UP 但不触发任何动作。
+
+### 5.12 管理页新增"显示悬浮球"开关（v2）
+
+**需求**：用户希望有一个独立的入口控制悬浮球显示/隐藏，而不是仅由启用宏间接控制。
+
+**实现**：
+
+- [plugin_provider.dart](file:///workspace/Isolation/lib/providers/plugin_provider.dart) 新增：
+  - `_floatingBallVisible` 状态 + `floatingBallVisible` getter
+  - `setFloatingBallVisible(bool)`：持久化到 `SharedPreferences`（key：`floating_ball_visible`），并调用 `NativeChannel.start/stopFloatingBall()`
+  - `load()` 启动时读取开关状态并恢复悬浮球
+  - `_startFloatingBallIfReady()`：只有悬浮窗 + 辅助功能权限都具备时才启动
+- [manage_screen.dart](file:///workspace/Isolation/lib/screens/manage_screen.dart) 新增：
+  - 顶部按钮区下方插入 `_FloatingBallToggle` 卡片
+  - 卡片左侧显示图标，中间"显示悬浮球"+状态文字，右侧 Switch
+  - 点击整行或 Switch 都会触发
+  - 开启时若权限不足弹出确认对话框，引导用户去授权
+
+**与其他功能的关系**：
+
+| 操作 | 悬浮球行为 | 开关状态 |
+|------|------------|----------|
+| 启用宏且开关关闭 | 自动打开悬浮球并把开关置为开启 | 变为 on |
+| 启用宏且开关开启 | 重新启动悬浮球服务 | 保持 on |
+| 禁用宏 | 不关闭悬浮球 | 保持原状态 |
+| 手动关闭开关 | 立即隐藏悬浮球 | 变为 off |
+| 手动打开开关 | 检查权限后启动悬浮球 | 变为 on |
+| App 重启 | 读取 SharedPreferences，恢复开关状态 | 按持久化值 |
+
 ---
 
 ## 六、关键路径与依赖

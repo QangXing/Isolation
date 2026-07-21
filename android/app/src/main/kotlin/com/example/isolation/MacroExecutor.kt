@@ -33,7 +33,19 @@ class MacroExecutor(private val service: AccessibilityService) {
             this.listener = listener
         }
 
-        fun notifyFloatingBallClick(context: Context) {
+        /** 当前是否有宏正在运行 */
+        fun isRunning(): Boolean = activeExecutor?.running == true
+
+        /** 强制停止当前运行中的宏（用于服务销毁等清理场景） */
+        fun stopActive() {
+            activeExecutor?.stop()
+        }
+
+        /**
+         * 通知悬浮球被点击。仅在宏运行中调用，用于三连击强制停止。
+         * @return true 表示触发了停止，false 表示仅累加计数
+         */
+        fun notifyFloatingBallClick(context: Context): Boolean {
             val now = SystemClock.elapsedRealtime()
             if (now - lastClickTime > MULTI_CLICK_THRESHOLD_MS) {
                 clickCount = 0
@@ -45,13 +57,16 @@ class MacroExecutor(private val service: AccessibilityService) {
                 clickCount = 0
                 activeExecutor?.stop()
                 Toast.makeText(context, "已强制停止循环", Toast.LENGTH_SHORT).show()
+                return true
             }
+            return false
         }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var stopRequested = false
-    private var running = false
+    @Volatile
+    internal var running = false
 
     /**
      * find 块命中的坐标栈。click() 无参时取栈顶点击。

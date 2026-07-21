@@ -39,7 +39,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         private const val BUBBLE_GAP_DP = 12
         private const val BUBBLE_AUTO_HIDE_MS = 2500L
         private const val CLICK_SLOP_PX = 12
-        private const val LONG_CLICK_TIMEOUT_MS = 600L
+        private const val LONG_CLICK_TIMEOUT_MS = 400L
     }
 
     private var windowManager: WindowManager? = null
@@ -150,8 +150,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -159,6 +158,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
             y = 300
         }
         floatingParams = params
+        clampToScreen(params)
 
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_ball, null)
         val ball = floatingView!!.findViewById<ImageView>(R.id.floating_ball_image)
@@ -202,9 +202,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
                         kotlin.math.abs(dx) < CLICK_SLOP_PX &&
                         kotlin.math.abs(dy) < CLICK_SLOP_PX
                     ) {
-                        // 单击悬浮球：先反馈再触发宏
-                        MacroExecutor.notifyFloatingBallClick(this)
-                        runEnabledMacro()
+                        onBallSingleClick()
                     }
                     true
                 }
@@ -231,12 +229,17 @@ class FloatingBallService : Service(), MacroExecutorListener {
         if (params.y > maxY) params.y = maxY
     }
 
+    /**
+     * 返回应用可用区域（不含系统状态栏/导航栏），用于 clamp 悬浮球位置。
+     * 用 getDisplayMetrics 而非 getRealMetrics：后者包含物理屏幕全区域，
+     * 会让悬浮球被拖到状态栏或导航栏下方被系统 UI 遮挡。
+     */
     private fun screenSize(): Point {
         val out = Point()
         val wm = windowManager ?: return out
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
-        wm.defaultDisplay.getRealMetrics(metrics)
+        wm.defaultDisplay.getMetrics(metrics)
         out.x = metrics.widthPixels
         out.y = metrics.heightPixels
         return out
@@ -265,6 +268,23 @@ class FloatingBallService : Service(), MacroExecutorListener {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         startActivity(intent)
+    }
+
+    /**
+     * 悬浮球单击的统一处理：
+     * - 宏运行中：累加三连击计数，达 3 次则停止；否则提示"运行中"
+     * - 宏未运行：检查辅助功能与已启用宏，启动执行
+     */
+    private fun onBallSingleClick() {
+        if (MacroExecutor.isRunning()) {
+            // 宏运行中：累加三连击计数
+            val stopped = MacroExecutor.notifyFloatingBallClick(this)
+            if (!stopped) {
+                showBubble("宏运行中，三连击停止")
+            }
+            return
+        }
+        runEnabledMacro()
     }
 
     private fun runEnabledMacro() {
@@ -311,9 +331,17 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
         // 先确保气泡存在，能拿到尺寸
         if (bubbleView == null) {
+            val density = resources.displayMetrics.density
+            val bgDrawable = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                setColor(0xF2FFFFFF.toInt())
+                cornerRadius = 12 * density
+                setStroke(1, 0x33000000)
+            }
             bubbleView = TextView(this).apply {
-                setBackgroundResource(android.R.drawable.dialog_holo_light_frame)
-                setPadding(24, 12, 24, 12)
+                background = bgDrawable
+                setPadding((16 * density).toInt(), (10 * density).toInt(),
+                           (16 * density).toInt(), (10 * density).toInt())
                 setTextColor(android.graphics.Color.BLACK)
                 textSize = 13f
                 maxLines = 3
@@ -451,6 +479,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(longClickRunnable)
+        mainHandler.removeCallbacks(bubbleHideRunnable)
+        // 服务销毁时若有宏在跑，强制停止，避免泄漏
+        MacroExecutor.stopActive()
         hideFloatingBall()
         hideKeyboard()
         MacroExecutor.setListener(null)

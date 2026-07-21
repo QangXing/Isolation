@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/plugin_provider.dart';
+import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 import 'coordinate_debug_screen.dart';
 import 'macro_settings_screen.dart';
@@ -73,6 +74,9 @@ class ManageScreen extends StatelessWidget {
                       onTap: () => _openCoordinateDebug(context),
                       full: true,
                     ),
+                    const SizedBox(height: 12),
+                    // 悬浮球总开关
+                    _FloatingBallToggle(),
                   ],
                 ),
               ),
@@ -318,5 +322,109 @@ class _IconAction extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 悬浮球显示/隐藏总开关。
+class _FloatingBallToggle extends StatelessWidget {
+  const _FloatingBallToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<PluginProvider, bool>(
+      selector: (_, provider) => provider.floatingBallVisible,
+      builder: (context, visible, child) {
+        return GlassCard(
+          onTap: () => _onToggle(context, !visible),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: visible
+                      ? Colors.black87
+                      : Colors.black.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: Icon(
+                    Icons.touch_app_rounded,
+                    color: visible ? Colors.white : Colors.black.withValues(alpha: 0.6),
+                    size: 20,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '显示悬浮球',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black.withValues(alpha: 0.85),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      visible ? '悬浮球已显示在屏幕上' : '悬浮球已隐藏',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: visible,
+                onChanged: (value) => _onToggle(context, value),
+                activeColor: Colors.black87,
+                inactiveThumbColor: Colors.white,
+                inactiveTrackColor: Colors.black.withValues(alpha: 0.12),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _onToggle(BuildContext context, bool value) async {
+    final provider = context.read<PluginProvider>();
+    final hasOverlay = await NativeChannel.checkOverlayPermission();
+    final hasAccessibility = await NativeChannel.checkAccessibilityPermission();
+
+    if (value && (!hasOverlay || !hasAccessibility)) {
+      // 缺少权限时弹出提示，并引导用户去授权
+      if (!context.mounted) return;
+      final shouldGrant = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('需要权限'),
+          content: Text(
+            '显示悬浮球需要${!hasOverlay ? '悬浮窗' : ''}${!hasOverlay && !hasAccessibility ? '与' : ''}${!hasAccessibility ? '辅助功能' : ''}权限。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('去授权'),
+            ),
+          ],
+        ),
+      );
+      if (shouldGrant != true) return;
+      if (!hasOverlay) await NativeChannel.requestOverlayPermission();
+      if (!hasAccessibility) await NativeChannel.requestAccessibilityPermission();
+    }
+
+    await provider.setFloatingBallVisible(value);
   }
 }

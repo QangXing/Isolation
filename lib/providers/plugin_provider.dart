@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/macro.dart';
 import '../models/plugin.dart';
 import '../services/native_channel.dart';
@@ -15,6 +16,7 @@ class PluginProvider extends ChangeNotifier {
   bool _recording = false;
   List<Map<String, dynamic>> _recordedSteps = [];
   String? _runningMacroId;
+  bool _floatingBallVisible = false;
 
   List<Plugin> get plugins => _plugins;
   bool get loaded => _loaded;
@@ -22,12 +24,48 @@ class PluginProvider extends ChangeNotifier {
   List<Map<String, dynamic>> get recordedSteps => _recordedSteps;
   bool get isRunningMacro => _runningMacroId != null;
   String? get runningMacroId => _runningMacroId;
+  bool get floatingBallVisible => _floatingBallVisible;
 
   Future<void> load() async {
     await _manager.loadPlugins();
     _plugins = List.from(_manager.plugins);
     _loaded = true;
+
+    // 恢复悬浮球显示状态
+    final prefs = await SharedPreferences.getInstance();
+    _floatingBallVisible = prefs.getBool('floating_ball_visible') ?? false;
+    if (_floatingBallVisible) {
+      await _startFloatingBallIfReady();
+    }
+
     notifyListeners();
+  }
+
+  /// 设置悬浮球显隐开关（独立于宏启用状态）。
+  Future<void> setFloatingBallVisible(bool visible) async {
+    if (_floatingBallVisible == visible) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    _floatingBallVisible = visible;
+    await prefs.setBool('floating_ball_visible', visible);
+
+    if (visible) {
+      await _startFloatingBallIfReady();
+    } else {
+      await NativeChannel.stopFloatingBall();
+    }
+    notifyListeners();
+  }
+
+  /// 在拥有必要权限的前提下启动悬浮球。
+  Future<void> _startFloatingBallIfReady() async {
+    final hasOverlay = await NativeChannel.checkOverlayPermission();
+    final hasAccessibility = await NativeChannel.checkAccessibilityPermission();
+    if (!hasOverlay || !hasAccessibility) {
+      // 权限不足时不启动，也不自动跳转；保持开关开启，用户下次切回可继续操作
+      return;
+    }
+    await NativeChannel.startFloatingBall();
   }
 
   Future<bool> importPlugin(String path) async {
@@ -60,10 +98,15 @@ class PluginProvider extends ChangeNotifier {
           await NativeChannel.requestAccessibilityPermission();
         }
         await _writeEnabledMacro(plugin);
-        await NativeChannel.startFloatingBall();
+        // 启用宏时若没有开启悬浮球，自动开启以便执行；并把状态持久化
+        if (!_floatingBallVisible) {
+          await setFloatingBallVisible(true);
+        } else {
+          await NativeChannel.startFloatingBall();
+        }
       } else {
         await _clearEnabledMacro();
-        await NativeChannel.stopFloatingBall();
+        // 关闭宏时不影响独立悬浮球开关；用户可在管理页手动关闭
       }
     }
     _plugins = List.from(_manager.plugins);
