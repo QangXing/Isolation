@@ -179,6 +179,62 @@ Isolation 是一款 Android 平台的**跨应用自动化宏插件应用**，将
 
 ---
 
+### 2.4 Bug 4：`find(image=...)` / `if(image=...)` 图片匹配不准确
+
+**现象**：编程宏使用 `find(image="...")` 或 `if(image="...")` 判断屏幕上的图片时，经常找不到目标或位置偏差较大。
+
+**根因分析**：
+
+- 早期实现只做单一尺度的 OpenCV 模板匹配，当目标 App 的 UI 缩放、字体大小、分辨率与模板不一致时，匹配分数低于阈值。
+- 没有颜色校验，灰度匹配在颜色相近但形状不同的区域容易误命中。
+- 没有降噪处理，屏幕截图中的压缩噪点会拉低匹配分数。
+
+**修复方向**：
+
+- 多尺度匹配：模板在 0.8x ~ 1.2x 范围内逐步缩放，取最优匹配。
+- 高斯模糊：匹配前对模板和屏幕截图做 3x3 模糊，降低噪点影响。
+- 颜色通道匹配：灰度匹配分数不足时，在 RGB 空间再做一次跨尺度匹配，取最高分为准。
+
+**位置**：`android/app/src/main/kotlin/com/example/isolation/ImageFinder.kt`。
+
+### 2.5 Bug 5：图片裁剪框无法移动/缩放
+
+**现象**：导入图片作为模板时，裁剪框是固定矩形，不能拖动、放大或缩小。
+
+**根因分析**：原 `ImageCropScreen` 只展示一个静态矩形遮罩，没有手势处理。
+
+**修复方向**：改为圆形裁剪框，支持 `GestureDetector.onScaleUpdate` 拖动与捏合缩放，右下角同时提供单指缩放手柄；裁剪结果保持 1:1 正圆，最长边不超过 320px。
+
+**位置**：`lib/screens/image_crop_screen.dart`。
+
+### 2.6 Bug 6：专业编程区行号不对齐
+
+**现象**：`ProfessionalEditorScreen` 左侧行号与右侧代码行的垂直位置不一致，代码换行后错位更明显。
+
+**根因分析**：行号高度按固定单倍行高计算，没有考虑自动换行导致的实际行高变化。
+
+**修复方向**：使用 `TextPainter.computeLineMetrics()` 动态计算每一逻辑行的视觉高度，同步滚动控制器，使行号与代码行一一对应。
+
+**位置**：`lib/screens/professional_editor_screen.dart`。
+
+### 2.7 Bug 7：悬浮球固定提示语覆盖 `print` 输出
+
+**现象**：宏执行时悬浮球先弹出“开始执行宏”“宏运行中”等固定气泡，随后被“执行第 N 步”等框架状态覆盖，导致宏内 `print("...")` 的内容一闪而过或根本看不到。
+
+**根因分析**：`MacroExecutor` 每执行一步都 `postStatus("执行第 N 步: ...")`，与 `print` 共用同一个 `onMacroStatus` 通道；`FloatingBallService` 对所有状态都弹气泡，print 消息被框架状态快速替换。
+
+**修复方向**：
+
+- 将 `print` 与框架生命周期状态分离，`MacroExecutorListener` 新增 `onMacroPrint(message)`。
+- `print` 指令只触发 `onMacroPrint`。
+- `FloatingBallService` 只在 `onMacroPrint` 时显示气泡，框架状态不再占用水泡。
+- 录制停止时自动在宏首尾插入 `print("开始")` / `print("完成")`，替代原来的固定提示语。
+- 修复 `showBubble` 水平方向未裁剪导致的越屏/遮挡问题。
+
+**位置**：`FloatingBallService.kt`、`MacroExecutor.kt`、`RecordingScreen.dart`。
+
+---
+
 ## 三、改进建议
 
 ### 3.1 改进 1：宏互斥启用
@@ -712,6 +768,91 @@ Container(
 
 ---
 
+### 5.19 图片识别、圆形裁剪、行号对齐、DSL 循环与悬浮球 print 输出
+
+本轮改动对应两次连续迭代：
+
+- 第一次：提升图片匹配准确度、圆形可交互裁剪框、修复行号对齐、移除旧智能识别设置、DSL 支持 `find(loop)` 无限循环。
+- 第二次：悬浮球删除固定提示语、录制默认插入 `print`、修复 `print` 在悬浮球附近的显示。
+
+#### 5.19.1 图片模板匹配增强
+
+**改动文件**：[ImageFinder.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/ImageFinder.kt)
+
+- 新增 `matchMultiScale`：模板在 `[minScale, maxScale]`（默认 0.8 ~ 1.2）范围内按 `scaleStep`（默认 0.1）逐步缩放，使用 `TM_CCOEFF_NORMED` 灰度匹配。
+- 新增 `matchMultiScaleColor`：在 BGR 三通道分别做跨尺度模板匹配，再取三通道平均相关度。
+- 匹配前可选 3x3 高斯模糊降噪，默认开启。
+- 执行流程：先灰度多尺度匹配；若分数不足阈值且 `useColor=true`，再跑颜色匹配；最终取两者最高分为命中结果。
+- 命中坐标会加上 `region` 搜索区域偏移，返回屏幕绝对坐标。
+
+#### 5.19.2 圆形裁剪框
+
+**改动文件**：[ImageCropScreen.dart](file:///workspace/Isolation/lib/screens/image_crop_screen.dart)
+
+- 裁剪框从矩形改为正圆形，始终维持宽高比 1.0。
+- 支持手势：
+  - `onScaleUpdate`：单指拖动改变圆心、双指捏合缩放直径。
+  - 右下角缩放手柄：单指拖动调整直径。
+- 圆心/直径限制在图片显示区域内，不会越界。
+- 输出时按像素比例映射回原图，再裁剪为正方形；若最长边超过 `maxOutputSize`（默认 320），用立方插值缩放。
+
+#### 5.19.3 专业编程区行号对齐
+
+**改动文件**：[ProfessionalEditorScreen.dart](file:///workspace/Isolation/lib/screens/professional_editor_screen.dart)
+
+- 用 `TextPainter.computeLineMetrics()` 根据 `TextField` 实际可用宽度，逐行计算每逻辑行对应的视觉行高。
+- 左侧行号 gutter 的每个数字容器高度与右侧对应逻辑行高度完全一致，自动换行不再错位。
+- 编辑/滚动时两个 `ScrollController` 同步 offset。
+
+#### 5.19.4 移除旧智能识别设置与 `find(loop)` 无限循环
+
+**改动文件**：
+
+- [ProgramMacroScreen.dart](file:///workspace/Isolation/lib/screens/program_macro_screen.dart)
+- [MacroProgramParser.dart](file:///workspace/Isolation/lib/services/macro_program_parser.dart)
+- [MacroExecutor.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MacroExecutor.kt)
+- [MacroSettings / StepColor](file:///workspace/Isolation/lib/models/macro.dart)（简化，保留字段仅用于旧数据反序列化兼容）
+
+- 删除 `ProgramMacroScreen` 中的智能识别开关、循环次数、无限循环开关。
+- 循环统一使用 `for(n) { ... }`。
+- 新增 `find(loop) { ... }` 表示无限循环：
+  - DSL 解析器识别 `loop` 参数为 `true` 的步骤。
+  - `MacroExecutor.executeFindStep` 中 `loop == true` 时 `while (!stopRequested)` 持续执行子块。
+- 内部颜色判断通过 `if(find(color=0xRRGGBB, tolerance=20)) { ... }` 完成，不再依赖全局智能识别开关。
+- 示例模板更新为：
+  ```dsl
+  print("开始")
+  find(loop) {
+      find(text="签到") { click() }
+      wait(1000)
+  }
+  print("完成")
+  ```
+
+#### 5.19.5 悬浮球固定提示语删除与 `print` 输出修复
+
+**改动文件**：
+
+- [FloatingBallService.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt)
+- [MacroExecutor.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MacroExecutor.kt)
+- [RecordingScreen.dart](file:///workspace/Isolation/lib/screens/recording_screen.dart)
+
+- 删除 `FloatingBallService` 中“开始执行宏”“宏运行中，三连击停止”“未启用宏”等固定气泡提示；未就绪/未启用等关键错误改用 `Toast`。
+- `MacroExecutorListener` 新增 `onMacroPrint(message)`；`print` 指令不再走 `onMacroStatus`，避免被步骤状态覆盖。
+- `FloatingBallService` 仅在 `onMacroPrint` 时显示气泡，框架生命周期状态不再显示。
+- `MacroExecutor.executeStep` 移除每步的 `postStatus("执行第 N 步: $type")`，print 内容可在气泡中持续显示。
+- `showBubble` 修复：
+  - 水平方向做 `[0, screen.x - bubbleW]` 裁剪。
+  - 增加 `FLAG_LAYOUT_NO_LIMITS`。
+  - 气泡最大宽度限制为屏幕宽度的 70%。
+  - 增加 `ellipsize = END` 与 `maxLines = 4`。
+- `RecordingScreen`：
+  - 删除智能识别、循环次数、无限循环设置面板。
+  - 录制停止后自动在步骤列表首尾插入 `print("开始")` 与 `print("完成")`。
+  - 保存时统一使用 `const MacroSettings()`。
+
+---
+
 ## 六、关键路径与依赖
 
 ```
@@ -728,6 +869,9 @@ Container(
     │
     ▼
 [改进3：录制页代码视图]                      ← 第五步（Flutter UI 层，已完成）
+    │
+    ▼
+[图片识别/裁剪/行号/循环/print]              ← 第六步（已完成）
 ```
 
 ---
