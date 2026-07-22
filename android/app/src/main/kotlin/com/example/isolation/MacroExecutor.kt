@@ -183,7 +183,7 @@ class MacroExecutor(
             return
         }
         // 无坐标参数：在 find 块内点击最近命中的坐标
-        val coord = foundCoordinates.peek()
+        val coord = foundCoordinates.firstOrNull()
         if (coord != null) {
             dispatchClick(coord.first, coord.second)
         } else {
@@ -224,11 +224,11 @@ class MacroExecutor(
             val point = ImageFinder.find(service, assetsDir, imageName, threshold, region)
             if (point != null) {
                 postStatus("find: 图片命中 (${point.x}, ${point.y})")
-                foundCoordinates.push(Pair(point.x, point.y))
+                foundCoordinates.addFirst(Pair(point.x, point.y))
                 try {
                     executeSteps(children, smartRecognition)
                 } finally {
-                    foundCoordinates.poll()
+                    foundCoordinates.removeFirstOrNull()
                 }
             } else {
                 postStatus("find: 未找到图片")
@@ -248,11 +248,11 @@ class MacroExecutor(
             val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance)
             if (point != null) {
                 postStatus("find: 颜色命中 (${point.x}, ${point.y})")
-                foundCoordinates.push(Pair(point.x, point.y))
+                foundCoordinates.addFirst(Pair(point.x, point.y))
                 try {
                     executeSteps(children, smartRecognition)
                 } finally {
-                    foundCoordinates.poll()
+                    foundCoordinates.removeFirstOrNull()
                 }
             } else {
                 postStatus("find: 未找到颜色")
@@ -277,11 +277,11 @@ class MacroExecutor(
             val cx = (rect.left + rect.right) / 2
             val cy = (rect.top + rect.bottom) / 2
             postStatus("find: 节点命中 ($cx, $cy)")
-            foundCoordinates.push(Pair(cx, cy))
+            foundCoordinates.addFirst(Pair(cx, cy))
             try {
                 executeSteps(children, smartRecognition)
             } finally {
-                foundCoordinates.poll()
+                foundCoordinates.removeFirstOrNull()
             }
         } else {
             postStatus("find: 节点未命中")
@@ -314,11 +314,11 @@ class MacroExecutor(
         // 条件命中时把坐标压栈，then 块内可用 click() 直接点击
         val matchedCoord = evaluateConditionWithCoord(condition)
         if (matchedCoord != null) {
-            foundCoordinates.push(matchedCoord)
+            foundCoordinates.addFirst(matchedCoord)
             try {
                 executeSteps(then, smartRecognition)
             } finally {
-                foundCoordinates.poll()
+                foundCoordinates.removeFirstOrNull()
             }
         } else {
             executeSteps(elseBranch, smartRecognition)
