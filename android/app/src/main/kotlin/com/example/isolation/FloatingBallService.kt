@@ -414,16 +414,12 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     /**
      * 悬浮球单击的统一处理：
-     * - 宏运行中：累加三连击计数，达 3 次则停止；否则提示"运行中"
+     * - 宏运行中：累加三连击计数，达 3 次则停止
      * - 宏未运行：检查辅助功能与已启用宏，启动执行
      */
     private fun onBallSingleClick() {
         if (MacroExecutor.isRunning()) {
-            // 宏运行中：累加三连击计数
-            val stopped = MacroExecutor.notifyFloatingBallClick(this)
-            if (!stopped) {
-                showBubble("宏运行中，三连击停止")
-            }
+            MacroExecutor.notifyFloatingBallClick(this)
             return
         }
         runEnabledMacro()
@@ -433,31 +429,35 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val state = InputAccessibilityService.readinessState(this)
         when (state) {
             1 -> {
-                showBubble("请先开启辅助功能")
+                Toast.makeText(this, "请先开启辅助功能", Toast.LENGTH_SHORT).show()
                 return
             }
             2 -> {
-                showBubble("辅助服务启动中")
+                Toast.makeText(this, "辅助服务启动中", Toast.LENGTH_SHORT).show()
                 return
             }
         }
         val macro = loadEnabledMacro()
         if (macro == null || macro.steps.isEmpty()) {
-            showBubble("未启用宏")
+            Toast.makeText(this, "未启用宏", Toast.LENGTH_SHORT).show()
             return
         }
-        showBubble("开始执行宏")
         InputAccessibilityService.executeMacro(this, macro.settings, macro.steps)
     }
 
     override fun onMacroStatus(message: String) {
+        // 框架生命周期状态（开始执行/任务完成等）不再弹气泡，避免覆盖 print 输出
+    }
+
+    override fun onMacroPrint(message: String) {
         mainHandler.post {
             showBubble(message)
         }
     }
 
     /**
-     * 在悬浮球附近显示气泡。自动选择左右方向，避免超出屏幕；上下方向也会做裁剪。
+     * 在悬浮球附近显示气泡。自动选择左右方向，水平/垂直方向均做边界裁剪，
+     * 确保 print 消息不会被截断或跑到屏幕外。
      */
     private fun showBubble(message: String) {
         if (windowManager == null || floatingView == null) return
@@ -473,7 +473,6 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
         // 先确保气泡存在，能拿到尺寸
         if (bubbleView == null) {
-            val density = resources.displayMetrics.density
             val bgDrawable = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 setColor(0xF2FFFFFF.toInt())
@@ -486,7 +485,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
                            (16 * density).toInt(), (10 * density).toInt())
                 setTextColor(android.graphics.Color.BLACK)
                 textSize = 13f
-                maxLines = 3
+                maxLines = 4
+                ellipsize = android.text.TextUtils.TruncateAt.END
             }
             bubbleParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -495,7 +495,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 else
                     WindowManager.LayoutParams.TYPE_PHONE,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
@@ -510,9 +511,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
         bubbleView?.text = message
         bubbleView?.visibility = View.VISIBLE
 
-        // 触发一次测量
+        // 触发一次测量，最大宽度限制为屏幕宽度的 70%，避免过长消息撑满全屏
+        val maxBubbleW = (screen.x * 0.7).toInt()
         bubbleView?.measure(
-            View.MeasureSpec.makeMeasureSpec(screen.x, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(maxBubbleW, View.MeasureSpec.AT_MOST),
             View.MeasureSpec.makeMeasureSpec(screen.y, View.MeasureSpec.AT_MOST)
         )
         val bubbleW = bubbleView?.measuredWidth ?: 0
@@ -520,11 +522,15 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
         // 默认放在悬浮球右侧；右侧空间不足则放左侧
         val putRight = ballCenterX + ballSizePx / 2 + gap + bubbleW <= screen.x
-        val bubbleX = if (putRight) {
+        var bubbleX = if (putRight) {
             ballParams.x + ballSizePx + gap
         } else {
             ballParams.x - gap - bubbleW
         }
+
+        // 水平方向裁剪，确保不会超出屏幕
+        if (bubbleX < 0) bubbleX = 0
+        if (bubbleX + bubbleW > screen.x) bubbleX = screen.x - bubbleW
 
         // 垂直方向：相对悬浮球中心对齐，并做边界裁剪
         var bubbleY = ballCenterY - bubbleH / 2

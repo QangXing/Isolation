@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../models/macro.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
-import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 
 class RecordingScreen extends StatefulWidget {
@@ -18,9 +17,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
   bool _codeView = false;
   List<Map<String, dynamic>> _steps = [];
   late final TextEditingController _codeController;
-  bool _smartRecognition = false;
-  int _loopCount = 1;
-  bool _infiniteLoop = false;
 
   @override
   void initState() {
@@ -158,104 +154,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
             ),
           ),
         ),
-        _buildSettingsPanel(),
         _buildControlBar(context, provider),
       ],
-    );
-  }
-
-  Widget _buildSettingsPanel() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.colorize_rounded, size: 18, color: Colors.black.withValues(alpha: 0.6)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '智能识别（局部像素颜色）',
-                  style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.75)),
-                ),
-              ),
-              Switch(
-                value: _smartRecognition,
-                onChanged: (value) => setState(() => _smartRecognition = value),
-                activeColor: Colors.black87,
-              ),
-            ],
-          ),
-          if (!_infiniteLoop)
-            Row(
-              children: [
-                Icon(Icons.loop_rounded, size: 18, color: Colors.black.withValues(alpha: 0.6)),
-                const SizedBox(width: 8),
-                Text(
-                  '循环次数',
-                  style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.75)),
-                ),
-                const SizedBox(width: 12),
-                _LoopChip(
-                  label: '1',
-                  selected: _loopCount == 1 && !_infiniteLoop,
-                  onTap: () => setState(() {
-                    _loopCount = 1;
-                    _infiniteLoop = false;
-                  }),
-                ),
-                const SizedBox(width: 8),
-                _LoopChip(
-                  label: '3',
-                  selected: _loopCount == 3,
-                  onTap: () => setState(() {
-                    _loopCount = 3;
-                    _infiniteLoop = false;
-                  }),
-                ),
-                const SizedBox(width: 8),
-                _LoopChip(
-                  label: '5',
-                  selected: _loopCount == 5,
-                  onTap: () => setState(() {
-                    _loopCount = 5;
-                    _infiniteLoop = false;
-                  }),
-                ),
-              ],
-            ),
-          Row(
-            children: [
-              Icon(Icons.all_inclusive_rounded, size: 18, color: Colors.black.withValues(alpha: 0.6)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '无限循环（三连击悬浮球停止）',
-                  style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.75)),
-                ),
-              ),
-              Switch(
-                value: _infiniteLoop,
-                onChanged: (value) => setState(() => _infiniteLoop = value),
-                activeColor: Colors.black87,
-              ),
-            ],
-          ),
-          if (_smartRecognition)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                '开启后录制每一步都会记录点击位置的像素颜色，并在执行前等待颜色匹配。需要屏幕录制权限。',
-                style: TextStyle(fontSize: 11, color: Colors.grey.withValues(alpha: 0.7), height: 1.4),
-              ),
-            ),
-        ],
-      ),
     );
   }
 
@@ -380,10 +280,13 @@ class _RecordingScreenState extends State<RecordingScreen> {
               final step = _steps[index];
               final target = step['target'] as Map<String, dynamic>?;
               final color = step['color'] as Map<String, dynamic>?;
-              final label = target?['text'] as String? ??
-                  target?['resourceId'] as String? ??
-                  target?['className'] as String? ??
-                  '坐标点击';
+              final label = switch (step['type']) {
+                'print' => step['message']?.toString() ?? '',
+                _ => target?['text'] as String? ??
+                    target?['resourceId'] as String? ??
+                    target?['className'] as String? ??
+                    '坐标点击',
+              };
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: GlassCard(
@@ -498,26 +401,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }
 
   Future<void> _startRecording(BuildContext context, PluginProvider provider) async {
-    if (_smartRecognition) {
-      final granted = await NativeChannel.checkScreenCapturePermission();
-      if (!granted) {
-        final requested = await NativeChannel.requestScreenCapturePermission();
-        if (!requested) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('智能识别需要屏幕录制权限'),
-                behavior: SnackBarBehavior.floating,
-                backgroundColor: Colors.redAccent,
-              ),
-            );
-          }
-          return;
-        }
-      }
-    }
-
-    final started = await provider.startRecording(captureColors: _smartRecognition);
+    final started = await provider.startRecording(captureColors: false);
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -534,9 +418,15 @@ class _RecordingScreenState extends State<RecordingScreen> {
     final converted = MacroProgramParser.convertLegacySteps(
       List<Map<String, dynamic>>.from(steps),
     );
+    // 录制结果默认首尾加 print，替代原来悬浮球固定提示语
+    final wrapped = <Map<String, dynamic>>[
+      {'type': 'print', 'message': '开始'},
+      ...converted,
+      {'type': 'print', 'message': '完成'},
+    ];
     setState(() {
-      _steps = converted;
-      _showEditor = converted.isNotEmpty;
+      _steps = wrapped;
+      _showEditor = wrapped.isNotEmpty;
     });
   }
 
@@ -588,10 +478,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       // 保存前若处于代码视图，先把代码解析回 _steps，避免丢失手动编辑
       if (_codeView) _syncStepsFromCode();
       provider.updateRecordedSteps(_steps);
-      final settings = MacroSettings(
-        smartRecognition: _smartRecognition,
-        loopCount: _infiniteLoop ? 0 : _loopCount,
-      );
+      const settings = MacroSettings();
       final success = await provider.saveMacroPlugin(
         name: name,
         description: description,
@@ -611,36 +498,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
         }
       }
     }
-  }
-}
-
-class _LoopChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _LoopChip({required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        decoration: BoxDecoration(
-          color: selected ? Colors.black87 : Colors.black.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: selected ? Colors.white : Colors.black87,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
   }
 }
 

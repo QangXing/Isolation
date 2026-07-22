@@ -18,6 +18,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 interface MacroExecutorListener {
     fun onMacroStatus(message: String)
+
+    /** 宏内部 print(...) 输出，与框架生命周期状态分离 */
+    fun onMacroPrint(message: String) {}
 }
 
 class MacroExecutor(
@@ -135,7 +138,6 @@ class MacroExecutor(
     /** 执行单个步骤 */
     private fun executeStep(step: Map<String, Any>, stepNumber: Int) {
         val type = step["type"] as? String ?: return
-        postStatus("执行第 $stepNumber 步: $type")
 
         val delay = (step["delay"] as? Number)?.toLong() ?: 0L
         if (delay > 0) Thread.sleep(delay)
@@ -147,7 +149,7 @@ class MacroExecutor(
             "roll" -> executeRollStep(step)
             "print" -> {
                 val msg = step["message"] as? String ?: ""
-                if (msg.isNotEmpty()) postStatus(msg)
+                if (msg.isNotEmpty()) postPrint(msg)
             }
             "wait" -> {
                 val duration = (step["duration"] as? Number)?.toLong() ?: 0L
@@ -557,6 +559,16 @@ class MacroExecutor(
                 snapshot = listeners.toList()
             }
             snapshot.forEach { it.onMacroStatus(message) }
+        }
+    }
+
+    private fun postPrint(message: String) {
+        mainHandler.post {
+            val snapshot: List<MacroExecutorListener>
+            synchronized(listeners) {
+                snapshot = listeners.toList()
+            }
+            snapshot.forEach { it.onMacroPrint(message) }
         }
     }
 }
