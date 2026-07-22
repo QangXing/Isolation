@@ -1,6 +1,6 @@
 class MacroSettings {
   final bool smartRecognition;
-  final int loopCount; // -1 for infinite, 0 treated as 1
+  final int loopCount;
 
   const MacroSettings({
     this.smartRecognition = false,
@@ -26,28 +26,6 @@ class MacroSettings {
       loopCount: loopCount ?? this.loopCount,
     );
   }
-}
-
-class StepColor {
-  final int x;
-  final int y;
-  final int color; // ARGB
-
-  StepColor({required this.x, required this.y, required this.color});
-
-  factory StepColor.fromJson(Map<String, dynamic> json) {
-    return StepColor(
-      x: json['x'] as int,
-      y: json['y'] as int,
-      color: json['color'] as int,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-        'x': x,
-        'y': y,
-        'color': color,
-      };
 }
 
 class MacroData {

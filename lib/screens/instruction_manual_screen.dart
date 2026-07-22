@@ -108,6 +108,12 @@ class InstructionManualScreen extends StatelessWidget {
             description: '将块内指令重复执行 n 次。',
             example: 'for(3) {\n  roll(0, 300, 400)\n  wait(500)\n}',
           ),
+          _InstructionCard(
+            title: '无限循环查找',
+            syntax: 'find(loop) { ... }',
+            description: '找到目标后持续循环执行块内指令,直到通过三连击悬浮球手动停止。适用于轮询签到、刷新奖励等场景。',
+            example: 'find(loop) {\n  find(text="签到") {\n    click()\n    wait(1000)\n  }\n}',
+          ),
           _SectionTitle('系统按键'),
           _InstructionCard(
             title: '返回 / 主页 / 最近任务',

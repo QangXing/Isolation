@@ -21,6 +21,7 @@ class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
   late final CodeEditingController _controller;
   final ScrollController _editorScrollController = ScrollController();
   final ScrollController _lineNumberScrollController = ScrollController();
+  late final Widget _editorField;
 
   static const List<String> _quickSymbolsRow1 = [
     '{', '}', '(', ')', ';', ',', '%', '=', '"', "'", '[', ']', '#', '->',
@@ -29,10 +30,29 @@ class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
     '+', '-', '*', '/', '<', '>', '\\', '|', '&', '!', '~', ':', '_', '<-',
   ];
 
+  static const double _gutterWidth = 42;
+  static const double _fontSize = 14;
+  static const double _lineHeightFactor = 1.5;
+  static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(8, 12, 12, 12);
+
+  static const TextStyle _textStyle = TextStyle(
+    fontFamily: 'monospace',
+    fontSize: _fontSize,
+    color: Color(0xFFE0E0E0),
+    height: _lineHeightFactor,
+  );
+
+  static final TextStyle _lineNumberStyle = _textStyle.copyWith(
+    color: const Color(0xFF6E6E6E),
+  );
+
+  double get _singleLineHeight => _fontSize * _lineHeightFactor;
+
   @override
   void initState() {
     super.initState();
     _controller = CodeEditingController(text: widget.initialText);
+    _editorField = _buildEditor();
     _editorScrollController.addListener(_syncLineNumbers);
   }
 
@@ -60,10 +80,6 @@ class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
     _controller.selection = TextSelection.collapsed(offset: pos + symbol.length);
   }
 
-  int get _lineCount {
-    return '\n'.allMatches(_controller.text).length + 1;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -71,14 +87,7 @@ class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            Expanded(
-              child: Row(
-                children: [
-                  _buildLineNumberGutter(),
-                  Expanded(child: _buildEditor()),
-                ],
-              ),
-            ),
+            Expanded(child: _buildEditorArea()),
             _buildQuickSymbolBar(),
             _buildBottomActionBar(),
           ],
@@ -87,40 +96,71 @@ class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
     );
   }
 
-  Widget _buildLineNumberGutter() {
+  Widget _buildEditorArea() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final editorWidth = constraints.maxWidth - _gutterWidth;
+        final textWidth = (editorWidth - _contentPadding.horizontal).clamp(
+          0.0,
+          double.infinity,
+        );
+        return ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _controller,
+          builder: (context, value, child) {
+            final lineHeights = _computeLineHeights(textWidth);
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLineNumberGutter(lineHeights),
+                Expanded(child: child!),
+              ],
+            );
+          },
+          child: _editorField,
+        );
+      },
+    );
+  }
+
+  List<double> _computeLineHeights(double maxWidth) {
+    final painter = TextPainter(
+      textDirection: TextDirection.ltr,
+      text: const TextSpan(),
+    );
+    return _controller.text.split('\n').map((line) {
+      painter.text = TextSpan(text: line, style: _textStyle);
+      painter.layout(minWidth: 0, maxWidth: maxWidth);
+      final visualLines = painter.computeLineMetrics().length;
+      return visualLines * _singleLineHeight;
+    }).toList();
+  }
+
+  Widget _buildLineNumberGutter(List<double> lineHeights) {
     return Container(
-      width: 42,
+      width: _gutterWidth,
       color: const Color(0xFF1A1A1A),
       child: SingleChildScrollView(
         controller: _lineNumberScrollController,
         physics: const NeverScrollableScrollPhysics(),
-        child: ValueListenableBuilder<TextEditingValue>(
-          valueListenable: _controller,
-          builder: (context, value, child) {
-            final lines = _lineCount;
-            return Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: List.generate(lines, (index) {
-                  return Container(
-                    height: 21,
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Text(
-                      '${index + 1}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF6E6E6E),
-                        fontFamily: 'monospace',
-                        height: 1.5,
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            );
-          },
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: _contentPadding.top,
+            bottom: _contentPadding.bottom,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(lineHeights.length, (index) {
+              return Container(
+                height: lineHeights[index],
+                alignment: Alignment.topRight,
+                padding: const EdgeInsets.only(right: 8),
+                child: Text(
+                  '${index + 1}',
+                  style: _lineNumberStyle,
+                ),
+              );
+            }),
+          ),
         ),
       ),
     );
@@ -134,14 +174,9 @@ class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
       expands: true,
       keyboardType: TextInputType.multiline,
       textInputAction: TextInputAction.newline,
-      style: const TextStyle(
-        fontFamily: 'monospace',
-        fontSize: 14,
-        color: Color(0xFFE0E0E0),
-        height: 1.5,
-      ),
+      style: _textStyle,
       decoration: const InputDecoration(
-        contentPadding: EdgeInsets.fromLTRB(8, 12, 12, 12),
+        contentPadding: _contentPadding,
         border: InputBorder.none,
         hintText: '在此输入宏代码…',
         hintStyle: TextStyle(color: Color(0xFF757575)),

@@ -5,7 +5,6 @@ import '../models/macro.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
-import '../widgets/glass_card.dart';
 import 'image_crop_screen.dart';
 import 'professional_editor_screen.dart';
 
@@ -21,35 +20,40 @@ class ProgramMacroScreen extends StatefulWidget {
 
 class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
   final CodeEditingController _codeController = CodeEditingController();
-  bool _smartRecognition = false;
-  int _loopCount = 1;
-  bool _infiniteLoop = false;
   bool _loading = true;
   String _initialName = '';
   List<String> _assets = [];
 
   static const String _template = '''// 编程宏示例
 print("开始")
-// 通过颜色找到目标后点击
+
+// 按文字查找并点击
+find(text="签到") {
+    click()
+    wait(500)
+}
+
+// 无限循环查找（常用于轮询签到按钮）
+find(loop) {
+    find(text="签到") {
+        click()
+        wait(1000)
+    }
+}
+
+// 按颜色查找并点击
 find(color=0xFF5000, tolerance=20) {
     click()
     wait(500)
 }
-// 通过节点文字找到目标后点击
-find(text="签到") {
-    click()
-    roll(0, 300, 400)
-    wait(500)
-}
-for(3) {
-    roll(0, 300, 400)
-    wait(500)
-}
-if(find(color=0x00FF00)) {
+
+// 条件判断
+if(find(color=0x00FF00, tolerance=20)) {
     click()
 } else {
     print("今日无奖励")
 }
+
 print("完成")
 ''';
 
@@ -65,9 +69,6 @@ print("完成")
       final data = await provider.loadMacroData(widget.pluginId!);
       if (data != null) {
         _codeController.text = MacroProgramParser.serialize(data.steps);
-        _smartRecognition = data.settings.smartRecognition;
-        _loopCount = data.settings.loopCount == 0 ? 1 : data.settings.loopCount;
-        _infiniteLoop = data.settings.loopCount <= 0;
         final plugin =
             provider.plugins.firstWhere((p) => p.id == widget.pluginId);
         _initialName = plugin.name;
@@ -121,7 +122,6 @@ print("完成")
                 _buildInstructionBar(),
                 if (_assets.isNotEmpty) _buildAssetsBar(),
                 Expanded(child: _buildCodeEditor()),
-                _buildSettingsPanel(),
                 _buildBottomBar(context),
               ],
             ),
@@ -417,98 +417,6 @@ print("完成")
     }
   }
 
-  Widget _buildSettingsPanel() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.colorize_rounded,
-                  size: 18, color: Colors.black.withValues(alpha: 0.6)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '智能识别（局部像素颜色）',
-                  style: TextStyle(
-                      fontSize: 13, color: Colors.black.withValues(alpha: 0.75)),
-                ),
-              ),
-              Switch(
-                value: _smartRecognition,
-                onChanged: (v) => setState(() => _smartRecognition = v),
-                activeColor: Colors.black87,
-              ),
-            ],
-          ),
-          if (!_infiniteLoop)
-            Row(
-              children: [
-                Icon(Icons.loop_rounded,
-                    size: 18, color: Colors.black.withValues(alpha: 0.6)),
-                const SizedBox(width: 8),
-                Text('循环次数',
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.black.withValues(alpha: 0.75))),
-                const SizedBox(width: 12),
-                _LoopChip(
-                  label: '1',
-                  selected: _loopCount == 1 && !_infiniteLoop,
-                  onTap: () => setState(() {
-                    _loopCount = 1;
-                    _infiniteLoop = false;
-                  }),
-                ),
-                const SizedBox(width: 8),
-                _LoopChip(
-                  label: '3',
-                  selected: _loopCount == 3,
-                  onTap: () => setState(() {
-                    _loopCount = 3;
-                    _infiniteLoop = false;
-                  }),
-                ),
-                const SizedBox(width: 8),
-                _LoopChip(
-                  label: '5',
-                  selected: _loopCount == 5,
-                  onTap: () => setState(() {
-                    _loopCount = 5;
-                    _infiniteLoop = false;
-                  }),
-                ),
-              ],
-            ),
-          Row(
-            children: [
-              Icon(Icons.all_inclusive_rounded,
-                  size: 18, color: Colors.black.withValues(alpha: 0.6)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '无限循环（三连击悬浮球停止）',
-                  style: TextStyle(
-                      fontSize: 13, color: Colors.black.withValues(alpha: 0.75)),
-                ),
-              ),
-              Switch(
-                value: _infiniteLoop,
-                onChanged: (v) => setState(() => _infiniteLoop = v),
-                activeColor: Colors.black87,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBottomBar(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 6, 20, 24),
@@ -653,10 +561,7 @@ print("完成")
     final name =
         nameController.text.trim().isEmpty ? '未命名宏' : nameController.text.trim();
     final description = descController.text.trim();
-    final settings = MacroSettings(
-      smartRecognition: _smartRecognition,
-      loopCount: _infiniteLoop ? 0 : _loopCount,
-    );
+    const settings = MacroSettings();
 
     final success = await provider.saveMacroPlugin(
       name: name,
@@ -718,40 +623,6 @@ class _InstructionChip extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LoopChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _LoopChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        decoration: BoxDecoration(
-          color: selected ? Colors.black87 : Colors.black.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: selected ? Colors.white : Colors.black87,
-            fontWeight: FontWeight.w600,
-          ),
         ),
       ),
     );

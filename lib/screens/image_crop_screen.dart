@@ -4,13 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
-/// 简单矩形裁剪页。
+/// 圆形裁剪页。
 ///
-/// 图片保持比例显示，用户可以拖动/缩放一个矩形裁剪框，
-/// 输出图片最长边不超过 [maxOutputSize]（默认 320），等比缩放。
+/// 图片保持比例显示，用户可以拖动/捏合缩放一个圆形裁剪框，
+/// 右下角也提供手柄进行单指缩放。输出图片最长边不超过 [maxOutputSize]（默认 320）。
 ///
-/// 指定 [aspectRatio] 时裁剪框会强制保持该宽高比（例如 1.0 表示正方形），
-/// 此时用户只能调整裁剪框大小，不能改变比例。
+/// [aspectRatio] 参数保留以兼容旧调用，但本页始终使用正圆形（宽高比 1.0）。
 class ImageCropScreen extends StatefulWidget {
   final String sourcePath;
   final int maxOutputSize;
@@ -31,11 +30,13 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
   img.Image? _sourceImage;
   bool _processing = false;
 
-  // 裁剪框在图片显示区域内的坐标与大小
-  double _boxX = 0;
-  double _boxY = 0;
-  double _boxW = 0;
-  double _boxH = 0;
+  // 圆形裁剪框：直径与圆心（坐标基于图片显示区域）
+  double _diameter = 0;
+  double _centerX = 0;
+  double _centerY = 0;
+
+  // 捏合缩放开始时记录的直径
+  double _initialDiameter = 0;
 
   // 容器与图片显示尺寸
   double _containerW = 0;
@@ -70,6 +71,7 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
 
   void _initBox() {
     if (_sourceImage == null || _containerW == 0 || _containerH == 0) return;
+
     final imageW = _sourceImage!.width.toDouble();
     final imageH = _sourceImage!.height.toDouble();
     final scale = min(_containerW / imageW, _containerH / imageH);
@@ -78,42 +80,21 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
     _offsetX = (_containerW - _displayW) / 2;
     _offsetY = (_containerH - _displayH) / 2;
 
-    final minSide = min(_displayW, _displayH);
-    final ratio = widget.aspectRatio;
-    if (ratio != null && ratio > 0) {
-      // 固定比例：先按短边决定初始大小，再反推高
-      _boxW = min(240.0, minSide);
-      _boxH = _boxW / ratio;
-      if (_boxH > _displayH) {
-        _boxH = _displayH;
-        _boxW = _boxH * ratio;
-      }
-    } else {
-      _boxW = min(240.0, minSide);
-      _boxH = _boxW;
+    if (_diameter == 0) {
+      final minSide = min(_displayW, _displayH);
+      _diameter = min(240.0, minSide).clamp(32.0, minSide);
+      _centerX = _displayW / 2;
+      _centerY = _displayH / 2;
     }
-    _boxX = (_displayW - _boxW) / 2;
-    _boxY = (_displayH - _boxH) / 2;
+
+    _clampCircle();
   }
 
-  void _clampBox() {
-    final ratio = widget.aspectRatio;
-    if (ratio != null && ratio > 0) {
-      // 固定比例：以宽度为基准，高度按比例计算
-      _boxW = _boxW.clamp(32.0, _displayW);
-      _boxH = _boxW / ratio;
-      if (_boxH > _displayH) {
-        _boxH = _displayH;
-        _boxW = _boxH * ratio;
-      }
-      _boxX = _boxX.clamp(0.0, _displayW - _boxW);
-      _boxY = _boxY.clamp(0.0, _displayH - _boxH);
-    } else {
-      _boxW = _boxW.clamp(32.0, _displayW);
-      _boxH = _boxH.clamp(32.0, _displayH);
-      _boxX = _boxX.clamp(0.0, _displayW - _boxW);
-      _boxY = _boxY.clamp(0.0, _displayH - _boxH);
-    }
+  void _clampCircle() {
+    final maxD = min(_displayW, _displayH);
+    _diameter = _diameter.clamp(32.0, maxD);
+    _centerX = _centerX.clamp(_diameter / 2, _displayW - _diameter / 2);
+    _centerY = _centerY.clamp(_diameter / 2, _displayH - _diameter / 2);
   }
 
   Future<void> _crop() async {
@@ -121,18 +102,23 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
     setState(() => _processing = true);
 
     try {
-      final scale = _displayW / _sourceImage!.width;
-      final cropX = (_boxX / scale).round();
-      final cropY = (_boxY / scale).round();
-      final cropW = (_boxW / scale).round();
-      final cropH = (_boxH / scale).round();
+      final pixelScale = _sourceImage!.width / _displayW;
+      final srcCenterX = (_centerX * pixelScale).round();
+      final srcCenterY = (_centerY * pixelScale).round();
+      final srcRadius = ((_diameter / 2) * pixelScale).round();
+      final srcDiameter = (srcRadius * 2).clamp(1, _sourceImage!.width);
+
+      final cropX = (srcCenterX - srcRadius).clamp(0, _sourceImage!.width - 1);
+      final cropY = (srcCenterY - srcRadius).clamp(0, _sourceImage!.height - 1);
+      final cropW = min(srcDiameter, _sourceImage!.width - cropX);
+      final cropH = min(srcDiameter, _sourceImage!.height - cropY);
 
       var cropped = img.copyCrop(
         _sourceImage!,
-        x: cropX.clamp(0, _sourceImage!.width - 1),
-        y: cropY.clamp(0, _sourceImage!.height - 1),
-        width: cropW.clamp(1, _sourceImage!.width - cropX),
-        height: cropH.clamp(1, _sourceImage!.height - cropY),
+        x: cropX,
+        y: cropY,
+        width: cropW,
+        height: cropH,
       );
 
       final maxSide = max(cropped.width, cropped.height);
@@ -194,9 +180,16 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
+          final screenCenter = Offset(
+            _offsetX + _centerX,
+            _offsetY + _centerY,
+          );
+          final radius = _diameter / 2;
+
           return Stack(
             fit: StackFit.expand,
             children: [
+              // 原图
               Center(
                 child: SizedBox(
                   width: _displayW,
@@ -207,23 +200,30 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
                   ),
                 ),
               ),
+              // 圆形裁剪框（可拖拽/捏合缩放）
               Positioned(
-                left: _offsetX + _boxX,
-                top: _offsetY + _boxY,
-                width: _boxW,
-                height: _boxH,
+                left: _offsetX + _centerX - radius,
+                top: _offsetY + _centerY - radius,
+                width: _diameter,
+                height: _diameter,
                 child: GestureDetector(
-                  onPanUpdate: (details) {
+                  behavior: HitTestBehavior.translucent,
+                  onScaleStart: (_) {
+                    _initialDiameter = _diameter;
+                  },
+                  onScaleUpdate: (details) {
                     setState(() {
-                      _boxX += details.delta.dx;
-                      _boxY += details.delta.dy;
-                      _clampBox();
+                      _diameter = _initialDiameter * details.scale;
+                      _centerX += details.focalPointDelta.dx;
+                      _centerY += details.focalPointDelta.dy;
+                      _clampCircle();
                     });
                   },
                   child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white, width: 2),
-                      color: Colors.white.withValues(alpha: 0.1),
+                    decoration: const ShapeDecoration(
+                      shape: CircleBorder(
+                        side: BorderSide(color: Colors.white, width: 2),
+                      ),
                     ),
                     child: Stack(
                       children: [
@@ -234,21 +234,21 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
                           child: GestureDetector(
                             onPanUpdate: (details) {
                               setState(() {
-                                final ratio = widget.aspectRatio;
-                                if (ratio != null && ratio > 0) {
-                                  _boxW += details.delta.dx;
-                                  _boxH = _boxW / ratio;
-                                } else {
-                                  _boxW += details.delta.dx;
-                                  _boxH += details.delta.dy;
-                                }
-                                _clampBox();
+                                _diameter += details.delta.dx;
+                                _clampCircle();
                               });
                             },
                             child: Container(
                               width: 28,
                               height: 28,
-                              color: Colors.white.withValues(alpha: 0.5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.85),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.black12,
+                                  width: 1,
+                                ),
+                              ),
                               child: const Icon(
                                 Icons.zoom_out_map,
                                 size: 16,
@@ -262,23 +262,19 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
                   ),
                 ),
               ),
-              // 暗色遮罩
+              // 暗色圆形遮罩
               IgnorePointer(
                 child: CustomPaint(
                   size: Size(_containerW, _containerH),
-                  painter: _CropOverlayPainter(
+                  painter: _CircularOverlayPainter(
                     overlayRect: Rect.fromLTWH(
                       _offsetX,
                       _offsetY,
                       _displayW,
                       _displayH,
                     ),
-                    cropRect: Rect.fromLTWH(
-                      _offsetX + _boxX,
-                      _offsetY + _boxY,
-                      _boxW,
-                      _boxH,
-                    ),
+                    circleCenter: screenCenter,
+                    radius: radius,
                   ),
                 ),
               ),
@@ -290,11 +286,16 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
   }
 }
 
-class _CropOverlayPainter extends CustomPainter {
+class _CircularOverlayPainter extends CustomPainter {
   final Rect overlayRect;
-  final Rect cropRect;
+  final Offset circleCenter;
+  final double radius;
 
-  _CropOverlayPainter({required this.overlayRect, required this.cropRect});
+  _CircularOverlayPainter({
+    required this.overlayRect,
+    required this.circleCenter,
+    required this.radius,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -304,7 +305,7 @@ class _CropOverlayPainter extends CustomPainter {
 
     final path = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addRect(cropRect)
+      ..addOval(Rect.fromCircle(center: circleCenter, radius: radius))
       ..fillType = PathFillType.evenOdd;
 
     canvas.drawPath(path, paint);
@@ -313,6 +314,7 @@ class _CropOverlayPainter extends CustomPainter {
       ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
+    canvas.drawCircle(circleCenter, radius, borderPaint);
     canvas.drawRect(overlayRect, borderPaint);
   }
 

@@ -7,6 +7,7 @@
 /// - `wait(ms)`
 /// - `for(n) { ... }`
 /// - `find(text="x") { ... }`
+/// - `find(loop) { ... }`
 /// - `if(find(text="x")) { ... } else { ... }`
 /// - `back()` / `home()` / `recents()`
 ///
@@ -66,6 +67,14 @@ class MacroProgramParser {
       case 'for':
         if (positional.isNotEmpty) step['count'] = positional[0];
         break;
+      case 'find':
+        if (positional.isNotEmpty) {
+          final first = positional[0];
+          if (first == 'loop' || first == true) {
+            step['loop'] = true;
+          }
+        }
+        break;
     }
 
     if (step['children'] is List) {
@@ -116,7 +125,7 @@ class MacroProgramParser {
   /// 把录制产生的旧格式 step 列表转换成新的指令格式 step 列表。
   ///
   /// 支持：clickNode / clickPoint / swipe → find+click / click(x,y) / roll。
-  /// 智能识别捕获的 color 字段会保留在转换后的 step 上,继续作为等待条件使用。
+  /// 智能识别捕获的 color 字段会转换为 if(find(color=..., tolerance=..., region=[...])) 条件块。
   static List<Map<String, dynamic>> convertLegacySteps(
       List<Map<String, dynamic>> steps) {
     return steps.map(_convertLegacyStep).whereType<Map<String, dynamic>>().toList();
@@ -128,6 +137,7 @@ class MacroProgramParser {
     final color = step['color'] as Map<String, dynamic>?;
     final delay = step['delay'];
 
+    Map<String, dynamic>? result;
     switch (type) {
       case 'clickNode':
         final target = step['target'] as Map<String, dynamic>?;
@@ -145,44 +155,46 @@ class MacroProgramParser {
           }
 
           if (newTarget.isNotEmpty) {
-            return {
+            result = {
               'type': 'find',
               'target': newTarget,
-              if (color != null) 'color': color,
               if (delay != null) 'delay': delay,
               'children': [
                 {'type': 'click'},
               ],
             };
+            break;
           }
 
           final bounds = target['bounds'] as List?;
           if (bounds != null && bounds.length == 4) {
             final cx = ((bounds[0] as num) + (bounds[2] as num)) ~/ 2;
             final cy = ((bounds[1] as num) + (bounds[3] as num)) ~/ 2;
-            return {
+            result = {
               'type': 'click',
               'x': cx,
               'y': cy,
-              if (color != null) 'color': color,
               if (delay != null) 'delay': delay,
             };
+            break;
           }
         }
-        return Map<String, dynamic>.from(step);
+        result = Map<String, dynamic>.from(step);
+        break;
 
       case 'clickPoint':
         final point = step['point'] as Map<String, dynamic>?;
         if (point != null) {
-          return {
+          result = {
             'type': 'click',
             'x': point['x'],
             'y': point['y'],
-            if (color != null) 'color': color,
             if (delay != null) 'delay': delay,
           };
+        } else {
+          result = Map<String, dynamic>.from(step);
         }
-        return Map<String, dynamic>.from(step);
+        break;
 
       case 'swipe':
         final start = step['start'] as Map<String, dynamic>?;
@@ -191,19 +203,39 @@ class MacroProgramParser {
         if (start != null && end != null) {
           final dx = (end['x'] as num) - (start['x'] as num);
           final dy = (end['y'] as num) - (start['y'] as num);
-          return {
+          result = {
             'type': 'roll',
             'dx': dx,
             'dy': dy,
             'duration': duration,
             if (delay != null) 'delay': delay,
           };
+        } else {
+          result = Map<String, dynamic>.from(step);
         }
-        return Map<String, dynamic>.from(step);
+        break;
 
       default:
-        return Map<String, dynamic>.from(step);
+        result = Map<String, dynamic>.from(step);
     }
+
+    if (color != null && result != null) {
+      result.remove('color');
+      final cx = (color['x'] as num).toInt();
+      final cy = (color['y'] as num).toInt();
+      final c = (color['color'] as num).toInt();
+      return {
+        'type': 'if',
+        'condition': {
+          'type': 'find',
+          'color': c,
+          'tolerance': 30,
+          'region': [cx - 20, cy - 20, cx + 20, cy + 20],
+        },
+        'then': [result],
+      };
+    }
+    return result;
   }
 
   // ---------- 内部实现 ----------
@@ -333,9 +365,10 @@ class MacroProgramParser {
     }
   }
 
-  /// 把 find 的参数序列化为字符串。支持 image / threshold / region / color / tolerance / text / resourceId 等。
+  /// 把 find 的参数序列化为字符串。支持 loop / image / threshold / region / color / tolerance / text / resourceId 等。
   static String _serializeFindArgs(Map<String, dynamic> step) {
     final pairs = <String>[];
+    if (step['loop'] == true) pairs.add('loop');
     final image = step['image'];
     if (image != null) pairs.add('image=${_quoteValue(image)}');
     final threshold = step['threshold'];

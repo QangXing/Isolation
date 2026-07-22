@@ -102,24 +102,10 @@ class MacroExecutor(
         stopRequested = false
         activeExecutor = this
 
-        val smartRecognition = settings["smartRecognition"] as? Boolean ?: false
-        val loopCount = (settings["loopCount"] as? Number)?.toInt() ?: 1
-        val effectiveLoopCount = if (loopCount <= 0) Int.MAX_VALUE else loopCount
-
         Thread {
             try {
-                for (cycle in 1..effectiveLoopCount) {
-                    if (stopRequested) break
-                    if (effectiveLoopCount == Int.MAX_VALUE) {
-                        postStatus("新循环开始 #$cycle")
-                    } else if (effectiveLoopCount > 1) {
-                        postStatus("开始第 $cycle/$effectiveLoopCount 轮")
-                    } else {
-                        postStatus("开始执行")
-                    }
-                    executeSteps(steps, smartRecognition)
-                    if (stopRequested) break
-                }
+                postStatus("开始执行")
+                executeSteps(steps)
                 postStatus(if (stopRequested) "任务已停止" else "任务完成")
             } catch (t: Throwable) {
                 postStatus("任务异常: ${t.message}")
@@ -139,26 +125,21 @@ class MacroExecutor(
     }
 
     /** 递归执行一组步骤 */
-    private fun executeSteps(steps: List<Map<String, Any>>, smartRecognition: Boolean) {
+    private fun executeSteps(steps: List<Map<String, Any>>) {
         for ((index, step) in steps.withIndex()) {
             if (stopRequested) break
-            executeStep(step, index + 1, smartRecognition)
+            executeStep(step, index + 1)
         }
     }
 
     /** 执行单个步骤 */
-    private fun executeStep(step: Map<String, Any>, stepNumber: Int, smartRecognition: Boolean) {
+    private fun executeStep(step: Map<String, Any>, stepNumber: Int) {
         val type = step["type"] as? String ?: return
         postStatus("执行第 $stepNumber 步: $type")
 
         val delay = (step["delay"] as? Number)?.toLong() ?: 0L
         if (delay > 0) Thread.sleep(delay)
         if (stopRequested) return
-
-        if (smartRecognition && hasColorInfo(step)) {
-            waitForColorMatch(step, stepNumber)
-            if (stopRequested) return
-        }
 
         when (type) {
             // 新指令
@@ -172,9 +153,9 @@ class MacroExecutor(
                 val duration = (step["duration"] as? Number)?.toLong() ?: 0L
                 if (duration > 0) Thread.sleep(duration)
             }
-            "for" -> executeForStep(step, smartRecognition)
-            "find" -> executeFindStep(step, smartRecognition)
-            "if" -> executeIfStep(step, smartRecognition)
+            "for" -> executeForStep(step)
+            "find" -> executeFindStep(step)
+            "if" -> executeIfStep(step)
 
             // 系统键
             "back" -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
@@ -189,8 +170,6 @@ class MacroExecutor(
             "inputText" -> executeInputText(step)
         }
     }
-
-    private fun hasColorInfo(step: Map<String, Any>): Boolean = step["color"] != null
 
     // ---------- 新指令实现 ----------
 
@@ -218,18 +197,19 @@ class MacroExecutor(
         dispatchSwipe(cx.toFloat(), cy.toFloat(), (cx + dx).toFloat(), (cy + dy).toFloat(), duration)
     }
 
-    private fun executeForStep(step: Map<String, Any>, smartRecognition: Boolean) {
+    private fun executeForStep(step: Map<String, Any>) {
         val count = (step["count"] as? Number)?.toInt() ?: 1
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
         for (i in 1..count) {
             if (stopRequested) break
             postStatus("循环 $i/$count")
-            executeSteps(children, smartRecognition)
+            executeSteps(children)
         }
     }
 
-    private fun executeFindStep(step: Map<String, Any>, smartRecognition: Boolean) {
+    private fun executeFindStep(step: Map<String, Any>) {
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
+        val loop = step["loop"] as? Boolean ?: false
 
         // 0) 图片查找优先：find(image="xxx.jpg", threshold=0.8, region=[...]) { ... }
         val imageName = step["image"] as? String
@@ -245,7 +225,7 @@ class MacroExecutor(
                 postStatus("find: 图片命中 (${point.x}, ${point.y})")
                 foundCoordinates.addFirst(Pair(point.x, point.y))
                 try {
-                    executeSteps(children, smartRecognition)
+                    executeFindChildren(children, loop)
                 } finally {
                     foundCoordinates.removeFirstOrNull()
                 }
@@ -269,7 +249,7 @@ class MacroExecutor(
                 postStatus("find: 颜色命中 (${point.x}, ${point.y})")
                 foundCoordinates.addFirst(Pair(point.x, point.y))
                 try {
-                    executeSteps(children, smartRecognition)
+                    executeFindChildren(children, loop)
                 } finally {
                     foundCoordinates.removeFirstOrNull()
                 }
@@ -298,12 +278,22 @@ class MacroExecutor(
             postStatus("find: 节点命中 ($cx, $cy)")
             foundCoordinates.addFirst(Pair(cx, cy))
             try {
-                executeSteps(children, smartRecognition)
+                executeFindChildren(children, loop)
             } finally {
                 foundCoordinates.removeFirstOrNull()
             }
         } else {
             postStatus("find: 节点未命中")
+        }
+    }
+
+    private fun executeFindChildren(children: List<Map<String, Any>>, loop: Boolean) {
+        if (loop) {
+            while (!stopRequested) {
+                executeSteps(children)
+            }
+        } else {
+            executeSteps(children)
         }
     }
 
@@ -325,7 +315,7 @@ class MacroExecutor(
         }
     }
 
-    private fun executeIfStep(step: Map<String, Any>, smartRecognition: Boolean) {
+    private fun executeIfStep(step: Map<String, Any>) {
         val condition = step["condition"] as? Map<String, Any>
         val then = (step["then"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
         val elseBranch = (step["else"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
@@ -335,12 +325,12 @@ class MacroExecutor(
         if (matchedCoord != null) {
             foundCoordinates.addFirst(matchedCoord)
             try {
-                executeSteps(then, smartRecognition)
+                executeSteps(then)
             } finally {
                 foundCoordinates.removeFirstOrNull()
             }
         } else {
-            executeSteps(elseBranch, smartRecognition)
+            executeSteps(elseBranch)
         }
     }
 
@@ -558,47 +548,6 @@ class MacroExecutor(
         (service.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager)
             .defaultDisplay.getRealMetrics(metrics)
         return Pair(metrics.widthPixels / 2, metrics.heightPixels / 2)
-    }
-
-    // ---------- 颜色识别 ----------
-
-    private fun waitForColorMatch(step: Map<String, Any>, stepNumber: Int) {
-        val colorInfo = step["color"] as? Map<String, Any> ?: return
-        val x = (colorInfo["x"] as? Number)?.toInt() ?: return
-        val y = (colorInfo["y"] as? Number)?.toInt() ?: return
-        val expectedColor = (colorInfo["color"] as? Number)?.toInt() ?: return
-
-        if (!ScreenCaptureHelper.isGranted(service)) {
-            postStatus("第 $stepNumber 步无屏幕权限，跳过识别")
-            return
-        }
-
-        val tolerance = (colorInfo["tolerance"] as? Number)?.toInt() ?: 30
-        val maxWaitMs = 10000L
-        val checkIntervalMs = 200L
-        var waited = 0L
-
-        while (!stopRequested && waited < maxWaitMs) {
-            val actualColor = ScreenCaptureHelper.captureColor(service, x, y)
-            if (actualColor != null && colorsMatch(expectedColor, actualColor, tolerance)) {
-                return
-            }
-            postStatus("正在等待第 $stepNumber 步匹配")
-            Thread.sleep(checkIntervalMs)
-            waited += checkIntervalMs
-        }
-    }
-
-    private fun colorsMatch(expected: Int, actual: Int, tolerance: Int): Boolean {
-        val er = (expected shr 16) and 0xFF
-        val eg = (expected shr 8) and 0xFF
-        val eb = expected and 0xFF
-        val ar = (actual shr 16) and 0xFF
-        val ag = (actual shr 8) and 0xFF
-        val ab = actual and 0xFF
-        return kotlin.math.abs(er - ar) <= tolerance &&
-                kotlin.math.abs(eg - ag) <= tolerance &&
-                kotlin.math.abs(eb - ab) <= tolerance
     }
 
     private fun postStatus(message: String) {
