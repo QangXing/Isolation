@@ -1,13 +1,18 @@
 package com.example.isolation
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
+import android.graphics.Path
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
 class InputAccessibilityService : AccessibilityService() {
@@ -187,7 +192,7 @@ class InputAccessibilityService : AccessibilityService() {
             }
         }
 
-        recordedSteps.add(RecordedStep(System.currentTimeMillis(), step.filterValues { it != null }))
+        recordedSteps.add(RecordedStep(System.currentTimeMillis(), step.filterValues { it != null }.mapValues { it.value as Any }))
     }
 
     override fun onInterrupt() {
@@ -231,6 +236,23 @@ class InputAccessibilityService : AccessibilityService() {
         assetsDir: String? = null
     ) {
         MacroExecutor(this, assetsDir).execute(settings, steps)
+    }
+
+    private fun dispatchClickForCompanion(x: Int, y: Int): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
+        FloatingBallService.showClickAnimation(x.toFloat(), y.toFloat())
+        val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+            .build()
+        val result = AtomicBoolean(false)
+        val latch = CountDownLatch(1)
+        Handler(Looper.getMainLooper()).post {
+            result.set(dispatchGesture(gesture, null, null))
+            latch.countDown()
+        }
+        try { latch.await() } catch (_: InterruptedException) { /* ignore */ }
+        return result.get()
     }
 
     private fun findFocusedInputNode(): AccessibilityNodeInfo? {
