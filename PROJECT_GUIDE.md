@@ -689,6 +689,29 @@ Container(
 
 ---
 
+### 5.18 宏执行触摸动画与手势稳定性
+
+**问题**：用户反馈宏执行时点击/滑动动画不显示，且点击、滚动指令偶尔失灵。
+
+**根因**：之前动画只在 [FloatingBallService](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt) 中绘制，若用户未开启悬浮球或未授予悬浮窗权限，动画不会显示；容易误判为指令未执行。
+
+**修复**：
+
+- 动画层迁移到 [InputAccessibilityService](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/InputAccessibilityService.kt)：
+  - 使用 `TYPE_ACCESSIBILITY_OVERLAY`（API 26+）添加全屏透明覆盖层，不依赖悬浮窗权限。
+  - 宏执行时自动创建动画层，执行结束/异常后 1 秒自动移除。
+  - [MacroExecutor](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MacroExecutor.kt) 中 `dispatchClick` / `dispatchSwipe` 改为调用 `InputAccessibilityService.showClickAnimation` / `showSwipeAnimation`。
+- [TouchEffectOverlay](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/TouchEffectOverlay.kt)：
+  - 白色动画增加黑色阴影/轮廓，提升在浅色背景下的可见性。
+  - 修复 attach 前入队的效果可能不刷新的问题。
+- [MacroExecutor](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MacroExecutor.kt)：
+  - `stopRequested` 加 `@Volatile`。
+  - listener 机制从单 listener 改为多 listener，[FloatingBallService](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt) 与 [InputAccessibilityService](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/InputAccessibilityService.kt) 可同时接收状态。
+- [accessibility_service_config.xml](file:///workspace/Isolation/android/app/src/main/res/xml/accessibility_service_config.xml)：
+  - 增加 `android:canPerformGestures="true"`，明确声明手势执行能力。
+
+---
+
 ## 六、关键路径与依赖
 
 ```

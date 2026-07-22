@@ -35,6 +35,23 @@ class TouchEffectOverlay(context: Context) : View(context) {
         setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // 如果 attach 前已有效果入队， attach 后继续刷新
+        if (effects.isNotEmpty()) {
+            invalidateAndSchedule()
+        }
+    }
+
+    /**
+     * 重置画笔公共属性，避免阴影等状态泄漏到下一次绘制。
+     */
+    private fun resetPaint() {
+        paint.reset()
+        paint.isAntiAlias = true
+        paint.isDither = true
+    }
+
     fun postEffect(effect: TouchEffect) {
         val now = SystemClock.elapsedRealtime()
         val duration = when (effect) {
@@ -96,13 +113,17 @@ class TouchEffectOverlay(context: Context) : View(context) {
         // 淡出：alpha 从 0.9 -> 0
         val alpha = ((1f - progress) * 0.9f * 255).toInt()
 
+        resetPaint()
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 3f * density
         paint.color = (0xFFFFFFFF).toInt() // 白色点击环
         paint.alpha = alpha
+        // 黑色阴影/轮廓，让白色在浅色背景也能看清
+        paint.setShadowLayer(4f * density, 0f, 0f, (0xFF000000).toInt())
 
         canvas.drawCircle(effect.x, effect.y, radius, paint)
         paint.alpha = 255
+        paint.clearShadowLayer()
     }
 
     private fun drawSwipe(
@@ -115,9 +136,11 @@ class TouchEffectOverlay(context: Context) : View(context) {
         val lineWidth = SWIPE_LINE_WIDTH_DP * density
         val alpha = ((1f - progress) * 0.85f * 255).toInt()
 
+        resetPaint()
         paint.style = Paint.Style.FILL
         paint.color = (0xFFFFFFFF).toInt() // 白色滑动点
         paint.alpha = alpha
+        paint.setShadowLayer(3f * density, 0f, 0f, (0xFF000000).toInt())
 
         // 起点和终点圆点
         canvas.drawCircle(effect.startX, effect.startY, dotRadius, paint)
@@ -130,6 +153,7 @@ class TouchEffectOverlay(context: Context) : View(context) {
         canvas.drawLine(effect.startX, effect.startY, effect.endX, effect.endY, paint)
 
         paint.alpha = 255
+        paint.clearShadowLayer()
     }
 
     private data class ActiveEffect(

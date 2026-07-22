@@ -4,4 +4,5 @@
     android:accessibilityEventTypes="typeWindowStateChanged|typeViewFocused|typeViewClicked"
     android:accessibilityFlags="flagDefault"
     android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
     android:settingsActivity="com.example.isolation.MainActivity" />

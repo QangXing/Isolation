@@ -5,17 +5,21 @@ import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
 import android.graphics.Path
+import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.Gravity
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
-class InputAccessibilityService : AccessibilityService() {
+class InputAccessibilityService : AccessibilityService(), MacroExecutorListener {
 
     companion object {
         private const val TAG = "InputA11yService"
@@ -84,6 +88,14 @@ class InputAccessibilityService : AccessibilityService() {
             return instance!!.dispatchClickForCompanion(x, y)
         }
 
+        fun showClickAnimation(x: Float, y: Float) {
+            instance?.postTouchEffect(TouchEffect.Click(x, y))
+        }
+
+        fun showSwipeAnimation(startX: Float, startY: Float, endX: Float, endY: Float) {
+            instance?.postTouchEffect(TouchEffect.Swipe(startX, startY, endX, endY))
+        }
+
         /**
          * 触发一次服务状态轮询。AccessibilityService 由系统管理，无法手动 startService，
          * 但发送一个无障碍事件监听请求可让系统在合适时机回调 onServiceConnected。
@@ -140,6 +152,10 @@ class InputAccessibilityService : AccessibilityService() {
     private val recordedSteps = mutableListOf<RecordedStep>()
     private var lastEventTime: Long = 0L
     private var captureColors: Boolean = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var touchEffectOverlay: TouchEffectOverlay? = null
+    private val hideOverlayRunnable = Runnable { hideTouchEffectOverlay() }
 
     private data class RecordedStep(
         val timestamp: Long,
@@ -200,13 +216,20 @@ class InputAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        instance = null
+        cleanup()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        cleanup()
         super.onDestroy()
+    }
+
+    private fun cleanup() {
         instance = null
+        MacroExecutor.removeListener(this)
+        mainHandler.removeCallbacks(hideOverlayRunnable)
+        hideTouchEffectOverlay()
     }
 
     private fun computeDelay(): Long {
@@ -235,12 +258,17 @@ class InputAccessibilityService : AccessibilityService() {
         steps: List<Map<String, Any>>,
         assetsDir: String? = null
     ) {
+        MacroExecutor.addListener(this)
+        mainHandler.post {
+            mainHandler.removeCallbacks(hideOverlayRunnable)
+            ensureTouchEffectOverlay()
+        }
         MacroExecutor(this, assetsDir).execute(settings, steps)
     }
 
     private fun dispatchClickForCompanion(x: Int, y: Int): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
-        FloatingBallService.showClickAnimation(x.toFloat(), y.toFloat())
+        postTouchEffect(TouchEffect.Click(x.toFloat(), y.toFloat()))
         val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
@@ -258,5 +286,65 @@ class InputAccessibilityService : AccessibilityService() {
     private fun findFocusedInputNode(): AccessibilityNodeInfo? {
         val root = rootInActiveWindow ?: return null
         return root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+    }
+
+    // ---------- 宏执行触摸反馈动画 ----------
+
+    override fun onMacroStatus(message: String) {
+        // 宏结束或异常后延迟移除动画覆盖层，保留一段时间让最后一个动画播完
+        if (message == "任务完成" || message == "任务已停止" || message.startsWith("任务异常")) {
+            mainHandler.postDelayed(hideOverlayRunnable, 1000L)
+        }
+    }
+
+    private fun postTouchEffect(effect: TouchEffect) {
+        mainHandler.post {
+            mainHandler.removeCallbacks(hideOverlayRunnable)
+            ensureTouchEffectOverlay()
+            touchEffectOverlay?.postEffect(effect)
+        }
+    }
+
+    private fun ensureTouchEffectOverlay() {
+        if (touchEffectOverlay != null) return
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+        touchEffectOverlay = TouchEffectOverlay(this).apply {
+            post {
+                try {
+                    wm.addView(this, params)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    private fun hideTouchEffectOverlay() {
+        val overlay = touchEffectOverlay ?: return
+        touchEffectOverlay = null
+        try {
+            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            wm.removeView(overlay)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

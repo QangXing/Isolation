@@ -26,14 +26,30 @@ class MacroExecutor(
 
     companion object {
         private var activeExecutor: MacroExecutor? = null
-        private var listener: MacroExecutorListener? = null
+        private val listeners = mutableListOf<MacroExecutorListener>()
         private var clickCount = 0
         private var lastClickTime = 0L
         private const val MULTI_CLICK_THRESHOLD_MS = 600
         private const val MULTI_CLICK_COUNT = 3
 
+        fun addListener(listener: MacroExecutorListener) {
+            synchronized(listeners) {
+                if (!listeners.contains(listener)) listeners.add(listener)
+            }
+        }
+
+        fun removeListener(listener: MacroExecutorListener) {
+            synchronized(listeners) {
+                listeners.remove(listener)
+            }
+        }
+
+        @Deprecated("请使用 addListener/removeListener", ReplaceWith("addListener(listener)"))
         fun setListener(listener: MacroExecutorListener?) {
-            this.listener = listener
+            synchronized(listeners) {
+                listeners.clear()
+                if (listener != null) listeners.add(listener)
+            }
         }
 
         /** 当前是否有宏正在运行 */
@@ -466,7 +482,7 @@ class MacroExecutor(
 
     private fun dispatchClick(x: Int, y: Int): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
-        FloatingBallService.showClickAnimation(x.toFloat(), y.toFloat())
+        InputAccessibilityService.showClickAnimation(x.toFloat(), y.toFloat())
         val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
@@ -487,7 +503,7 @@ class MacroExecutor(
         durationMs: Long
     ): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
-        FloatingBallService.showSwipeAnimation(startX, startY, endX, endY)
+        InputAccessibilityService.showSwipeAnimation(startX, startY, endX, endY)
         val path = Path().apply {
             moveTo(startX, startY)
             lineTo(endX, endY)
@@ -556,7 +572,11 @@ class MacroExecutor(
 
     private fun postStatus(message: String) {
         mainHandler.post {
-            listener?.onMacroStatus(message)
+            val snapshot: List<MacroExecutorListener>
+            synchronized(listeners) {
+                snapshot = listeners.toList()
+            }
+            snapshot.forEach { it.onMacroStatus(message) }
         }
     }
 }

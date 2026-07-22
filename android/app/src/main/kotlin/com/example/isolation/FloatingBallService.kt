@@ -124,7 +124,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         super.onCreate()
         instance = this
         createNotificationChannel()
-        MacroExecutor.setListener(this)
+        MacroExecutor.addListener(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -626,7 +626,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         MacroExecutor.stopActive()
         hideFloatingBall()
         hideKeyboard()
-        MacroExecutor.setListener(null)
+        MacroExecutor.removeListener(this)
         instance = null
         super.onDestroy()
     }
