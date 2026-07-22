@@ -45,6 +45,14 @@ class MainActivity : FlutterActivity() {
                     startActivityForResult(intent, REQUEST_OVERLAY)
                     result.success(true)
                 }
+                "setFloatingBallIcon" -> {
+                    val imagePath = call.argument<String>("imagePath")
+                    val saved = FloatingBallService.setCustomIcon(this, imagePath)
+                    result.success(saved)
+                }
+                "getFloatingBallIcon" -> {
+                    result.success(FloatingBallService.getCustomIcon(this))
+                }
                 "checkAccessibilityPermission" -> {
                     result.success(InputAccessibilityService.isEnabled(this))
                 }

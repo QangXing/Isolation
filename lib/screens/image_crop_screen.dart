@@ -8,14 +8,19 @@ import 'package:path_provider/path_provider.dart';
 ///
 /// 图片保持比例显示，用户可以拖动/缩放一个矩形裁剪框，
 /// 输出图片最长边不超过 [maxOutputSize]（默认 320），等比缩放。
+///
+/// 指定 [aspectRatio] 时裁剪框会强制保持该宽高比（例如 1.0 表示正方形），
+/// 此时用户只能调整裁剪框大小，不能改变比例。
 class ImageCropScreen extends StatefulWidget {
   final String sourcePath;
   final int maxOutputSize;
+  final double? aspectRatio;
 
   const ImageCropScreen({
     super.key,
     required this.sourcePath,
     this.maxOutputSize = 320,
+    this.aspectRatio,
   });
 
   @override
@@ -74,17 +79,41 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
     _offsetY = (_containerH - _displayH) / 2;
 
     final minSide = min(_displayW, _displayH);
-    _boxW = min(240.0, minSide);
-    _boxH = _boxW;
+    final ratio = widget.aspectRatio;
+    if (ratio != null && ratio > 0) {
+      // 固定比例：先按短边决定初始大小，再反推高
+      _boxW = min(240.0, minSide);
+      _boxH = _boxW / ratio;
+      if (_boxH > _displayH) {
+        _boxH = _displayH;
+        _boxW = _boxH * ratio;
+      }
+    } else {
+      _boxW = min(240.0, minSide);
+      _boxH = _boxW;
+    }
     _boxX = (_displayW - _boxW) / 2;
     _boxY = (_displayH - _boxH) / 2;
   }
 
   void _clampBox() {
-    _boxW = _boxW.clamp(32.0, _displayW);
-    _boxH = _boxH.clamp(32.0, _displayH);
-    _boxX = _boxX.clamp(0.0, _displayW - _boxW);
-    _boxY = _boxY.clamp(0.0, _displayH - _boxH);
+    final ratio = widget.aspectRatio;
+    if (ratio != null && ratio > 0) {
+      // 固定比例：以宽度为基准，高度按比例计算
+      _boxW = _boxW.clamp(32.0, _displayW);
+      _boxH = _boxW / ratio;
+      if (_boxH > _displayH) {
+        _boxH = _displayH;
+        _boxW = _boxH * ratio;
+      }
+      _boxX = _boxX.clamp(0.0, _displayW - _boxW);
+      _boxY = _boxY.clamp(0.0, _displayH - _boxH);
+    } else {
+      _boxW = _boxW.clamp(32.0, _displayW);
+      _boxH = _boxH.clamp(32.0, _displayH);
+      _boxX = _boxX.clamp(0.0, _displayW - _boxW);
+      _boxY = _boxY.clamp(0.0, _displayH - _boxH);
+    }
   }
 
   Future<void> _crop() async {
@@ -205,8 +234,14 @@ class _ImageCropScreenState extends State<ImageCropScreen> {
                           child: GestureDetector(
                             onPanUpdate: (details) {
                               setState(() {
-                                _boxW += details.delta.dx;
-                                _boxH += details.delta.dy;
+                                final ratio = widget.aspectRatio;
+                                if (ratio != null && ratio > 0) {
+                                  _boxW += details.delta.dx;
+                                  _boxH = _boxW / ratio;
+                                } else {
+                                  _boxW += details.delta.dx;
+                                  _boxH += details.delta.dy;
+                                }
                                 _clampBox();
                               });
                             },

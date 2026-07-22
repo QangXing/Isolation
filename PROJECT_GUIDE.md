@@ -669,6 +669,26 @@ Container(
 
 ---
 
+### 5.17 悬浮球自定义图标
+
+**需求**：允许用户把悬浮球的默认图标替换为自己选择的图片。
+
+**实现**：
+
+- 管理页 [manage_screen.dart](file:///workspace/Isolation/lib/screens/manage_screen.dart) 的 `_FloatingBallToggle` 中新增“悬浮球图标”入口：
+  - 显示当前图标预览（自定义图片或默认图标）。
+  - 点击弹出底部菜单：`从相册选择` / `恢复默认`。
+  - 从相册选择后进入 [ImageCropScreen](file:///workspace/Isolation/lib/screens/image_crop_screen.dart)，使用 `aspectRatio: 1.0` 强制正方形裁剪，输出最长边 128px。
+  - 裁剪后的图片复制到应用文档目录 `floating_ball_icon.png`。
+- [NativeChannel](file:///workspace/Isolation/lib/services/native_channel.dart) 新增 `setFloatingBallIcon` / `getFloatingBallIcon`。
+- [MainActivity.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/MainActivity.kt) 处理这两个通道调用，转发给 [FloatingBallService](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt)。
+- [FloatingBallService.kt](file:///workspace/Isolation/android/app/src/main/kotlin/com/example/isolation/FloatingBallService.kt)：
+  - 使用 `SharedPreferences` 持久化自定义图标路径。
+  - 新增 `applyCustomIconOrDefault` / `applyCustomIcon` / `applyDefaultIcon`。
+  - `showFloatingBall()` 初始化时应用保存的图标；`setCustomIcon()` 被调用时若服务正在运行则立即刷新。
+
+---
+
 ## 六、关键路径与依赖
 
 ```

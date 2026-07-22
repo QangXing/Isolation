@@ -20,6 +20,9 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.content.SharedPreferences
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
@@ -41,6 +44,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
         private const val CLICK_SLOP_PX = 12
         private const val LONG_CLICK_TIMEOUT_MS = 400L
 
+        private const val PREF_NAME = "isolation_floating_ball"
+        private const val KEY_CUSTOM_ICON = "custom_icon_path"
+
         @Volatile
         private var instance: FloatingBallService? = null
 
@@ -57,6 +63,28 @@ class FloatingBallService : Service(), MacroExecutorListener {
          */
         fun showSwipeAnimation(startX: Float, startY: Float, endX: Float, endY: Float) {
             instance?.postTouchEffect(TouchEffect.Swipe(startX, startY, endX, endY))
+        }
+
+        private fun prefs(context: Context): SharedPreferences {
+            return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        }
+
+        /**
+         * 设置或清除悬浮球自定义图标路径。传入 null 表示恢复默认。
+         * 若服务正在运行，会立即刷新显示。
+         */
+        fun setCustomIcon(context: Context, imagePath: String?): Boolean {
+            prefs(context).edit().putString(KEY_CUSTOM_ICON, imagePath).apply()
+            if (imagePath == null) {
+                instance?.applyDefaultIcon()
+            } else {
+                instance?.applyCustomIcon(imagePath)
+            }
+            return true
+        }
+
+        fun getCustomIcon(context: Context): String? {
+            return prefs(context).getString(KEY_CUSTOM_ICON, null)
         }
     }
 
@@ -189,6 +217,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_ball, null)
         val ball = floatingView!!.findViewById<ImageView>(R.id.floating_ball_image)
+        applyCustomIconOrDefault()
         ball.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -290,6 +319,38 @@ class FloatingBallService : Service(), MacroExecutorListener {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    /**
+     * 根据 SharedPreferences 中保存的路径，为悬浮球应用自定义图标或默认图标。
+     */
+    private fun applyCustomIconOrDefault() {
+        val customPath = prefs(this).getString(KEY_CUSTOM_ICON, null)
+        if (customPath != null && File(customPath).exists()) {
+            applyCustomIcon(customPath)
+        } else {
+            applyDefaultIcon()
+        }
+    }
+
+    private fun applyCustomIcon(imagePath: String) {
+        val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
+        try {
+            val bitmap = BitmapFactory.decodeFile(imagePath)
+            if (bitmap != null) {
+                ball.setImageBitmap(bitmap)
+            } else {
+                applyDefaultIcon()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            applyDefaultIcon()
+        }
+    }
+
+    private fun applyDefaultIcon() {
+        val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
+        ball.setImageResource(R.drawable.floating_ball_bg)
     }
 
     internal fun postTouchEffect(effect: TouchEffect) {

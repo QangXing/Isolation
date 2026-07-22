@@ -3,20 +3,31 @@ import 'package:flutter/services.dart';
 class NativeChannel {
   static const MethodChannel _channel = MethodChannel('com.example.isolation');
 
-  static Future<bool> checkOverlayPermission() async {
+  static Future<bool> requestOverlayPermission() async {
     try {
-      final result = await _channel.invokeMethod<bool>('checkOverlayPermission');
+      final result = await _channel.invokeMethod<bool>('requestOverlayPermission');
       return result ?? false;
     } catch (e) {
       return false;
     }
   }
 
-  static Future<void> requestOverlayPermission() async {
+  static Future<bool> setFloatingBallIcon(String? imagePath) async {
     try {
-      await _channel.invokeMethod('requestOverlayPermission');
+      final result = await _channel.invokeMethod<bool>('setFloatingBallIcon', {
+        'imagePath': imagePath,
+      });
+      return result ?? false;
     } catch (e) {
-      // Ignore
+      return false;
+    }
+  }
+
+  static Future<String?> getFloatingBallIcon() async {
+    try {
+      return await _channel.invokeMethod<String>('getFloatingBallIcon');
+    } catch (e) {
+      return null;
     }
   }
 

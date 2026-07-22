@@ -1,11 +1,14 @@
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/plugin_provider.dart';
 import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 import 'coordinate_debug_screen.dart';
+import 'image_crop_screen.dart';
 import 'macro_settings_screen.dart';
 import 'program_macro_screen.dart';
 import 'recording_screen.dart';
@@ -325,9 +328,27 @@ class _IconAction extends StatelessWidget {
   }
 }
 
-/// 悬浮球显示/隐藏总开关。
-class _FloatingBallToggle extends StatelessWidget {
+/// 悬浮球显示/隐藏总开关，附带自定义图标入口。
+class _FloatingBallToggle extends StatefulWidget {
   const _FloatingBallToggle();
+
+  @override
+  State<_FloatingBallToggle> createState() => _FloatingBallToggleState();
+}
+
+class _FloatingBallToggleState extends State<_FloatingBallToggle> {
+  String? _iconPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadIconPath();
+  }
+
+  Future<void> _loadIconPath() async {
+    final path = await NativeChannel.getFloatingBallIcon();
+    if (mounted) setState(() => _iconPath = path);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -335,56 +356,123 @@ class _FloatingBallToggle extends StatelessWidget {
       selector: (_, provider) => provider.floatingBallVisible,
       builder: (context, visible, child) {
         return GlassCard(
-          onTap: () => _onToggle(context, !visible),
-          child: Row(
+          child: Column(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: visible
-                      ? Colors.black87
-                      : Colors.black.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.touch_app_rounded,
-                    color: visible ? Colors.white : Colors.black.withValues(alpha: 0.6),
-                    size: 20,
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: visible
+                          ? Colors.black87
+                          : Colors.black.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Center(
+                      child: Icon(
+                        Icons.touch_app_rounded,
+                        color: visible ? Colors.white : Colors.black.withValues(alpha: 0.6),
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '显示悬浮球',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black.withValues(alpha: 0.85),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          visible ? '悬浮球已显示在屏幕上' : '悬浮球已隐藏',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: visible,
+                    onChanged: (value) => _onToggle(context, value),
+                    activeColor: Colors.black87,
+                    inactiveThumbColor: Colors.white,
+                    inactiveTrackColor: Colors.black.withValues(alpha: 0.12),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              InkWell(
+                onTap: () => _showIconOptions(context),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: _iconPath != null && File(_iconPath!).existsSync()
+                            ? Image.file(
+                                File(_iconPath!),
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Icon(
+                                  Icons.touch_app_rounded,
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  size: 20,
+                                ),
+                              )
+                            : Icon(
+                                Icons.touch_app_rounded,
+                                color: Colors.black.withValues(alpha: 0.6),
+                                size: 20,
+                              ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '悬浮球图标',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black.withValues(alpha: 0.85),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _iconPath != null ? '已使用自定义图标' : '点击更换图标',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: Colors.black.withValues(alpha: 0.3),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '显示悬浮球',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black.withValues(alpha: 0.85),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      visible ? '悬浮球已显示在屏幕上' : '悬浮球已隐藏',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.withValues(alpha: 0.6),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Switch(
-                value: visible,
-                onChanged: (value) => _onToggle(context, value),
-                activeColor: Colors.black87,
-                inactiveThumbColor: Colors.white,
-                inactiveTrackColor: Colors.black.withValues(alpha: 0.12),
               ),
             ],
           ),
@@ -425,5 +513,99 @@ class _FloatingBallToggle extends StatelessWidget {
     }
 
     await provider.setFloatingBallVisible(value);
+  }
+
+  Future<void> _showIconOptions(BuildContext context) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('从相册选择'),
+              onTap: () => Navigator.of(context).pop('pick'),
+            ),
+            if (_iconPath != null)
+              ListTile(
+                leading: const Icon(Icons.replay_rounded),
+                title: const Text('恢复默认'),
+                onTap: () => Navigator.of(context).pop('reset'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.close_rounded),
+              title: const Text('取消'),
+              onTap: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (action == 'pick') {
+      await _pickAndCropIcon(context);
+    } else if (action == 'reset') {
+      await _resetIcon(context);
+    }
+  }
+
+  Future<void> _pickAndCropIcon(BuildContext context) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final sourcePath = result.files.single.path;
+    if (sourcePath == null || !context.mounted) return;
+
+    final croppedPath = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ImageCropScreen(
+          sourcePath: sourcePath,
+          maxOutputSize: 128,
+          aspectRatio: 1.0,
+        ),
+      ),
+    );
+    if (croppedPath == null || !context.mounted) return;
+
+    final appDir = await getApplicationDocumentsDirectory();
+    final iconFile = File('${appDir.path}/floating_ball_icon.png');
+    await File(croppedPath).copy(iconFile.path);
+
+    final saved = await NativeChannel.setFloatingBallIcon(iconFile.path);
+    if (saved) {
+      await _loadIconPath();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('悬浮球图标已更新'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.black87,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _resetIcon(BuildContext context) async {
+    final saved = await NativeChannel.setFloatingBallIcon(null);
+    if (saved) {
+      await _loadIconPath();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已恢复默认图标'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.black87,
+          ),
+        );
+      }
+    }
   }
 }
