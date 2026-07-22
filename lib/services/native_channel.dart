@@ -3,6 +3,15 @@ import 'package:flutter/services.dart';
 class NativeChannel {
   static const MethodChannel _channel = MethodChannel('com.example.isolation');
 
+  static Future<bool> checkOverlayPermission() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('checkOverlayPermission');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<bool> requestOverlayPermission() async {
     try {
       final result = await _channel.invokeMethod<bool>('requestOverlayPermission');
