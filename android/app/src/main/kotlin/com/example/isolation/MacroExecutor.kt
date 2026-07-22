@@ -348,12 +348,23 @@ class MacroExecutor(
      * 评估 if 条件。条件只支持 find(...) 形式：
      * - find(color=0xFF0000)  颜色查找
      * - find(text="签到")      节点查找
+     * - find(image="xxx.jpg") 图片查找
      * 命中返回坐标，未命中返回 null。
      */
     private fun evaluateConditionWithCoord(condition: Map<String, Any>?): Pair<Int, Int>? {
         if (condition == null) return null
         val type = condition["type"] as? String ?: return null
         if (type != "find") return null
+
+        // 图片条件
+        val imageName = condition["image"] as? String
+        if (imageName != null) {
+            val threshold = (condition["threshold"] as? Number)?.toDouble() ?: 0.80
+            val region = condition["region"] as? List<*>
+            if (!ScreenCaptureHelper.isGranted(service)) return null
+            val point = ImageFinder.find(service, assetsDir, imageName, threshold, region)
+            return point?.let { Pair(it.x, it.y) }
+        }
 
         // 颜色条件
         val colorValue = condition["color"]

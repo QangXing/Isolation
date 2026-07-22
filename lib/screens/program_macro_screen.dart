@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 import '../models/macro.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
+import '../services/macro_syntax_highlighter.dart';
 import '../widgets/glass_card.dart';
 import 'image_crop_screen.dart';
+import 'professional_editor_screen.dart';
 
 class ProgramMacroScreen extends StatefulWidget {
   /// 编辑现有宏时传入 pluginId；新建时不传。
@@ -18,7 +20,7 @@ class ProgramMacroScreen extends StatefulWidget {
 }
 
 class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
-  final TextEditingController _codeController = TextEditingController();
+  final CodeEditingController _codeController = CodeEditingController();
   bool _smartRecognition = false;
   int _loopCount = 1;
   bool _infiniteLoop = false;
@@ -144,14 +146,19 @@ print("完成")
               onTap: () => _insert('click(500, 800)'),
             ),
             _InstructionChip(
-              label: 'click()',
+              label: '查找点击',
               icon: Icons.ads_click_rounded,
-              onTap: () => _insert('click()'),
+              onTap: () => _insert('find(text="") {\n    click()\n}'),
             ),
             _InstructionChip(
               label: 'roll',
               icon: Icons.swipe_down_rounded,
               onTap: () => _insert('roll(0, 300, 500)'),
+            ),
+            _InstructionChip(
+              label: 'input',
+              icon: Icons.keyboard_outlined,
+              onTap: () => _insert('input("文字")'),
             ),
             _InstructionChip(
               label: 'print',
@@ -195,6 +202,12 @@ print("完成")
                   _insert('if(find(color=0x00FF00)) {\n    click()\n} else {\n    print("未找到")\n}'),
             ),
             _InstructionChip(
+              label: 'if(image)',
+              icon: Icons.image_search_rounded,
+              onTap: () => _insert(
+                  'if(find(image="template.jpg", threshold=0.85)) {\n    click()\n    wait(500)\n}'),
+            ),
+            _InstructionChip(
               label: 'back',
               icon: Icons.arrow_back_rounded,
               onTap: () => _insert('back()'),
@@ -203,6 +216,11 @@ print("完成")
               label: 'home',
               icon: Icons.home_outlined,
               onTap: () => _insert('home()'),
+            ),
+            _InstructionChip(
+              label: 'recents',
+              icon: Icons.layers_outlined,
+              onTap: () => _insert('recents()'),
             ),
           ],
         ),
@@ -339,25 +357,64 @@ print("完成")
         color: const Color(0xFF1E1E1E),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: TextField(
-        controller: _codeController,
-        maxLines: null,
-        expands: true,
-        style: const TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 14,
-          color: Color(0xFFE0E0E0),
-          height: 1.5,
-        ),
-        decoration: const InputDecoration(
-          contentPadding: EdgeInsets.all(16),
-          border: InputBorder.none,
-          hintText: '在此输入宏代码…',
-          hintStyle: TextStyle(color: Color(0xFF757575)),
-        ),
-        onChanged: (_) => setState(() {}),
+      child: Stack(
+        children: [
+          TextField(
+            controller: _codeController,
+            maxLines: null,
+            expands: true,
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 14,
+              color: Color(0xFFE0E0E0),
+              height: 1.5,
+            ),
+            decoration: const InputDecoration(
+              contentPadding: EdgeInsets.all(16),
+              border: InputBorder.none,
+              hintText: '在此输入宏代码…',
+              hintStyle: TextStyle(color: Color(0xFF757575)),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: GestureDetector(
+              onTap: _openProfessionalEditor,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.open_in_full,
+                  size: 16,
+                  color: Color(0xFFE0E0E0),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  Future<void> _openProfessionalEditor() async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ProfessionalEditorScreen(
+          initialText: _codeController.text,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
+    if (result != null && mounted) {
+      _codeController.text = result;
+      setState(() {});
+    }
   }
 
   Widget _buildSettingsPanel() {

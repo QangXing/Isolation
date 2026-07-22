@@ -4,4 +4,6 @@
     android:layout_width="56dp"
     android:layout_height="56dp"
     android:src="@drawable/floating_ball_bg"
+    android:scaleType="fitXY"
+    android:clipToOutline="true"
     android:contentDescription="悬浮球" />

@@ -531,9 +531,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   Future<void> _stopRecording(PluginProvider provider) async {
     final steps = await provider.stopRecording();
+    final converted = MacroProgramParser.convertLegacySteps(
+      List<Map<String, dynamic>>.from(steps),
+    );
     setState(() {
-      _steps = List.from(steps);
-      _showEditor = steps.isNotEmpty;
+      _steps = converted;
+      _showEditor = converted.isNotEmpty;
     });
   }
 

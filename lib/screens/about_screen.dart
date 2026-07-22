@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
+import 'instruction_manual_screen.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -38,6 +39,64 @@ class AboutScreen extends StatelessWidget {
                       const SizedBox(height: 12),
                       _buildRow('用途', '插件管理与跨应用自动化宏'),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const InstructionManualScreen(),
+                      ),
+                    );
+                  },
+                  child: GlassCard(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.menu_book_outlined,
+                            size: 18,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                '指令说明',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '查看所有支持的宏指令语法与示例',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.chevron_right,
+                          size: 20,
+                          color: Colors.black38,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),

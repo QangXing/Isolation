@@ -113,6 +113,99 @@ class MacroProgramParser {
     return serialize(steps);
   }
 
+  /// 把录制产生的旧格式 step 列表转换成新的指令格式 step 列表。
+  ///
+  /// 支持：clickNode / clickPoint / swipe → find+click / click(x,y) / roll。
+  /// 智能识别捕获的 color 字段会保留在转换后的 step 上,继续作为等待条件使用。
+  static List<Map<String, dynamic>> convertLegacySteps(
+      List<Map<String, dynamic>> steps) {
+    return steps.map(_convertLegacyStep).whereType<Map<String, dynamic>>().toList();
+  }
+
+  static Map<String, dynamic>? _convertLegacyStep(
+      Map<String, dynamic> step) {
+    final type = step['type'] as String?;
+    final color = step['color'] as Map<String, dynamic>?;
+    final delay = step['delay'];
+
+    switch (type) {
+      case 'clickNode':
+        final target = step['target'] as Map<String, dynamic>?;
+        if (target != null) {
+          final text = target['text'] as String?;
+          final contentDescription = target['contentDescription'] as String?;
+          final resourceId = target['resourceId'] as String?;
+          final newTarget = <String, dynamic>{};
+          if (text != null && text.isNotEmpty) {
+            newTarget['text'] = text;
+          } else if (contentDescription != null && contentDescription.isNotEmpty) {
+            newTarget['contentDescription'] = contentDescription;
+          } else if (resourceId != null && resourceId.isNotEmpty) {
+            newTarget['resourceId'] = resourceId;
+          }
+
+          if (newTarget.isNotEmpty) {
+            return {
+              'type': 'find',
+              'target': newTarget,
+              if (color != null) 'color': color,
+              if (delay != null) 'delay': delay,
+              'children': [
+                {'type': 'click'},
+              ],
+            };
+          }
+
+          final bounds = target['bounds'] as List?;
+          if (bounds != null && bounds.length == 4) {
+            final cx = ((bounds[0] as num) + (bounds[2] as num)) ~/ 2;
+            final cy = ((bounds[1] as num) + (bounds[3] as num)) ~/ 2;
+            return {
+              'type': 'click',
+              'x': cx,
+              'y': cy,
+              if (color != null) 'color': color,
+              if (delay != null) 'delay': delay,
+            };
+          }
+        }
+        return Map<String, dynamic>.from(step);
+
+      case 'clickPoint':
+        final point = step['point'] as Map<String, dynamic>?;
+        if (point != null) {
+          return {
+            'type': 'click',
+            'x': point['x'],
+            'y': point['y'],
+            if (color != null) 'color': color,
+            if (delay != null) 'delay': delay,
+          };
+        }
+        return Map<String, dynamic>.from(step);
+
+      case 'swipe':
+        final start = step['start'] as Map<String, dynamic>?;
+        final end = step['end'] as Map<String, dynamic>?;
+        final duration = step['duration'] ?? 300;
+        if (start != null && end != null) {
+          final dx = (end['x'] as num) - (start['x'] as num);
+          final dy = (end['y'] as num) - (start['y'] as num);
+          return {
+            'type': 'roll',
+            'dx': dx,
+            'dy': dy,
+            'duration': duration,
+            if (delay != null) 'delay': delay,
+          };
+        }
+        return Map<String, dynamic>.from(step);
+
+      default:
+        return Map<String, dynamic>.from(step);
+    }
+  }
+
   // ---------- 内部实现 ----------
 
   static List<_Line> _preprocess(String source) {
