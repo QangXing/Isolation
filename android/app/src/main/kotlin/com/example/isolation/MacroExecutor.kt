@@ -67,6 +67,7 @@ class MacroExecutor(
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile
     private var stopRequested = false
     @Volatile
     internal var running = false

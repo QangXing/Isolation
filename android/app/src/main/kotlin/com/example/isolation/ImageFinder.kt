@@ -43,14 +43,18 @@ object ImageFinder {
         val templateGray = loadTemplateGray(templatePath) ?: return null
 
         val frame = ScreenCaptureHelper.getLatestFrame() ?: return null
-        val screenMat = frameToMat(frame) ?: return null
+        var screenMat: Mat? = null
+        var screenGray: Mat? = null
+        var searchMat: Mat? = null
+        var resultMat: Mat? = null
 
         try {
-            val searchRect = parseSearchRegion(region, frame.width, frame.height)
-            val screenGray = Mat()
+            screenMat = frameToMat(frame) ?: return null
+            screenGray = Mat()
             Imgproc.cvtColor(screenMat, screenGray, Imgproc.COLOR_RGBA2GRAY)
 
-            val searchMat = if (searchRect != null) {
+            val searchRect = parseSearchRegion(region, frame.width, frame.height)
+            searchMat = if (searchRect != null) {
                 Mat(screenGray, searchRect)
             } else {
                 screenGray
@@ -61,7 +65,7 @@ object ImageFinder {
                 return null
             }
 
-            val resultMat = Mat()
+            resultMat = Mat()
             Imgproc.matchTemplate(searchMat, templateGray, resultMat, Imgproc.TM_CCOEFF_NORMED)
             val mmr = Core.minMaxLoc(resultMat)
 
@@ -79,6 +83,12 @@ object ImageFinder {
         } catch (e: Exception) {
             e.printStackTrace()
             return null
+        } finally {
+            resultMat?.release()
+            searchMat?.takeIf { it !== screenGray }?.release()
+            screenGray?.release()
+            screenMat?.release()
+            templateGray.release()
         }
     }
 
@@ -145,8 +155,8 @@ object ImageFinder {
         val bottom = (region[3] as? Number)?.toInt() ?: return null
         val x = left.coerceIn(0, screenW - 1)
         val y = top.coerceIn(0, screenH - 1)
-        val width = (right - x).coerceAtLeast(1)
-        val height = (bottom - y).coerceAtLeast(1)
+        val width = (right - x).coerceIn(1, screenW - x)
+        val height = (bottom - y).coerceIn(1, screenH - y)
         return Rect(x, y, width, height)
     }
 }
