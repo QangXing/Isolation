@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import java.util.concurrent.atomic.AtomicBoolean
@@ -25,6 +26,7 @@ class MacroExecutor(
 ) {
 
     companion object {
+        private const val TAG = "MacroExecutor"
         private var activeExecutor: MacroExecutor? = null
         private val listeners = mutableListOf<MacroExecutorListener>()
         private var clickCount = 0
@@ -483,15 +485,26 @@ class MacroExecutor(
     private fun dispatchClick(x: Int, y: Int): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
         InputAccessibilityService.showClickAnimation(x.toFloat(), y.toFloat())
-        val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
+        // 加入极短位移，避免某些系统把单点手势优化掉
+        val path = Path().apply {
+            moveTo(x.toFloat(), y.toFloat())
+            lineTo(x.toFloat() + 0.5f, y.toFloat() + 0.5f)
+        }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
             .build()
         val result = AtomicBoolean(false)
         val latch = java.util.concurrent.CountDownLatch(1)
         mainHandler.post {
-            result.set(service.dispatchGesture(gesture, null, null))
-            latch.countDown()
+            try {
+                val ok = service.dispatchGesture(gesture, null, null)
+                result.set(ok)
+                if (!ok) Log.w(TAG, "dispatchClick($x, $y) 被系统拒绝")
+            } catch (e: Exception) {
+                Log.e(TAG, "dispatchClick($x, $y) 异常", e)
+            } finally {
+                latch.countDown()
+            }
         }
         try { latch.await() } catch (_: InterruptedException) { /* ignore */ }
         return result.get()
@@ -514,8 +527,15 @@ class MacroExecutor(
         val result = AtomicBoolean(false)
         val latch = java.util.concurrent.CountDownLatch(1)
         mainHandler.post {
-            result.set(service.dispatchGesture(gesture, null, null))
-            latch.countDown()
+            try {
+                val ok = service.dispatchGesture(gesture, null, null)
+                result.set(ok)
+                if (!ok) Log.w(TAG, "dispatchSwipe($startX, $startY -> $endX, $endY) 被系统拒绝")
+            } catch (e: Exception) {
+                Log.e(TAG, "dispatchSwipe 异常", e)
+            } finally {
+                latch.countDown()
+            }
         }
         try { latch.await() } catch (_: InterruptedException) { /* ignore */ }
         return result.get()

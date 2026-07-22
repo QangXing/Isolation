@@ -17,9 +17,12 @@ import android.view.View
 class TouchEffectOverlay(context: Context) : View(context) {
 
     private val effects = mutableListOf<ActiveEffect>()
+    private val pendingEffects = mutableListOf<TouchEffect>()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val invalidateRunnable = Runnable { invalidateAndSchedule() }
+    @Volatile
+    private var isOverlayAttached = false
 
     private companion object {
         const val CLICK_DURATION_MS = 450L
@@ -32,12 +35,23 @@ class TouchEffectOverlay(context: Context) : View(context) {
     }
 
     init {
-        setLayerType(LAYER_TYPE_HARDWARE, null)
+        // 使用软件渲染，保证 setShadowLayer 对圆/线等基础图形也能生效
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        // 如果 attach 前已有效果入队， attach 后继续刷新
+        isOverlayAttached = true
+        // 把 attach 前暂存的效果一次性放入队列，并启动刷新
+        val now = SystemClock.elapsedRealtime()
+        pendingEffects.forEach { effect ->
+            val duration = when (effect) {
+                is TouchEffect.Click -> CLICK_DURATION_MS
+                is TouchEffect.Swipe -> SWIPE_DURATION_MS
+            }
+            effects.add(ActiveEffect(effect, now, duration))
+        }
+        pendingEffects.clear()
         if (effects.isNotEmpty()) {
             invalidateAndSchedule()
         }
@@ -53,6 +67,10 @@ class TouchEffectOverlay(context: Context) : View(context) {
     }
 
     fun postEffect(effect: TouchEffect) {
+        if (!isOverlayAttached) {
+            pendingEffects.add(effect)
+            return
+        }
         val now = SystemClock.elapsedRealtime()
         val duration = when (effect) {
             is TouchEffect.Click -> CLICK_DURATION_MS
@@ -113,17 +131,22 @@ class TouchEffectOverlay(context: Context) : View(context) {
         // 淡出：alpha 从 0.9 -> 0
         val alpha = ((1f - progress) * 0.9f * 255).toInt()
 
+        // 先画深色轮廓/阴影，保证浅色背景也可见
+        resetPaint()
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 5f * density
+        paint.color = (0xFF000000).toInt()
+        paint.alpha = alpha
+        paint.setShadowLayer(6f * density, 0f, 0f, (0xFF000000).toInt())
+        canvas.drawCircle(effect.x, effect.y, radius, paint)
+
+        // 再画白色主环
         resetPaint()
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 3f * density
-        paint.color = (0xFFFFFFFF).toInt() // 白色点击环
+        paint.color = (0xFFFFFFFF).toInt()
         paint.alpha = alpha
-        // 黑色阴影/轮廓，让白色在浅色背景也能看清
-        paint.setShadowLayer(4f * density, 0f, 0f, (0xFF000000).toInt())
-
         canvas.drawCircle(effect.x, effect.y, radius, paint)
-        paint.alpha = 255
-        paint.clearShadowLayer()
     }
 
     private fun drawSwipe(
@@ -136,24 +159,31 @@ class TouchEffectOverlay(context: Context) : View(context) {
         val lineWidth = SWIPE_LINE_WIDTH_DP * density
         val alpha = ((1f - progress) * 0.85f * 255).toInt()
 
+        // 深色轮廓
         resetPaint()
         paint.style = Paint.Style.FILL
-        paint.color = (0xFFFFFFFF).toInt() // 白色滑动点
+        paint.color = (0xFF000000).toInt()
         paint.alpha = alpha
-        paint.setShadowLayer(3f * density, 0f, 0f, (0xFF000000).toInt())
+        paint.setShadowLayer(5f * density, 0f, 0f, (0xFF000000).toInt())
+        canvas.drawCircle(effect.startX, effect.startY, dotRadius + 1.5f * density, paint)
+        canvas.drawCircle(effect.endX, effect.endY, dotRadius + 1.5f * density, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = lineWidth + 2.5f * density
+        paint.strokeCap = Paint.Cap.ROUND
+        canvas.drawLine(effect.startX, effect.startY, effect.endX, effect.endY, paint)
 
-        // 起点和终点圆点
+        // 白色主图形
+        resetPaint()
+        paint.style = Paint.Style.FILL
+        paint.color = (0xFFFFFFFF).toInt()
+        paint.alpha = alpha
         canvas.drawCircle(effect.startX, effect.startY, dotRadius, paint)
         canvas.drawCircle(effect.endX, effect.endY, dotRadius, paint)
 
-        // 连接线
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = lineWidth
         paint.strokeCap = Paint.Cap.ROUND
         canvas.drawLine(effect.startX, effect.startY, effect.endX, effect.endY, paint)
-
-        paint.alpha = 255
-        paint.clearShadowLayer()
     }
 
     private data class ActiveEffect(

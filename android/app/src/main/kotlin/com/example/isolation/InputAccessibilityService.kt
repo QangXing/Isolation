@@ -259,10 +259,10 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         assetsDir: String? = null
     ) {
         MacroExecutor.addListener(this)
-        mainHandler.post {
-            mainHandler.removeCallbacks(hideOverlayRunnable)
-            ensureTouchEffectOverlay()
-        }
+        mainHandler.removeCallbacks(hideOverlayRunnable)
+        // 同步创建动画覆盖层（MethodChannel 默认在主线程），
+        // 保证 macro 线程开始前 touchEffectOverlay 已实例化，动画可进入 pending 队列。
+        ensureTouchEffectOverlay()
         MacroExecutor(this, assetsDir).execute(settings, steps)
     }
 
