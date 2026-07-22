@@ -1,70 +1,212 @@
-# Isolation 自动化宏插件设计文档
+# Isolation 自动化宏插件
 
-## 背景与目标
+> 一款 Android 平台的跨应用自动化工具。把悬浮球变成可录制、可编程、可分享的宏触发器，让你在任意 App 中自动完成重复点击、滑动、等待、条件判断等操作。
 
-现有内置插件“悬浮球小键盘”功能单一、使用场景有限。本项目决定改为**跨应用自动化宏插件**，让悬浮球成为一个可录制、可回放、可导入导出的自动化触发器。
+---
 
-目标：
-- 用户能在任意 App 中录制一系列点击操作。
-- 录制结果保存为 `.isoplugin` 宏插件，可导入/导出/分享。
-- 启用宏后，点击悬浮球即可在目标 App 中自动执行该宏。
-- 优先使用 Accessibility 节点信息回放，节点不可见时回退到屏幕坐标。
+## 功能概览
 
-## 范围
+| 能力 | 说明 |
+|------|------|
+| **录制宏** | 在第三方 App 中点击目标位置，自动记录为步骤，支持节点信息与坐标双保险回放。 |
+| **编程宏** | 使用类代码 DSL 直接编写宏，支持 `click`、`roll`、`print`、`find`、`if`、`for`、`find(loop)` 等指令。 |
+| **图片/颜色识别** | `find(image=...)` 基于 OpenCV 模板匹配；`find(color=...)` 基于屏幕像素颜色，用于节点不可见的场景。 |
+| **悬浮球触发** | 启用宏后，单击悬浮球即可执行；宏运行中三连击悬浮球强制停止。 |
+| **导入/导出** | 宏保存为 `.isoplugin`（zip 包），可备份、分享或导入他人插件。 |
+| **坐标调试** | 上传屏幕截图，点击任意位置获取坐标和颜色，一键生成 `click` 或 `find(color=...)` 代码。 |
+| **自定义悬浮球图标** | 支持从相册选择图片替换默认悬浮球图标。 |
 
-本设计覆盖：
-- 宏数据结构（步骤类型、字段）。
-- 原生层录制与回放引擎（Kotlin AccessibilityService / WindowManager）。
-- Flutter 层的录制 UI、步骤编辑器、插件管理集成。
-- 插件包格式扩展。
+---
 
-**MVP 范围**：仅实现 `clickNode`（节点点击）的录制与回放，其他步骤类型（`clickPoint`、`swipe`、`wait`、`back`、`home`、`launchApp`、`inputText`）保留接口，后续迭代实现。
+## 技术栈
 
-## 现有架构利用
+| 层 | 技术 |
+|----|------|
+| UI 层 | Flutter 3.x（Dart 3） |
+| 原生层 | Kotlin（Android） |
+| 通信 | MethodChannel `com.example.isolation/native` |
+| 状态管理 | `provider` |
+| 持久化 | `shared_preferences` + 应用私有目录 |
+| 图像处理 | OpenCV（Android）、`image` 包（Flutter） |
+| 打包格式 | `.isoplugin`（zip 压缩包） |
 
-- **Flutter 插件系统**：复用 `Plugin` / `PluginAction` 模型，新增 `type: "macro"`。
-- **悬浮球服务 `FloatingBallService`**：改为“运行当前启用宏”。
-- **辅助功能服务 `InputAccessibilityService`**：扩展录制监听与回放能力。
-- **MethodChannel `com.example.isolation/native`**：新增 `startRecording`、`stopRecording`、`executeMacro` 等方法。
+---
 
-## 数据模型
+## 架构
 
-### MacroStep
-
-```json
-{
-  "type": "clickNode",
-  "delay": 500,
-  "target": {
-    "resourceId": "com.example.app:id/btn_sign",
-    "text": "签到",
-    "className": "android.widget.Button",
-    "bounds": [100, 200, 300, 400]
-  }
-}
+```
+┌─────────────────────────────────────────────────────────┐
+│                      Flutter (Dart)                      │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────────┐ │
+│  │ HomeScreen │  │ManageScreen│  │  RecordingScreen   │ │
+│  └────────────┘  └────────────┘  └────────────────────┘ │
+│  ┌────────────────────┐  ┌────────────────────────────┐│
+│  │ ProgramMacroScreen │  │ CoordinateDebugScreen      ││
+│  └────────────────────┘  └────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────┐│
+│  │        PluginProvider / MacroProgramParser          ││
+│  └─────────────────────────────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────┐│
+│  │              NativeChannel ← MethodChannel          ││
+│  └─────────────────────────────────────────────────────┘│
+└───────────────────────────┬─────────────────────────────┘
+                            │
+┌───────────────────────────┴─────────────────────────────┐
+│                      Kotlin (Android)                    │
+│  ┌────────────────────┐  ┌──────────────────────────┐   │
+│  │ InputAccessibility │  │    FloatingBallService   │   │
+│  │     Service        │  │                          │   │
+│  └────────────────────┘  └──────────────────────────┘   │
+│  ┌────────────────────┐  ┌──────────────────────────┐   │
+│  │    MacroExecutor   │  │      ImageFinder         │   │
+│  └────────────────────┘  └──────────────────────────┘   │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │   ScreenCaptureHelper / TouchEffectOverlay        │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
 ```
 
-步骤类型：
+---
 
-| 类型 | 说明 | 关键字段 |
-|------|------|----------|
-| `clickNode` | 按节点信息点击 | `target` |
-| `clickPoint` | 按坐标点击 | `point: {x, y}` |
-| `swipe` | 滑动 | `start: {x, y}`, `end: {x, y}`, `duration` |
-| `wait` | 等待 | `duration` |
-| `back` | 返回键 | - |
-| `home` | Home 键 | - |
-| `recents` | 最近任务键 | - |
-| `launchApp` | 打开指定 App | `packageName` |
-| `inputText` | 向焦点输入框注入文字 | `text` |
+## 编程宏 DSL
 
-### MacroPlugin
+在 **管理页 → 编程宏** 中编写，保存后可通过悬浮球执行。
+
+```dsl
+print("开始签到")
+
+// 按屏幕颜色查找并点击
+find(color=0xFF5000, tolerance=20) {
+    click()
+    wait(500)
+}
+
+// 按节点文字查找
+find(text="签到") {
+    click()
+    roll(0, 300, 400)
+    wait(500)
+}
+
+// 按图片模板查找
+find(image="button_login.jpg", threshold=0.85, region=[100, 200, 900, 1200]) {
+    click()
+}
+
+// 条件分支
+if(find(color=0x00FF00, tolerance=25)) {
+    click()
+} else {
+    print("今日无奖励")
+}
+
+// 固定次数循环
+for(3) {
+    roll(0, 300, 400)
+    wait(500)
+}
+
+// 无限循环，三连击悬浮球停止
+find(loop) {
+    find(text="领取") { click() }
+    wait(1000)
+}
+
+print("完成")
+```
+
+### 指令速查
+
+| 指令 | 示例 | 说明 |
+|------|------|------|
+| `click` | `click(500, 800)` / `click()` | 坐标点击；无参时点击最近 `find`/`if` 命中的位置 |
+| `roll` | `roll(dx, dy, duration)` | 以屏幕中心为起点派发滑动手势 |
+| `wait` | `wait(ms)` | 等待指定毫秒 |
+| `print` | `print("消息")` | 在悬浮球旁显示气泡消息 |
+| `find` | `find(color=...)` / `find(text=...)` / `find(image=...)` | 颜色/文字/图片查找，命中后把坐标压栈 |
+| `find(loop)` | `find(loop) { ... }` | 无限循环执行子块 |
+| `if` | `if(find(...)) { ... } else { ... }` | 条件分支 |
+| `back` / `home` / `recents` | `back()` 等 | 系统按键 |
+
+---
+
+## 主要文件
+
+| 路径 | 说明 |
+|------|------|
+| `lib/main.dart` | 应用入口与底部导航 |
+| `lib/screens/home_screen.dart` | 主页：插件列表与启用开关 |
+| `lib/screens/manage_screen.dart` | 管理页：新建/导入/编程宏/坐标调试 |
+| `lib/screens/recording_screen.dart` | 录制页：录制操作并编辑步骤 |
+| `lib/screens/program_macro_screen.dart` | 编程宏编辑器 |
+| `lib/screens/professional_editor_screen.dart` | 全屏代码编辑器（带行号） |
+| `lib/screens/coordinate_debug_screen.dart` | 坐标与颜色调试工具 |
+| `lib/services/macro_program_parser.dart` | DSL 解析与序列化 |
+| `lib/models/macro.dart` | 宏数据模型 |
+| `android/.../InputAccessibilityService.kt` | 辅助功能服务：录制 + 回放 |
+| `android/.../FloatingBallService.kt` | 悬浮球服务与气泡显示 |
+| `android/.../MacroExecutor.kt` | 宏执行引擎 |
+| `android/.../ImageFinder.kt` | OpenCV 图片模板匹配 |
+| `android/.../ScreenCaptureHelper.kt` | 屏幕截图与颜色查找 |
+| `PROJECT_GUIDE.md` | 项目详细指南与实现状态 |
+
+---
+
+## 权限说明
+
+| 权限 | 用途 |
+|------|------|
+| `SYSTEM_ALERT_WINDOW` | 显示悬浮球 |
+| `BIND_ACCESSIBILITY_SERVICE` | 录制点击事件并回放手势 |
+| `FOREGROUND_SERVICE` | 保持悬浮球后台运行 |
+| 屏幕录制权限（运行时） | 颜色查找、图片模板匹配需要读取屏幕像素 |
+
+---
+
+## 使用流程
+
+### 录制一个宏
+
+1. 打开应用，进入 **管理页** → **新建宏**。
+2. 点击 **开始录制**，返回目标 App。
+3. 在目标 App 中执行需要自动化的点击操作。
+4. 返回本应用，点击 **完成**。
+5. 检查/编辑生成的步骤，点击 **保存为宏插件**。
+6. 在主页启用该宏，点击悬浮球即可回放。
+
+### 编写一个编程宏
+
+1. 进入 **管理页** → **编程宏**。
+2. 在代码编辑器中输入 DSL。
+3. 点击 **校验** 检查语法。
+4. 点击 **保存宏**。
+5. 主页启用后，点击悬浮球执行。
+
+### 导入图片模板
+
+1. 在编程宏页面点击 **导入图片**。
+2. 从相册选择图片，进入圆形裁剪框调整选区。
+3. 裁剪后的图片自动加入当前插件的 `assets` 目录。
+4. 在代码中使用 `find(image="文件名.jpg")` 引用。
+
+---
+
+## 插件包结构
+
+```
+xxx.isoplugin (zip)
+├── manifest.json
+├── icon.png
+├── macro.json
+└── assets/
+    └── button_login.jpg
+```
 
 `manifest.json` 示例：
 
 ```json
 {
-  "id": "com.example.isolation.builtin.daily-checkin",
+  "id": "com.example.isolation.macro.daily-checkin",
   "name": "每日签到宏",
   "version": "1.0.0",
   "description": "打开目标 App 后自动点击签到按钮",
@@ -72,108 +214,28 @@
   "actions": [
     {
       "type": "macro",
-      "label": "运行签到宏",
+      "label": "运行",
       "macroFile": "macro.json"
     }
   ]
 }
 ```
 
-插件包结构：
+---
 
-```
-xxx.isoplugin （zip）
-├── manifest.json
-├── icon.png
-└── macro.json
-```
+## 注意事项
 
-## 原生层设计
+- 同一时间只能启用一个宏插件；启用新宏会自动禁用其他宏。
+- 部分游戏、视频、WebView 内嵌内容的节点不可访问，建议改用 `find(color=...)` 或 `find(image=...)`。
+- 颜色/图片识别依赖屏幕截图，请确保已授予屏幕录制权限。
+- 坐标调试工具中的坐标基于设备屏幕像素；上传的截图最好是本机系统截屏，且未经过裁剪。
+- Android 12+ 对后台启动 Activity 有限制，`launchApp` 步骤在应用未前台时可能失败。
 
-### 录制流程
+---
 
-1. Flutter 调用 `NativeChannel.startRecording()`。
-2. `InputAccessibilityService` 进入录制状态。
-3. 监听 `AccessibilityEvent.TYPE_VIEW_CLICKED`。
-4. 过滤掉本应用包名（`com.example.isolation`）的事件，避免记录悬浮控制窗的点击。
-5. 对每个有效点击，提取 `resourceId`、`text`、`className`、`bounds`，生成 `MacroStep`。
-6. 记录事件时间戳，计算与上一步的 `delay`。
-7. Flutter 调用 `NativeChannel.stopRecording()`，服务返回步骤列表。
+## 迭代记录
 
-### 回放流程
+详见 [PROJECT_GUIDE.md](PROJECT_GUIDE.md)，其中记录了：
 
-1. Flutter 调用 `executeMacro` 并传入步骤数组。
-2. 引擎按顺序执行：
-   - `clickNode`：从 `rootInActiveWindow` 查找匹配节点。
-     - 优先匹配 `resourceId`。
-     - 其次匹配 `text` 或 `contentDescription`。
-     - 最后匹配 `className + bounds` 重叠。
-     - 未找到则使用 `bounds` 中心坐标执行 `clickPoint`。
-   - `clickPoint`：使用 `GestureDescription` 派发单点点击。
-   - 每步前等待 `delay` 毫秒。
-3. 执行失败某一步时，记录失败原因并继续（可配置）。
-
-### 悬浮球行为变更
-
-- 单击悬浮球：运行当前唯一启用的宏插件。
-- 若未启用宏插件：提示“请先启用一个宏”。
-- 长按悬浮球：打开宏选择面板（MVP 可省略，只做单击运行）。
-
-## Flutter 层设计
-
-### 页面调整
-
-底部导航保持 **主页 / 管理 / 说明**。
-
-- **主页**：展示插件列表，每个插件卡片显示启用开关；启用宏插件后卡片显示“运行”按钮（也可通过悬浮球触发）。
-- **管理页**：
-  - 保留“从文件导入插件”。
-  - 新增“新建宏”按钮。
-  - 列出所有宏插件，支持编辑/删除/导出。
-- **新建宏 / 录制页**：
-  - 顶部显示录制状态（录制中 / 暂停 / 完成）。
-  - 显示半透明悬浮控制条：开始、暂停、完成、取消。
-  - 录制完成后进入步骤编辑器：步骤列表、删除、重排、手动添加坐标点击（MVP 可只支持删除）。
-  - 保存时生成 `.isoplugin` 压缩包并存入应用私有目录。
-
-### MethodChannel 扩展
-
-新增方法：
-
-```dart
-static Future<List<Map<String, dynamic>>> startRecording() async
-static Future<List<Map<String, dynamic>>> stopRecording() async
-static Future<bool> executeMacro(List<Map<String, dynamic>> steps) async
-static Future<bool> dispatchClick(int x, int y) async
-```
-
-### 状态管理
-
-- `PluginProvider` 增加当前录制状态、当前运行宏状态。
-- 录制得到的步骤在保存前驻留内存，不进入插件列表。
-
-## 插件格式兼容
-
-- 旧插件（`type != "macro"`）继续兼容。
-- 内置插件从“悬浮球键盘”替换为“示例签到宏”。
-
-## 权限与限制
-
-- 需要 **悬浮窗权限**（SYSTEM_ALERT_WINDOW）。
-- 需要 **无障碍服务权限**（BIND_ACCESSIBILITY_SERVICE）。
-- Android 12+ 对后台启动 Activity 有限制，`launchApp` 步骤在执行时若应用不在前台可能失败。
-- 部分游戏、视频、WebView 内嵌内容的节点不可访问，回退到坐标后稳定性下降。
-
-## 非目标
-
-- 不实现图像识别 / OCR。
-- 不实现云端宏同步。
-- 不实现条件判断、循环等复杂脚本（保持步骤线性）。
-
-## 验收标准
-
-- [ ] 能在第三方 App 中录制 3 次连续点击并保存为宏插件。
-- [ ] 启用宏后，点击悬浮球可在同一界面自动执行这 3 次点击。
-- [ ] 节点变化后（如按钮文字不变但位置偏移）仍能正确点击。
-- [ ] 录制的宏可通过 `.isoplugin` 文件导入/导出。
-- [ ] UI 保持白色简洁风格、毛玻璃圆角方块、底部三栏导航。
+- Bug 修复：辅助功能状态判定、悬浮球触摸反馈、气泡定位、图片匹配准确度、行号对齐、`print` 输出覆盖等。
+- 功能实现：宏互斥启用、编程宏 DSL、录制页代码视图、图片/颜色查找、圆形裁剪框、坐标调试、悬浮球自定义图标等。
