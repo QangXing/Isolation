@@ -73,7 +73,19 @@ class MacroProgramParser {
         if (positional.isNotEmpty) step['duration'] = positional[0];
         break;
       case 'for':
-        if (positional.isNotEmpty) step['count'] = positional[0];
+        if (positional.isNotEmpty) {
+          final first = positional[0];
+          if (first is String && first.contains(';')) {
+            final parts = first.split(';').map((s) => s.trim()).toList();
+            if (parts.length == 3) {
+              step['init'] = _parseCForInit(parts[0]);
+              step['condition'] = ExpressionParser.parse(parts[1]).toJson();
+              step['update'] = _parseCForUpdate(parts[2]);
+            }
+          } else {
+            step['count'] = first;
+          }
+        }
         break;
       case 'find':
         if (positional.isNotEmpty) {
@@ -103,8 +115,10 @@ class MacroProgramParser {
           .toList();
     }
     if (step['condition'] is Map) {
-      step['condition'] =
-          _normalizeStep(Map<String, dynamic>.from(step['condition'] as Map));
+      final condMap = Map<String, dynamic>.from(step['condition'] as Map);
+      if (condMap.containsKey('type')) {
+        step['condition'] = _normalizeStep(condMap);
+      }
     }
     return step;
   }
@@ -250,6 +264,34 @@ class MacroProgramParser {
 
   // ---------- 内部实现 ----------
 
+  static Map<String, dynamic> _parseCForInit(String s) {
+    final match = RegExp(
+            r'^(int|double)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$')
+        .firstMatch(s.trim());
+    if (match == null) {
+      throw MacroParseError('无法解析 for 初始化语句: $s', 0);
+    }
+    return {
+      'type': 'var',
+      'varType': match.group(1)!,
+      'name': match.group(2)!,
+      'value': ExpressionParser.parse(match.group(3)!.trim()).toJson(),
+    };
+  }
+
+  static Map<String, dynamic> _parseCForUpdate(String s) {
+    final match = RegExp(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$')
+        .firstMatch(s.trim());
+    if (match == null) {
+      throw MacroParseError('无法解析 for 更新语句: $s', 0);
+    }
+    return {
+      'type': 'assign',
+      'name': match.group(1)!,
+      'value': ExpressionParser.parse(match.group(2)!.trim()).toJson(),
+    };
+  }
+
   static List<_Line> _preprocess(String source) {
     final result = <_Line>[];
     final rawLines = source.split('\n');
@@ -315,7 +357,12 @@ class MacroProgramParser {
         buffer.writeln('$indent $type()');
         break;
       case 'for':
-        buffer.writeln('$indent for(${step['count']}) {');
+        if (step['condition'] != null) {
+          buffer.writeln(
+              '$indent for (${_serializeExprStep(step['init'])}; ${_serializeExprValue(step['condition'])}; ${_serializeExprStep(step['update'])}) {');
+        } else {
+          buffer.writeln('$indent for(${step['count']}) {');
+        }
         _serializeChildren(step['children'], indent, buffer);
         buffer.writeln('$indent }');
         break;
@@ -326,11 +373,16 @@ class MacroProgramParser {
         buffer.writeln('$indent }');
         break;
       case 'if':
-        final condition = step['condition'] is Map
-            ? Map<String, dynamic>.from(step['condition'] as Map)
-            : <String, dynamic>{};
-        final condArgStr = _serializeFindArgs(condition);
-        buffer.writeln('$indent if(find($condArgStr)) {');
+        if (step['expression'] != null) {
+          buffer.writeln(
+              '$indent if (${_serializeExprValue(step['expression'])}) {');
+        } else {
+          final condition = step['condition'] is Map
+              ? Map<String, dynamic>.from(step['condition'] as Map)
+              : <String, dynamic>{};
+          final condArgStr = _serializeFindArgs(condition);
+          buffer.writeln('$indent if(find($condArgStr)) {');
+        }
         _serializeChildren(step['then'], indent, buffer);
         final elseBranch = step['else'];
         if (elseBranch is List && elseBranch.isNotEmpty) {
@@ -376,6 +428,19 @@ class MacroProgramParser {
       default:
         buffer.writeln('$indent // 未知指令: $type');
     }
+  }
+
+  /// 把 var / assign 步骤 JSON 紧凑序列化为 for 头部子句。
+  static String _serializeExprStep(dynamic step) {
+    final map = step as Map<String, dynamic>;
+    final type = map['type'] as String;
+    if (type == 'var') {
+      return '${map['varType']} ${map['name']} = ${_serializeExprValue(map['value'])}';
+    }
+    if (type == 'assign') {
+      return '${map['name']} = ${_serializeExprValue(map['value'])}';
+    }
+    return '';
   }
 
   /// 把表达式 JSON（literal/var/binary/unary）或 point map 序列化为字符串。
@@ -597,6 +662,16 @@ class _BlockParser {
 
     final args = _parseArgs(argsStr);
     final step = <String, dynamic>{'type': name, ...args};
+
+    // if 条件：find(...) 保持 condition，否则解析为表达式
+    if (name == 'if') {
+      final isFindCondition = step.containsKey('condition') &&
+          RegExp(r'^find\s*\(.*\)$').hasMatch(argsStr);
+      if (!isFindCondition) {
+        step['expression'] = ExpressionParser.parse(argsStr).toJson();
+        step.remove('condition');
+      }
+    }
 
     // 处理块
     if (hasBraceInline) {
