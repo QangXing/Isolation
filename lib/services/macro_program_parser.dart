@@ -375,6 +375,10 @@ class MacroProgramParser {
     if (threshold != null) pairs.add('threshold=$threshold');
     final region = step['region'] as List?;
     if (region != null) pairs.add('region=[${region.join(', ')}]');
+    final feature = step['feature'];
+    if (feature != null) pairs.add('feature=${_quoteValue(feature)}');
+    final minMatches = step['minMatches'];
+    if (minMatches != null) pairs.add('minMatches=$minMatches');
     final color = step['color'];
     if (color != null) {
       // 颜色统一输出 0xRRGGBB 十六进制
