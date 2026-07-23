@@ -56,7 +56,13 @@ class MacroProgramParser {
         }
         break;
       case 'roll':
-        assign(['dx', 'dy', 'duration']);
+        if (positional.length == 5) {
+          step['start'] = {'x': positional[0], 'y': positional[1]};
+          step['end'] = {'x': positional[2], 'y': positional[3]};
+          step['duration'] = positional[4];
+        } else {
+          assign(['dx', 'dy', 'duration']);
+        }
         break;
       case 'print':
         if (positional.isNotEmpty) step['message'] = positional[0].toString();
@@ -282,8 +288,15 @@ class MacroProgramParser {
         _serializeClick(step, indent, buffer);
         break;
       case 'roll':
-        buffer.writeln(
-            '$indent roll(${step['dx']}, ${step['dy']}, ${step['duration']})');
+        final start = step['start'] as Map?;
+        final end = step['end'] as Map?;
+        if (start != null && end != null) {
+          buffer.writeln(
+              '$indent roll(${start['x']}, ${start['y']}, ${end['x']}, ${end['y']}, ${step['duration']})');
+        } else {
+          buffer.writeln(
+              '$indent roll(${step['dx']}, ${step['dy']}, ${step['duration']})');
+        }
         break;
       case 'print':
         buffer.writeln(

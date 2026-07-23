@@ -22,6 +22,18 @@ void main() {
     expect(parsed.first['image'], 'btn.jpg');
   });
 
+  test('roll absolute coordinates round-trip', () {
+    const code = 'roll(100, 200, 100, 800, 500)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'roll');
+    expect(parsed.first['start'], {'x': 100, 'y': 200});
+    expect(parsed.first['end'], {'x': 100, 'y': 800});
+    expect(parsed.first['duration'], 500);
+    final serialized = MacroProgramParser.serialize(parsed);
+    expect(serialized.trim(), code);
+  });
+
   group('if-else round-trip', () {
     final ifSteps = [
       {
