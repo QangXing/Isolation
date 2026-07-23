@@ -79,9 +79,9 @@ class InstructionManualScreen extends StatelessWidget {
           ),
           _InstructionCard(
             title: '按图片查找',
-            syntax: 'find(image="图片路径", threshold=0.8) { ... }',
-            description: '在屏幕中查找与参考图片最匹配的位置。threshold 为相似度阈值,范围 0~1。',
-            example: 'find(image="/sdcard/Pictures/btn.png", threshold=0.85) {\n  click()\n}',
+            syntax: 'find(image="图片路径", feature="orb", minMatches=6, threshold=0.8) { ... }',
+            description: '在屏幕中查找与参考图片最匹配的位置。threshold 为相似度阈值,范围 0~1。\nfeature: orb（默认）/ akaze / template，template 仅使用传统模板匹配。\nminMatches: 特征点匹配通过的最少内点数，默认 6。\n执行图片/颜色查找时若未授权屏幕录制，会自动弹出授权。',
+            example: 'find(image="/sdcard/Pictures/btn.png", feature="akaze", minMatches=8, threshold=0.85) {\n  click()\n}',
           ),
           _InstructionCard(
             title: '限定查找区域',
