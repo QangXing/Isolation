@@ -309,15 +309,16 @@ class MacroProgramParser {
         buffer.writeln('$indent }');
         break;
       case 'if':
-        final condition =
-            Map<String, dynamic>.from(step['condition'] as Map);
+        final condition = step['condition'] is Map
+            ? Map<String, dynamic>.from(step['condition'] as Map)
+            : <String, dynamic>{};
         final condArgStr = _serializeFindArgs(condition);
-        buffer.writeln(
-            '$indent if(find($condArgStr)) {');
+        buffer.writeln('$indent if(find($condArgStr)) {');
         _serializeChildren(step['then'], indent, buffer);
-        if (step['else'] != null && (step['else'] as List).isNotEmpty) {
+        final elseBranch = step['else'];
+        if (elseBranch is List && elseBranch.isNotEmpty) {
           buffer.writeln('$indent } else {');
-          _serializeChildren(step['else'], indent, buffer);
+          _serializeChildren(elseBranch, indent, buffer);
         }
         buffer.writeln('$indent }');
         break;

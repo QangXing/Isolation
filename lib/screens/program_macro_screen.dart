@@ -66,14 +66,27 @@ print("完成")
   Future<void> _init() async {
     if (widget.pluginId != null) {
       final provider = context.read<PluginProvider>();
-      final data = await provider.loadMacroData(widget.pluginId!);
-      if (data != null) {
-        _codeController.text = MacroProgramParser.serialize(data.steps);
-        final plugin =
-            provider.plugins.firstWhere((p) => p.id == widget.pluginId);
-        _initialName = plugin.name;
+      try {
+        final data = await provider.loadMacroData(widget.pluginId!);
+        if (data != null) {
+          _codeController.text = MacroProgramParser.serialize(data.steps);
+          final plugin =
+              provider.plugins.firstWhere((p) => p.id == widget.pluginId);
+          _initialName = plugin.name;
+        }
+        _assets = await provider.listMacroAssets(widget.pluginId!);
+      } catch (e, s) {
+        debugPrint('加载宏数据失败: $e\n$s');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('加载宏失败: $e'),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
       }
-      _assets = await provider.listMacroAssets(widget.pluginId!);
     } else {
       _codeController.text = _template;
     }

@@ -244,7 +244,34 @@ class MacroExecutor(
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
         val loop = step["loop"] as? Boolean ?: false
 
-        // 0) 图片查找优先：find(image="xxx.jpg", threshold=0.8, region=[...]) { ... }
+        if (loop) {
+            // loop=true 时每次迭代都重新查找，避免一直使用首次命中的旧坐标
+            while (!stopRequested) {
+                val coord = findStepCoordinate(step) ?: break
+                foundCoordinates.addFirst(coord)
+                try {
+                    executeSteps(children)
+                } finally {
+                    foundCoordinates.removeFirstOrNull()
+                }
+            }
+        } else {
+            val coord = findStepCoordinate(step) ?: return
+            foundCoordinates.addFirst(coord)
+            try {
+                executeSteps(children)
+            } finally {
+                foundCoordinates.removeFirstOrNull()
+            }
+        }
+    }
+
+    /**
+     * 执行一次 find 查找，返回命中坐标；未命中返回 null 并输出状态。
+     * 支持图片、颜色和节点三种查找方式。
+     */
+    private fun findStepCoordinate(step: Map<String, Any>): Pair<Int, Int>? {
+        val imageName = step["image"] as? String
         if (imageName != null) {
             val threshold = (step["threshold"] as? Number)?.toDouble() ?: 0.80
             val region = step["region"] as? List<*>
@@ -255,92 +282,51 @@ class MacroExecutor(
             if (minMatches != null) options["minMatches"] = minMatches.toInt()
 
             val point = ImageFinder.find(service, assetsDir, imageName, threshold, region, options)
-            if (point != null) {
+            return if (point != null) {
                 postStatus("find: 图片命中 (${point.x}, ${point.y})")
-                foundCoordinates.addFirst(Pair(point.x, point.y))
-                try {
-                    executeFindChildren(children, loop)
-                } finally {
-                    foundCoordinates.removeFirstOrNull()
-                }
+                Pair(point.x, point.y)
             } else {
                 postStatus("find: 未找到图片")
+                null
             }
-            return
         }
 
-        // 1) 颜色查找：find(color=0xFF0000, tolerance=20) { ... }
+        // 颜色查找：find(color=0xFF0000, tolerance=20) { ... }
+        val colorValue = step["color"]
         if (colorValue != null) {
-            val targetColor = parseColor(colorValue)
+            val targetColor = ColorParser.parseColor(colorValue)
             val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
             val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance)
-            if (point != null) {
+            return if (point != null) {
                 postStatus("find: 颜色命中 (${point.x}, ${point.y})")
-                foundCoordinates.addFirst(Pair(point.x, point.y))
-                try {
-                    executeFindChildren(children, loop)
-                } finally {
-                    foundCoordinates.removeFirstOrNull()
-                }
+                Pair(point.x, point.y)
             } else {
                 postStatus("find: 未找到颜色")
+                null
             }
-            return
         }
 
-        // 2) 节点查找：find(text="签到") { click() }
+        // 节点查找：find(text="签到") { click() }
         val target = step["target"] as? Map<String, Any>
         if (target == null) {
             postStatus("find: 缺少 color 或 target 参数")
-            return
+            return null
         }
         val root = service.rootInActiveWindow ?: run {
             postStatus("find: 当前无窗口")
-            return
+            return null
         }
         val node = findMatchingNode(root, target)
-        if (node != null) {
+        return if (node != null) {
             val rect = Rect()
             node.getBoundsInScreen(rect)
             val cx = (rect.left + rect.right) / 2
             val cy = (rect.top + rect.bottom) / 2
             postStatus("find: 节点命中 ($cx, $cy)")
-            foundCoordinates.addFirst(Pair(cx, cy))
-            try {
-                executeFindChildren(children, loop)
-            } finally {
-                foundCoordinates.removeFirstOrNull()
-            }
+            Pair(cx, cy)
         } else {
             postStatus("find: 节点未命中")
-        }
-    }
-
-    private fun executeFindChildren(children: List<Map<String, Any>>, loop: Boolean) {
-        if (loop) {
-            while (!stopRequested) {
-                executeSteps(children)
-            }
-        } else {
-            executeSteps(children)
-        }
-    }
-
-    /** 把 DSL 中的颜色字面量解析为 0xRRGGBB 整数。支持 0xFF0000 / #FF0000 / 16711680 */
-    private fun parseColor(value: Any): Int {
-        return when (value) {
-            is Number -> value.toInt()
-            is String -> {
-                val s = value.removePrefix("#")
-                if (s.startsWith("0x") || s.startsWith("0X")) {
-                    s.substring(2).toInt(16)
-                } else if (s.length == 6 || s.length == 8) {
-                    s.toInt(16)
-                } else {
-                    s.toIntOrNull() ?: 0
-                }
-            }
-            else -> 0
+            null
         }
     }
 
@@ -388,7 +374,7 @@ class MacroExecutor(
         // 颜色条件
         val colorValue = condition["color"]
         if (colorValue != null) {
-            val targetColor = parseColor(colorValue)
+            val targetColor = ColorParser.parseColor(colorValue)
             val tolerance = (condition["tolerance"] as? Number)?.toInt() ?: 20
             if (!ScreenCaptureHelper.isGranted(service)) return null
             val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance)
