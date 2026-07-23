@@ -37,9 +37,8 @@
             android:exported="false"
             android:theme="@style/TransparentTheme"
             android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:taskAffinity=""
-            android:launchMode="singleTask" />
+            android:launchMode="singleTop"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" />
 
         <service
             android:name=".FloatingBallService"
