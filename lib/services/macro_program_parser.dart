@@ -621,7 +621,8 @@ class _BlockParser {
     }
 
     // 变量声明：int score = 0 或 point btn = point(100, 200)
-    final declMatch = RegExp(r'^(\w+)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$')
+    final declMatch = RegExp(
+            r'^(int|double|point|color)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$')
         .firstMatch(line.text);
     if (declMatch != null) {
       final varType = declMatch.group(1)!;

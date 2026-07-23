@@ -23,6 +23,11 @@ class MacroSyntaxHighlighter {
     'recent',
     'true',
     'false',
+    'int',
+    'double',
+    'point',
+    'color',
+    'var',
   ];
 
   static const Color _keywordColor = Color(0xFFBB86FC); // 紫色

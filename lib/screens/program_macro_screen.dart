@@ -55,6 +55,21 @@ if(find(color=0x00FF00, tolerance=20)) {
 }
 
 print("完成")
+
+// 变量与表达式
+int score = 0
+score = score + 1
+
+point btn = point(100, 200)
+click(btn)
+
+for (int i = 0; i < 3; i = i + 1) {
+    roll(0, 300, 500)
+}
+
+if (score > 0) {
+    print("得分大于 0")
+}
 ''';
 
   @override
