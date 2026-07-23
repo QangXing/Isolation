@@ -269,6 +269,70 @@ class PluginProvider extends ChangeNotifier {
     return true;
   }
 
+  /// 更新宏插件的元数据（名称、简介）与运行设置。
+  Future<bool> updateMacroMetadata(
+    String pluginId, {
+    required String name,
+    required String description,
+    required MacroSettings settings,
+  }) async {
+    final pluginIndex = _plugins.indexWhere((p) => p.id == pluginId);
+    if (pluginIndex < 0) return false;
+
+    final plugin = _plugins[pluginIndex];
+    final pluginDir = await _pluginDirectory();
+
+    // 更新 manifest.json
+    final manifestFile = File('${pluginDir.path}/$pluginId/manifest.json');
+    if (await manifestFile.exists()) {
+      final manifestContent = await manifestFile.readAsString();
+      final manifest = jsonDecode(manifestContent) as Map<String, dynamic>;
+      manifest['name'] = name;
+      manifest['description'] = description;
+      await manifestFile.writeAsString(jsonEncode(manifest));
+    }
+
+    // 更新 macro.json 中的 settings
+    final macroAction = plugin.actions.firstWhere(
+      (a) => a.type == 'macro',
+      orElse: () => PluginAction(type: '', label: '', params: {}),
+    );
+    final macroFileName = macroAction.params['macroFile'] as String?;
+    if (macroFileName != null) {
+      final macroFile = File('${pluginDir.path}/$pluginId/$macroFileName');
+      if (await macroFile.exists()) {
+        final content = await macroFile.readAsString();
+        final decoded = jsonDecode(content);
+        final macroData = MacroData.fromJson(decoded);
+        final updated = MacroData(settings: settings, steps: macroData.steps);
+        await macroFile.writeAsString(jsonEncode(updated.toJson()));
+      }
+    }
+
+    // 更新内存模型并持久化插件列表
+    final updatedPlugin = Plugin(
+      id: plugin.id,
+      name: name,
+      version: plugin.version,
+      description: description,
+      author: plugin.author,
+      iconPath: plugin.iconPath,
+      builtIn: plugin.builtIn,
+      actions: plugin.actions,
+      enabled: plugin.enabled,
+    );
+    _plugins[pluginIndex] = updatedPlugin;
+    await _manager.savePlugins();
+
+    // 若当前为启用宏，同步更新悬浮球侧缓存
+    if (updatedPlugin.enabled) {
+      await _writeEnabledMacro(updatedPlugin);
+    }
+
+    notifyListeners();
+    return true;
+  }
+
   // Macro plugin save / export
 
   Future<bool> saveMacroPlugin({

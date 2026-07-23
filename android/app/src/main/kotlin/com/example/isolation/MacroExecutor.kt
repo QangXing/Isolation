@@ -92,6 +92,8 @@ class MacroExecutor(
     private var stopRequested = false
     @Volatile
     internal var running = false
+    @Volatile
+    private var debugMode = false
 
     /**
      * find 块命中的坐标栈。click() 无参时取栈顶点击。
@@ -103,18 +105,29 @@ class MacroExecutor(
         if (running) return
         running = true
         stopRequested = false
+        debugMode = settings["debugMode"] as? Boolean ?: false
         activeExecutor = this
+
+        val infiniteLoop = (settings["loopCount"] as? Number)?.toInt()?.let { it <= 0 } ?: false
 
         Thread {
             try {
                 postStatus("开始执行")
-                executeSteps(steps)
-                postStatus(if (stopRequested) "任务已停止" else "任务完成")
+                if (infiniteLoop) {
+                    while (!stopRequested) {
+                        executeSteps(steps)
+                    }
+                    postStatus("宏已停止")
+                } else {
+                    executeSteps(steps)
+                    postStatus(if (stopRequested) "任务已停止" else "任务完成")
+                }
             } catch (t: Throwable) {
                 postStatus("任务异常: ${t.message}")
             } finally {
                 running = false
                 activeExecutor = null
+                debugMode = false
             }
         }.start()
     }
@@ -138,6 +151,9 @@ class MacroExecutor(
     /** 执行单个步骤 */
     private fun executeStep(step: Map<String, Any>, stepNumber: Int) {
         val type = step["type"] as? String ?: return
+        if (debugMode) {
+            postStatus("执行第 $stepNumber 步: $type")
+        }
 
         val delay = (step["delay"] as? Number)?.toLong() ?: 0L
         if (delay > 0) Thread.sleep(delay)
@@ -204,7 +220,9 @@ class MacroExecutor(
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
         for (i in 1..count) {
             if (stopRequested) break
-            postStatus("循环 $i/$count")
+            if (debugMode) {
+                postStatus("循环 $i/$count")
+            }
             executeSteps(children)
         }
     }

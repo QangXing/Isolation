@@ -88,9 +88,33 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  bool _usesColorOrImage(List<Map<String, dynamic>> steps) {
+    for (final step in steps) {
+      if (step['color'] != null || step['image'] != null) return true;
+      final condition = step['condition'] as Map<String, dynamic>?;
+      if (condition != null &&
+          (condition['color'] != null || condition['image'] != null)) {
+        return true;
+      }
+      final children = step['children'] as List<dynamic>?;
+      if (children != null && _usesColorOrImage(children.cast<Map<String, dynamic>>())) {
+        return true;
+      }
+      final then = step['then'] as List<dynamic>?;
+      if (then != null && _usesColorOrImage(then.cast<Map<String, dynamic>>())) {
+        return true;
+      }
+      final elseBranch = step['else'] as List<dynamic>?;
+      if (elseBranch != null && _usesColorOrImage(elseBranch.cast<Map<String, dynamic>>())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> _runMacro(BuildContext context, PluginProvider provider, String pluginId) async {
     final data = await provider.loadMacroData(pluginId);
-    if (data != null && data.settings.smartRecognition) {
+    if (data != null && (data.settings.loopCount <= 0 || _usesColorOrImage(data.steps))) {
       final granted = await NativeChannel.checkScreenCapturePermission();
       if (!granted) {
         await NativeChannel.requestScreenCapturePermission();

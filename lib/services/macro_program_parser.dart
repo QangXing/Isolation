@@ -523,26 +523,33 @@ class _BlockParser {
     }
 
     // 处理 if 的 else 子句
-    if (name == 'if' && cursor < lines.length) {
-      final nextLine = lines[cursor];
-      if (nextLine.text.startsWith('} else') ||
-          nextLine.text == '} else {' ||
-          nextLine.text.startsWith('} else{')) {
-        cursor++;
-        // 检查 { 是否在下一行
-        final elseHasBrace = nextLine.text.contains('{');
-        if (!elseHasBrace && cursor < lines.length && lines[cursor].text == '{') {
-          cursor++;
-        }
-        final elseChildren = parseBlock(stopOnCloseBrace: true);
-        step['else'] = elseChildren;
-        // 把 condition 单独提出来，把 children 改名 then
-        step['then'] = step.remove('children');
-      }
-    }
-
-    // 对于 if 语句，规范化字段名
     if (name == 'if') {
+      // 情况1: } else { 与 if 的结束括号在同一行，parseBlock 已整行吃掉
+      final closeLineIndex = cursor - 1;
+      if (closeLineIndex >= 0) {
+        final closeLineText = lines[closeLineIndex].text;
+        if (closeLineText.startsWith('}') && closeLineText.contains('else')) {
+          final elseChildren = parseBlock(stopOnCloseBrace: true);
+          step['else'] = elseChildren;
+        }
+      }
+
+      // 情况2: else { 或 else 在下一行单独出现
+      if (!step.containsKey('else') && cursor < lines.length) {
+        final nextLine = lines[cursor];
+        if (nextLine.text == 'else {' ||
+            nextLine.text == 'else' ||
+            nextLine.text.startsWith('else ')) {
+          cursor++;
+          if (cursor < lines.length && lines[cursor].text == '{') {
+            cursor++;
+          }
+          final elseChildren = parseBlock(stopOnCloseBrace: true);
+          step['else'] = elseChildren;
+        }
+      }
+
+      // 把 condition 单独提出来，把 children 改名 then
       if (step.containsKey('children') && !step.containsKey('then')) {
         step['then'] = step.remove('children');
       }

@@ -1,10 +1,15 @@
 class MacroSettings {
+  // 旧字段保留仅用于兼容旧数据反序列化，新保存时不再写入
   final bool smartRecognition;
   final int loopCount;
+
+  /// 调试模式：开启后每执行一步都会通过悬浮球显示默认提示。
+  final bool debugMode;
 
   const MacroSettings({
     this.smartRecognition = false,
     this.loopCount = 1,
+    this.debugMode = false,
   });
 
   factory MacroSettings.fromJson(Map<String, dynamic>? json) {
@@ -12,18 +17,25 @@ class MacroSettings {
     return MacroSettings(
       smartRecognition: json['smartRecognition'] as bool? ?? false,
       loopCount: json['loopCount'] as int? ?? 1,
+      debugMode: json['debugMode'] as bool? ?? false,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'smartRecognition': smartRecognition,
+        // 旧字段不再写入新文件，保留向前兼容读取
         'loopCount': loopCount,
+        'debugMode': debugMode,
       };
 
-  MacroSettings copyWith({bool? smartRecognition, int? loopCount}) {
+  MacroSettings copyWith({
+    bool? smartRecognition,
+    int? loopCount,
+    bool? debugMode,
+  }) {
     return MacroSettings(
       smartRecognition: smartRecognition ?? this.smartRecognition,
       loopCount: loopCount ?? this.loopCount,
+      debugMode: debugMode ?? this.debugMode,
     );
   }
 }

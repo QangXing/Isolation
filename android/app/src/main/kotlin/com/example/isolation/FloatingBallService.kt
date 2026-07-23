@@ -92,6 +92,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private var floatingView: View? = null
     private var floatingParams: WindowManager.LayoutParams? = null
     private var bubbleView: TextView? = null
+
+    // 当前执行宏是否开启调试模式，用于控制是否显示每步默认提示
+    private var macroDebugMode = false
     private var bubbleParams: WindowManager.LayoutParams? = null
     private var keyboardView: KeyboardOverlayView? = null
     private var animationOverlay: TouchEffectOverlay? = null
@@ -442,11 +445,24 @@ class FloatingBallService : Service(), MacroExecutorListener {
             Toast.makeText(this, "未启用宏", Toast.LENGTH_SHORT).show()
             return
         }
+        macroDebugMode = macro.settings["debugMode"] as? Boolean ?: false
         InputAccessibilityService.executeMacro(this, macro.settings, macro.steps)
     }
 
     override fun onMacroStatus(message: String) {
-        // 框架生命周期状态（开始执行/任务完成等）不再弹气泡，避免覆盖 print 输出
+        mainHandler.post {
+            val isCompletion = message == "任务完成" ||
+                message == "任务已停止" ||
+                message == "宏已停止" ||
+                message.startsWith("任务异常")
+            if (isCompletion) {
+                macroDebugMode = false
+            }
+            // 调试模式显示每步默认提示；无限循环被三连击停止时也必须显示默认提示
+            if (macroDebugMode || message == "宏已停止") {
+                showBubble(message)
+            }
+        }
     }
 
     override fun onMacroPrint(message: String) {
