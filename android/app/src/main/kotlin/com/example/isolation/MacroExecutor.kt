@@ -227,20 +227,34 @@ class MacroExecutor(
         }
     }
 
+    private fun ensureScreenCapturePermission(): Boolean {
+        if (ScreenCaptureHelper.isGranted(service)) return true
+        postStatus("find: 需要屏幕录制权限")
+        val granted = ScreenCapturePermissionRequester.request(service)
+        if (!granted) postStatus("find: 未获得屏幕录制权限")
+        return granted
+    }
+
     private fun executeFindStep(step: Map<String, Any>) {
+        val imageName = step["image"] as? String
+        val colorValue = step["color"]
+        val needsScreenCapture = imageName != null || colorValue != null
+        if (needsScreenCapture && !ensureScreenCapturePermission()) return
+
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
         val loop = step["loop"] as? Boolean ?: false
 
         // 0) 图片查找优先：find(image="xxx.jpg", threshold=0.8, region=[...]) { ... }
-        val imageName = step["image"] as? String
         if (imageName != null) {
             val threshold = (step["threshold"] as? Number)?.toDouble() ?: 0.80
             val region = step["region"] as? List<*>
-            if (!ScreenCaptureHelper.isGranted(service)) {
-                postStatus("find: 无屏幕录制权限，跳过图片查找")
-                return
-            }
-            val point = ImageFinder.find(service, assetsDir, imageName, threshold, region)
+            val options = mutableMapOf<String, Any>()
+            val feature = step["feature"] as? String
+            if (feature != null) options["feature"] = feature
+            val minMatches = step["minMatches"] as? Number
+            if (minMatches != null) options["minMatches"] = minMatches.toInt()
+
+            val point = ImageFinder.find(service, assetsDir, imageName, threshold, region, options)
             if (point != null) {
                 postStatus("find: 图片命中 (${point.x}, ${point.y})")
                 foundCoordinates.addFirst(Pair(point.x, point.y))
@@ -256,14 +270,9 @@ class MacroExecutor(
         }
 
         // 1) 颜色查找：find(color=0xFF0000, tolerance=20) { ... }
-        val colorValue = step["color"]
         if (colorValue != null) {
             val targetColor = parseColor(colorValue)
             val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
-            if (!ScreenCaptureHelper.isGranted(service)) {
-                postStatus("find: 无屏幕录制权限，跳过颜色查找")
-                return
-            }
             val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance)
             if (point != null) {
                 postStatus("find: 颜色命中 (${point.x}, ${point.y})")
