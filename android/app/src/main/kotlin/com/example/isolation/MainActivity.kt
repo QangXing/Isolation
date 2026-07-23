@@ -30,6 +30,22 @@ class MainActivity : FlutterActivity() {
         const val REQUEST_SCREEN_CAPTURE = 1002
     }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == "ACTION_REQUEST_SCREEN_CAPTURE") {
+            ScreenCaptureHelper.requestPermission(this, REQUEST_SCREEN_CAPTURE)
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
@@ -142,6 +158,7 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_SCREEN_CAPTURE) {
             val granted = ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+            ScreenCapturePermissionRequester.onResult(granted)
             pendingResult?.success(granted)
             pendingResult = null
         }
