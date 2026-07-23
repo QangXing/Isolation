@@ -31,6 +31,16 @@
             </intent-filter>
         </activity>
 
+        <!-- 透明 Activity：仅用于从服务/后台申请屏幕录制权限，不显示应用 UI -->
+        <activity
+            android:name=".ScreenCapturePermissionActivity"
+            android:exported="false"
+            android:theme="@style/TransparentTheme"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask" />
+
         <service
             android:name=".FloatingBallService"
             android:enabled="true"

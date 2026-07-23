@@ -1,7 +1,6 @@
 package com.example.isolation
 
 import android.content.Context
-import android.content.Intent
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -14,7 +13,10 @@ object ScreenCapturePermissionRequester {
     /**
      * 阻塞式申请屏幕录制权限。调用方必须在后台线程调用。
      *
-     * @param context 用于启动 MainActivity 的 Context（需为 Application/Service）
+     * 内部使用透明的 [ScreenCapturePermissionActivity] 承载系统授权对话框，
+     * 避免拉起 [MainActivity] 导致 Flutter 应用被强制带到前台。
+     *
+     * @param context 用于启动透明 Activity 的 Context（需为 Application/Service）
      * @param timeoutMs 等待超时，默认 30 秒
      * @return 是否获得权限
      */
@@ -26,18 +28,14 @@ object ScreenCapturePermissionRequester {
             latch = newLatch
         }
 
-        val intent = Intent(context, MainActivity::class.java).apply {
-            action = "ACTION_REQUEST_SCREEN_CAPTURE"
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        context.startActivity(intent)
+        ScreenCapturePermissionActivity.start(context)
 
         val success = newLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
         return success && synchronized(lock) { result }
     }
 
     /**
-     * 由 MainActivity.onActivityResult 调用。
+     * 由 [ScreenCapturePermissionActivity.onActivityResult] 调用。
      */
     fun onResult(granted: Boolean) {
         synchronized(lock) {
