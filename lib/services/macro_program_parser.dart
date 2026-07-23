@@ -470,7 +470,9 @@ class _BlockParser {
     final result = <Map<String, dynamic>>[];
     while (cursor < lines.length) {
       final line = lines[cursor];
-      if (line.text == '}') {
+      // 把 `} else {` 也视为块结束标记，否则 else 分支会被吞进 then 块
+      final isElseClose = line.text.startsWith('}') && line.text.contains('else');
+      if (line.text == '}' || isElseClose) {
         if (stopOnCloseBrace) {
           cursor++;
           return result;
