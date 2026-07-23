@@ -101,6 +101,11 @@ class MacroExecutor(
      */
     private val foundCoordinates = ArrayDeque<Pair<Int, Int>>()
 
+    /**
+     * 变量表，用于 var / assign 步骤及表达式求值。
+     */
+    private val variables = mutableMapOf<String, Variable>()
+
     fun execute(settings: Map<String, Any>, steps: List<Map<String, Any>>) {
         if (running) return
         running = true
@@ -128,6 +133,7 @@ class MacroExecutor(
                 running = false
                 activeExecutor = null
                 debugMode = false
+                variables.clear()
             }
         }.start()
     }
@@ -174,6 +180,8 @@ class MacroExecutor(
             "for" -> executeForStep(step)
             "find" -> executeFindStep(step)
             "if" -> executeIfStep(step)
+            "var" -> executeVarStep(step)
+            "assign" -> executeAssignStep(step)
 
             // 系统键
             "back" -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
@@ -192,8 +200,8 @@ class MacroExecutor(
     // ---------- 新指令实现 ----------
 
     private fun executeClickStep(step: Map<String, Any>) {
-        val x = (step["x"] as? Number)?.toInt()
-        val y = (step["y"] as? Number)?.toInt()
+        val x = evaluateCoordinate(step["x"])
+        val y = evaluateCoordinate(step["y"])
         if (x != null && y != null) {
             dispatchClick(x, y)
             return
@@ -208,14 +216,93 @@ class MacroExecutor(
     }
 
     private fun executeRollStep(step: Map<String, Any>) {
+        val start = step["start"]
+        val end = step["end"]
+        val duration = (step["duration"] as? Number)?.toLong() ?: 400L
+
+        if (start is Map<*, *> && end is Map<*, *>) {
+            val startMap = start as? Map<String, Any>
+            val endMap = end as? Map<String, Any>
+            val sx = startMap?.let { evaluateCoordinate(it["x"]) }
+            val sy = startMap?.let { evaluateCoordinate(it["y"]) }
+            val ex = endMap?.let { evaluateCoordinate(it["x"]) }
+            val ey = endMap?.let { evaluateCoordinate(it["y"]) }
+            if (sx != null && sy != null && ex != null && ey != null) {
+                dispatchSwipe(sx.toFloat(), sy.toFloat(), ex.toFloat(), ey.toFloat(), duration)
+                return
+            }
+        }
+
         val dx = (step["dx"] as? Number)?.toInt() ?: 0
         val dy = (step["dy"] as? Number)?.toInt() ?: 0
-        val duration = (step["duration"] as? Number)?.toLong() ?: 400L
         val (cx, cy) = screenCenter()
         dispatchSwipe(cx.toFloat(), cy.toFloat(), (cx + dx).toFloat(), (cy + dy).toFloat(), duration)
     }
 
+    private fun executeVarStep(step: Map<String, Any>) {
+        val name = step["name"] as? String ?: return
+        val varType = step["varType"] as? String ?: return
+
+        when (varType) {
+            "int", "double" -> {
+                val value = step["value"] as? Map<String, Any> ?: return
+                val result = ExpressionEvaluator.evaluate(value, variables) ?: return
+                if (result is Variable.Number) {
+                    variables[name] = result
+                }
+            }
+            "point" -> {
+                val value = step["value"] as? Map<String, Any> ?: return
+                val x = evaluateCoordinate(value["x"]) ?: return
+                val y = evaluateCoordinate(value["y"]) ?: return
+                variables[name] = Variable.Point(x, y)
+            }
+            "color" -> {
+                val value = step["value"] as? Map<String, Any> ?: return
+                val result = ExpressionEvaluator.evaluate(value, variables) ?: return
+                if (result is Variable.Number) {
+                    variables[name] = Variable.Color(result.value.toInt())
+                }
+            }
+        }
+    }
+
+    private fun executeAssignStep(step: Map<String, Any>) {
+        val name = step["name"] as? String ?: return
+        val value = step["value"] as? Map<String, Any> ?: return
+        val result = ExpressionEvaluator.evaluate(value, variables) ?: return
+        variables[name] = result
+    }
+
+    private fun evaluateCoordinate(value: Any?): Int? {
+        return when (value) {
+            is Number -> value.toInt()
+            is Map<*, *> -> {
+                val expr = value as? Map<String, Any>
+                val result = ExpressionEvaluator.evaluate(expr, variables)
+                if (result is Variable.Number) result.value.toInt() else null
+            }
+            else -> null
+        }
+    }
+
     private fun executeForStep(step: Map<String, Any>) {
+        val condition = step["condition"] as? Map<String, Any>
+        if (condition != null) {
+            val init = step["init"] as? Map<String, Any>
+            val update = step["update"] as? Map<String, Any>
+            val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
+
+            init?.let { executeVarStep(it) }
+            while (!stopRequested && ExpressionEvaluator.toBoolean(
+                    ExpressionEvaluator.evaluate(condition, variables)
+                )) {
+                executeSteps(children)
+                update?.let { executeAssignStep(it) }
+            }
+            return
+        }
+
         val count = (step["count"] as? Number)?.toInt() ?: 1
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
         for (i in 1..count) {
@@ -331,9 +418,18 @@ class MacroExecutor(
     }
 
     private fun executeIfStep(step: Map<String, Any>) {
+        val expression = step["expression"] as? Map<String, Any>
         val condition = step["condition"] as? Map<String, Any>
         val then = (step["then"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
         val elseBranch = (step["else"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
+
+        if (expression != null) {
+            val result = ExpressionEvaluator.toBoolean(
+                ExpressionEvaluator.evaluate(expression, variables)
+            )
+            executeSteps(if (result) then else elseBranch)
+            return
+        }
 
         // 条件命中时把坐标压栈，then 块内可用 click() 直接点击
         val matchedCoord = evaluateConditionWithCoord(condition)
