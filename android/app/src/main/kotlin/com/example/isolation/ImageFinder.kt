@@ -12,143 +12,182 @@ import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import java.io.File
 
-/**
- * 基于 OpenCV 模板匹配的图片查找器。
- *
- * 在屏幕上搜索与模板图片最相似的区域，命中后返回目标中心点坐标。
- * 默认使用灰度 + TM_CCOEFF_NORMED 匹配，可通过 [region] 限定搜索范围以提升速度。
- * 支持多尺度匹配与可选的颜色通道匹配，以提升不同渲染尺寸/颜色场景下的准确率。
- */
 object ImageFinder {
 
     private const val DEFAULT_THRESHOLD = 0.80
     private const val TAG = "ImageFinder"
+    private const val MAX_TEMPLATE_SIZE = 320
 
-    /**
-     * 在屏幕上查找模板图片。
-     *
-     * @param context 用于获取插件资源目录
-     * @param assetsDir 插件资源目录绝对路径
-     * @param imageName 模板图片文件名（如 "button_login.jpg"）
-     * @param threshold 相似度阈值，0.0 ~ 1.0，默认 0.80
-     * @param region 可选搜索区域 [left, top, right, bottom]，未指定则全屏
-     * @return 命中区域中心坐标；未命中或无屏幕权限时返回 null
-     */
     fun find(
         context: Context,
         assetsDir: String?,
         imageName: String,
         threshold: Double = DEFAULT_THRESHOLD,
-        region: List<*>? = null
-    ): Point? {
-        return find(context, assetsDir, imageName, threshold, region, null)
-    }
-
-    /**
-     * 在屏幕上查找模板图片（带高级选项）。
-     *
-     * 额外 [options] 说明：
-     * - "useColor": Boolean，是否启用颜色通道匹配（默认 false）
-     * - "useBlur": Boolean，是否在匹配前对图像做高斯模糊去噪（默认 true）
-     * - "minScale": Number，多尺度最小缩放（默认 0.8）
-     * - "maxScale": Number，多尺度最大缩放（默认 1.2）
-     * - "scaleStep": Number，多尺度步长（默认 0.1）
-     */
-    fun find(
-        context: Context,
-        assetsDir: String?,
-        imageName: String,
-        threshold: Double,
-        region: List<*>?,
-        options: Map<String, Any>?
+        region: List<*>? = null,
+        options: Map<String, Any>? = null
     ): Point? {
         if (!ScreenCaptureHelper.isGranted(context)) return null
 
         val templatePath = resolveTemplatePath(assetsDir, imageName) ?: return null
-        val templateColor = loadTemplateColor(templatePath) ?: return null
-        val templateGray = Mat()
-        Imgproc.cvtColor(templateColor, templateGray, Imgproc.COLOR_BGR2GRAY)
+        val templateOriginal = loadTemplate(templatePath) ?: return null
+        val template = resizeIfNeeded(templateOriginal)
+        templateOriginal.release()
 
         val frame = ScreenCaptureHelper.getLatestFrame() ?: run {
-            templateColor.release()
-            templateGray.release()
+            template.release()
             return null
         }
 
         var screenMat: Mat? = null
-        var screenGray: Mat? = null
-        var searchRect: Rect? = null
-
         try {
             screenMat = frameToMat(frame) ?: return null
-            screenGray = Mat()
-            Imgproc.cvtColor(screenMat, screenGray, Imgproc.COLOR_RGBA2GRAY)
-            searchRect = parseSearchRegion(region, frame.width, frame.height)
+            val searchRect = parseSearchRegion(region, screenMat.width(), screenMat.height())
 
-            val useColor = options?.get("useColor") as? Boolean ?: false
-            val useBlur = options?.get("useBlur") as? Boolean ?: true
-            val minScale = (options?.get("minScale") as? Number)?.toDouble() ?: 0.8
-            val maxScale = (options?.get("maxScale") as? Number)?.toDouble() ?: 1.2
-            val scaleStep = (options?.get("scaleStep") as? Number)?.toDouble() ?: 0.1
+            val feature = options?.get("feature") as? String ?: "orb"
+            val minMatches = (options?.get("minMatches") as? Number)?.toInt() ?: 6
+            val timeoutMs = (options?.get("timeoutMs") as? Number)?.toLong() ?: 5000L
+            val startTime = System.currentTimeMillis()
 
-            val grayResult = matchMultiScale(
-                templateGray, screenGray, searchRect,
-                minScale, maxScale, scaleStep, useBlur
-            )
-
-            var bestResult = grayResult
-
-            if (useColor && grayResult.score < threshold) {
-                val colorResult = matchMultiScaleColor(
-                    templateColor, screenMat, searchRect,
-                    minScale, maxScale, scaleStep, useBlur
+            if (feature != "template") {
+                val featureResult = FeatureMatcher.match(
+                    template, screenMat, feature, minMatches, searchRect
                 )
-                if (colorResult.score > bestResult.score) {
-                    bestResult = colorResult
+                if (featureResult != null && System.currentTimeMillis() - startTime < timeoutMs) {
+                    val refinedRect = expandRect(featureResult.rect, 0.2, screenMat.width(), screenMat.height())
+                    val centerScale = featureResult.estimatedScale
+                    val templateResult = TemplateMatcher.match(
+                        template, screenMat, refinedRect,
+                        minScale = (centerScale * 0.9).coerceAtLeast(0.5),
+                        maxScale = (centerScale * 1.1).coerceAtMost(2.0),
+                        scaleStep = 0.02
+                    )
+                    Log.d(TAG, "feature refine score=${"%.3f".format(templateResult.score)}, scale=${"%.2f".format(templateResult.scale)}")
+                    if (templateResult.score >= threshold) {
+                        return centerPoint(templateResult, refinedRect)
+                    }
                 }
             }
 
-            Log.d(
-                TAG,
-                "best match score=${"%.3f".format(bestResult.score)}, " +
-                    "scale=${"%.2f".format(bestResult.scale)}"
-            )
+            if (System.currentTimeMillis() - startTime < timeoutMs) {
+                val useColor = options?.get("useColor") as? Boolean ?: false
+                val useBlur = options?.get("useBlur") as? Boolean ?: true
+                val minScale = (options?.get("minScale") as? Number)?.toDouble() ?: 0.5
+                val maxScale = (options?.get("maxScale") as? Number)?.toDouble() ?: 2.0
+                val scaleStep = (options?.get("scaleStep") as? Number)?.toDouble() ?: 0.05
 
-            return if (bestResult.score >= threshold) {
-                val offsetX = searchRect?.x ?: 0
-                val offsetY = searchRect?.y ?: 0
-                val centerX = offsetX + bestResult.loc.x.toInt() + bestResult.templateW / 2
-                val centerY = offsetY + bestResult.loc.y.toInt() + bestResult.templateH / 2
-                Point(centerX, centerY)
-            } else {
-                null
+                val templateResult = if (useColor) {
+                    matchColorFallback(template, screenMat, searchRect, minScale, maxScale, scaleStep, useBlur)
+                } else {
+                    TemplateMatcher.match(template, screenMat, searchRect, minScale, maxScale, scaleStep, useBlur)
+                }
+
+                Log.d(TAG, "fallback score=${"%.3f".format(templateResult.score)}, scale=${"%.2f".format(templateResult.scale)}")
+                return if (templateResult.score >= threshold) centerPoint(templateResult, searchRect) else null
             }
+
+            Log.w(TAG, "find: 匹配超时")
+            return null
         } catch (e: Exception) {
             e.printStackTrace()
             return null
         } finally {
-            screenGray?.release()
             screenMat?.release()
-            templateGray.release()
-            templateColor.release()
+            template.release()
         }
     }
 
-    private data class MatchResult(
-        val score: Double,
-        val loc: org.opencv.core.Point,
-        val scale: Double,
-        val templateW: Int,
-        val templateH: Int
-    )
+    private fun resolveTemplatePath(assetsDir: String?, imageName: String): String? {
+        if (assetsDir.isNullOrEmpty()) return null
+        val file = File(assetsDir, imageName)
+        return if (file.exists()) file.absolutePath else null
+    }
 
-    /**
-     * 灰度多尺度模板匹配。
-     *
-     * 在 [minScale] ~ [maxScale] 范围内以 [scaleStep] 为步长缩放模板，
-     * 使用 TM_CCOEFF_NORMED 与 [screen] 做匹配，返回最优结果。
-     */
-    private fun matchMultiScale(
+    private fun loadTemplate(path: String): Mat? {
+        return try {
+            val mat = Imgcodecs.imread(path, Imgcodecs.IMREAD_COLOR)
+            if (mat.empty()) null else mat
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    private fun resizeIfNeeded(template: Mat): Mat {
+        val max = kotlin.math.max(template.width(), template.height())
+        if (max <= MAX_TEMPLATE_SIZE) return template
+        val scale = MAX_TEMPLATE_SIZE.toDouble() / max
+        val resized = Mat()
+        Imgproc.resize(template, resized, Size(template.width() * scale, template.height() * scale))
+        return resized
+    }
+
+    private fun expandRect(rect: Rect, ratio: Double, maxW: Int, maxH: Int): Rect {
+        val dx = (rect.width * ratio).toInt()
+        val dy = (rect.height * ratio).toInt()
+        val x = (rect.x - dx).coerceIn(0, maxW - 1)
+        val y = (rect.y - dy).coerceIn(0, maxH - 1)
+        val width = (rect.width + dx * 2).coerceIn(1, maxW - x)
+        val height = (rect.height + dy * 2).coerceIn(1, maxH - y)
+        return Rect(x, y, width, height)
+    }
+
+    private fun centerPoint(result: TemplateMatcher.Result, searchRect: Rect?): Point {
+        val offsetX = searchRect?.x ?: 0
+        val offsetY = searchRect?.y ?: 0
+        val centerX = offsetX + result.loc.x.toInt() + result.templateW / 2
+        val centerY = offsetY + result.loc.y.toInt() + result.templateH / 2
+        return Point(centerX, centerY)
+    }
+
+    private fun frameToMat(frame: ScreenCaptureHelper.Frame): Mat? {
+        val buf = frame.buffer
+        val w = frame.width
+        val h = frame.height
+        val rowStride = frame.rowStride
+        val pixelStride = frame.pixelStride
+        if (w <= 0 || h <= 0 || pixelStride <= 0) return null
+
+        return try {
+            val mat = Mat(h, w, CvType.CV_8UC4)
+            if (rowStride == w * pixelStride) {
+                mat.put(0, 0, buf)
+            } else {
+                val rowBytes = ByteArray(w * 4)
+                for (y in 0 until h) {
+                    val srcStart = y * rowStride
+                    for (x in 0 until w) {
+                        val srcOffset = srcStart + x * pixelStride
+                        val dstOffset = x * 4
+                        rowBytes[dstOffset] = buf[srcOffset]
+                        rowBytes[dstOffset + 1] = buf[srcOffset + 1]
+                        rowBytes[dstOffset + 2] = buf[srcOffset + 2]
+                        rowBytes[dstOffset + 3] = buf[srcOffset + 3]
+                    }
+                    mat.put(y, 0, rowBytes)
+                }
+            }
+            mat
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    private fun parseSearchRegion(region: List<*>?, screenW: Int, screenH: Int): Rect? {
+        if (region == null || region.size < 4) return null
+        val left = (region[0] as? Number)?.toInt() ?: return null
+        val top = (region[1] as? Number)?.toInt() ?: return null
+        val right = (region[2] as? Number)?.toInt() ?: return null
+        val bottom = (region[3] as? Number)?.toInt() ?: return null
+        val x = left.coerceIn(0, screenW - 1)
+        val y = top.coerceIn(0, screenH - 1)
+        val width = (right - x).coerceIn(1, screenW - x)
+        val height = (bottom - y).coerceIn(1, screenH - y)
+        return Rect(x, y, width, height)
+    }
+
+    /** 颜色通道 fallback：保留原 ImageFinder 颜色匹配能力 */
+    private fun matchColorFallback(
         template: Mat,
         screen: Mat,
         searchRect: Rect?,
@@ -156,100 +195,13 @@ object ImageFinder {
         maxScale: Double,
         scaleStep: Double,
         useBlur: Boolean
-    ): MatchResult {
-        var bestScore = -1.0
-        var bestLoc = org.opencv.core.Point()
-        var bestScale = 1.0
-        var bestW = 0
-        var bestH = 0
-
-        var scale = minScale
-        while (scale <= maxScale + 1e-6) {
-            val scaledTemplate = Mat()
-            Imgproc.resize(template, scaledTemplate, Size(), scale, scale, Imgproc.INTER_LINEAR)
-
-            val searchMat: Mat
-            val releaseSearchMat: Boolean
-            if (searchRect != null) {
-                searchMat = Mat(screen, searchRect)
-                releaseSearchMat = true
-            } else {
-                searchMat = screen
-                releaseSearchMat = false
-            }
-
-            if (scaledTemplate.width() > searchMat.width() ||
-                scaledTemplate.height() > searchMat.height()
-            ) {
-                scaledTemplate.release()
-                if (releaseSearchMat) searchMat.release()
-                scale += scaleStep
-                continue
-            }
-
-            val processedTemplate = if (useBlur) {
-                val blurred = Mat()
-                Imgproc.GaussianBlur(scaledTemplate, blurred, Size(3.0, 3.0), 0.0)
-                blurred
-            } else {
-                scaledTemplate
-            }
-
-            val processedSearch = if (useBlur) {
-                val blurred = Mat()
-                Imgproc.GaussianBlur(searchMat, blurred, Size(3.0, 3.0), 0.0)
-                blurred
-            } else {
-                searchMat
-            }
-
-            val resultMat = Mat()
-            Imgproc.matchTemplate(processedSearch, processedTemplate, resultMat, Imgproc.TM_CCOEFF_NORMED)
-            val mmr = Core.minMaxLoc(resultMat)
-
-            if (mmr.maxVal > bestScore) {
-                bestScore = mmr.maxVal
-                bestLoc = mmr.maxLoc
-                bestScale = scale
-                bestW = scaledTemplate.width()
-                bestH = scaledTemplate.height()
-            }
-
-            resultMat.release()
-            if (useBlur) {
-                processedTemplate.release()
-                processedSearch.release()
-            }
-            scaledTemplate.release()
-            if (releaseSearchMat) searchMat.release()
-
-            scale += scaleStep
-        }
-
-        return MatchResult(bestScore, bestLoc, bestScale, bestW, bestH)
-    }
-
-    /**
-     * 颜色多尺度模板匹配。
-     *
-     * 将模板与屏幕转换到 BGR 空间，拆分三个通道后分别做 TM_CCOEFF_NORMED 匹配，
-     * 取三个通道最大相关系数的平均值作为该尺度得分，从而保留颜色信息。
-     */
-    private fun matchMultiScaleColor(
-        templateColor: Mat,
-        screenRgba: Mat,
-        searchRect: Rect?,
-        minScale: Double,
-        maxScale: Double,
-        scaleStep: Double,
-        useBlur: Boolean
-    ): MatchResult {
+    ): TemplateMatcher.Result {
         val screenBgr = Mat()
-        Imgproc.cvtColor(screenRgba, screenBgr, Imgproc.COLOR_RGBA2BGR)
+        Imgproc.cvtColor(screen, screenBgr, Imgproc.COLOR_RGBA2BGR)
 
         val templateChannels = ArrayList<Mat>()
         val screenChannels = ArrayList<Mat>()
-        Core.split(templateColor, templateChannels)
+        Core.split(template, templateChannels)
         Core.split(screenBgr, screenChannels)
 
         var bestScore = -1.0
@@ -286,9 +238,7 @@ object ImageFinder {
                         val blurred = Mat()
                         Imgproc.GaussianBlur(ch, blurred, Size(3.0, 3.0), 0.0)
                         blurred
-                    } else {
-                        ch
-                    }
+                    } else ch
                 }
 
                 val processedSearchChannels = searchMats.map { ch ->
@@ -296,9 +246,7 @@ object ImageFinder {
                         val blurred = Mat()
                         Imgproc.GaussianBlur(ch, blurred, Size(3.0, 3.0), 0.0)
                         blurred
-                    } else {
-                        ch
-                    }
+                    } else ch
                 }
 
                 val resultMats = List(3) { Mat() }
@@ -340,72 +288,6 @@ object ImageFinder {
             screenChannels.forEach { it.release() }
         }
 
-        return MatchResult(bestScore, bestLoc, bestScale, bestW, bestH)
-    }
-
-    private fun resolveTemplatePath(assetsDir: String?, imageName: String): String? {
-        if (assetsDir.isNullOrEmpty()) return null
-        val file = File(assetsDir, imageName)
-        return if (file.exists()) file.absolutePath else null
-    }
-
-    private fun loadTemplateColor(path: String): Mat? {
-        return try {
-            val mat = Imgcodecs.imread(path, Imgcodecs.IMREAD_COLOR)
-            if (mat.empty()) return null
-            mat
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    private fun frameToMat(frame: ScreenCaptureHelper.Frame): Mat? {
-        val buf = frame.buffer
-        val w = frame.width
-        val h = frame.height
-        val rowStride = frame.rowStride
-        val pixelStride = frame.pixelStride
-        if (w <= 0 || h <= 0 || pixelStride <= 0) return null
-
-        return try {
-            val mat = Mat(h, w, CvType.CV_8UC4)
-            if (rowStride == w * pixelStride) {
-                // 无 padding，直接写入
-                mat.put(0, 0, buf)
-            } else {
-                // 逐行复制，跳过 row padding
-                val rowBytes = ByteArray(w * 4)
-                for (y in 0 until h) {
-                    val srcStart = y * rowStride
-                    for (x in 0 until w) {
-                        val srcOffset = srcStart + x * pixelStride
-                        val dstOffset = x * 4
-                        rowBytes[dstOffset] = buf[srcOffset]
-                        rowBytes[dstOffset + 1] = buf[srcOffset + 1]
-                        rowBytes[dstOffset + 2] = buf[srcOffset + 2]
-                        rowBytes[dstOffset + 3] = buf[srcOffset + 3]
-                    }
-                    mat.put(y, 0, rowBytes)
-                }
-            }
-            mat
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    private fun parseSearchRegion(region: List<*>?, screenW: Int, screenH: Int): Rect? {
-        if (region == null || region.size < 4) return null
-        val left = (region[0] as? Number)?.toInt() ?: return null
-        val top = (region[1] as? Number)?.toInt() ?: return null
-        val right = (region[2] as? Number)?.toInt() ?: return null
-        val bottom = (region[3] as? Number)?.toInt() ?: return null
-        val x = left.coerceIn(0, screenW - 1)
-        val y = top.coerceIn(0, screenH - 1)
-        val width = (right - x).coerceIn(1, screenW - x)
-        val height = (bottom - y).coerceIn(1, screenH - y)
-        return Rect(x, y, width, height)
+        return TemplateMatcher.Result(bestScore, bestLoc, bestScale, bestW, bestH)
     }
 }
