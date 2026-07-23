@@ -141,7 +141,18 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_SCREEN_CAPTURE) {
-            val granted = ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+            // Android 14+ 要求 VirtualDisplay 在带有 mediaProjection 前台服务类型的 Service 中创建。
+            val granted = try {
+                val service = FloatingBallService.getInstance()
+                if (service != null) {
+                    service.initScreenCapture(resultCode, data)
+                } else {
+                    ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "屏幕录制初始化失败", e)
+                false
+            }
             pendingResult?.success(granted)
             pendingResult = null
         }

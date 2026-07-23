@@ -77,8 +77,18 @@ class ScreenCapturePermissionActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_CODE) {
+            Log.d(TAG, "onActivityResult resultCode=$resultCode")
             val granted = try {
-                ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+                // Android 14+ 要求 VirtualDisplay 在带有 mediaProjection 前台服务类型的 Service 中创建。
+                // 优先让 FloatingBallService（前台服务）初始化，否则 fallback 到当前 Activity。
+                val service = FloatingBallService.getInstance()
+                if (service != null) {
+                    Log.d(TAG, "Delegating screen capture init to FloatingBallService")
+                    service.initScreenCapture(resultCode, data)
+                } else {
+                    Log.w(TAG, "FloatingBallService not running, init from activity context")
+                    ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to handle screen capture result", e)
                 false

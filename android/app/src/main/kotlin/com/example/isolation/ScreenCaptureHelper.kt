@@ -17,6 +17,7 @@ import android.view.Display
 import android.view.WindowManager
 
 object ScreenCaptureHelper {
+    private const val TAG = "ScreenCaptureHelper"
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
@@ -48,7 +49,7 @@ object ScreenCaptureHelper {
     private var backgroundHandler: Handler? = null
 
     fun isGranted(context: Context): Boolean {
-        return mediaProjection != null
+        return mediaProjection != null && virtualDisplay != null
     }
 
     fun requestPermission(activity: Activity, requestCode: Int) {
@@ -63,8 +64,15 @@ object ScreenCaptureHelper {
         if (resultCode != Activity.RESULT_OK || data == null) return false
         val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = manager.getMediaProjection(resultCode, data)
-        initImageReader(context)
-        return true
+        return try {
+            initImageReader(context)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "initImageReader failed, clearing media projection", e)
+            mediaProjection?.stop()
+            mediaProjection = null
+            false
+        }
     }
 
     private fun startBackgroundThread() {

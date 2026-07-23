@@ -50,6 +50,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
         @Volatile
         private var instance: FloatingBallService? = null
 
+        /** 获取当前运行的服务实例，用于在前台服务上下文中初始化屏幕录制。 */
+        fun getInstance(): FloatingBallService? = instance
+
         /**
          * 显示一次点击动画。坐标为屏幕像素坐标系（左上角原点）。
          * 即使悬浮球服务未运行也不会崩溃。
@@ -148,6 +151,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * 在前台服务上下文中初始化屏幕录制。
+     * Android 14+ 要求 VirtualDisplay 必须由带有 mediaProjection 前台服务类型的 Service 创建。
+     */
+    fun initScreenCapture(resultCode: Int, data: Intent?): Boolean {
+        return try {
+            ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+        } catch (e: Exception) {
+            android.util.Log.e("FloatingBallService", "初始化屏幕录制失败", e)
+            false
+        }
     }
 
     private fun createNotificationChannel() {

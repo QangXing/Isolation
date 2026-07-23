@@ -44,7 +44,7 @@
             android:name=".FloatingBallService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="mediaProjection|specialUse" />
 
         <service
             android:name=".InputAccessibilityService"

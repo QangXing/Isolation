@@ -316,9 +316,11 @@ class MacroExecutor(
 
     private fun ensureScreenCapturePermission(): Boolean {
         if (ScreenCaptureHelper.isGranted(service)) return true
-        postStatus("find: 需要屏幕录制权限")
+        postStatus("find: 需要屏幕录制权限，请在弹窗中点击开始")
         val granted = ScreenCapturePermissionRequester.request(service)
-        if (!granted) postStatus("find: 未获得屏幕录制权限")
+        if (!granted) {
+            postStatus("find: 未获得屏幕录制权限（Android 14+ 需悬浮球前台服务保持运行）")
+        }
         return granted
     }
 
