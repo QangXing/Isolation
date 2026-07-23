@@ -69,6 +69,33 @@ class ExpressionParser {
     return expr;
   }
 
+  /// 解析变量声明右侧的值。
+  ///
+  /// - `point`: `point(x, y)` -> `{'x': expr-json, 'y': expr-json}`
+  /// - `color`: `color(0xFF0000)` -> expr-json
+  /// - `int` / `double`: 直接按表达式解析并返回 JSON
+  static dynamic parseVariableValue(String varType, String source) {
+    final s = source.trim();
+    if (varType == 'point') {
+      final match = RegExp(r'^point\s*\(\s*(.+)\s*,\s*(.+)\s*\)$').firstMatch(s);
+      if (match != null) {
+        return {
+          'x': parse(match.group(1)!.trim()).toJson(),
+          'y': parse(match.group(2)!.trim()).toJson(),
+        };
+      }
+      throw _ParseError('Invalid point value: $s');
+    }
+    if (varType == 'color') {
+      final match = RegExp(r'^color\s*\((.+)\)$').firstMatch(s);
+      if (match != null) {
+        return parse(match.group(1)!.trim()).toJson();
+      }
+      throw _ParseError('Invalid color value: $s');
+    }
+    return parse(s).toJson();
+  }
+
   static List<_Token> _tokenize(String source) {
     final tokens = <_Token>[];
     int pos = 0;

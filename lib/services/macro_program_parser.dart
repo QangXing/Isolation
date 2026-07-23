@@ -13,6 +13,8 @@
 ///
 /// 也兼容录制产生的 `clickNode` / `clickPoint` / `swipe` 等旧类型，
 /// 序列化时自动转为新的 DSL 写法。
+import 'macro_expression_parser.dart';
+
 class MacroParseError implements Exception {
   final String message;
   final int line;
@@ -76,7 +78,9 @@ class MacroProgramParser {
       case 'find':
         if (positional.isNotEmpty) {
           final first = positional[0];
-          if (first == 'loop' || first == true) {
+          if (first == true ||
+              first == 'loop' ||
+              (first is Map && first['op'] == 'var' && first['name'] == 'loop')) {
             step['loop'] = true;
           }
         }
@@ -361,9 +365,42 @@ class MacroProgramParser {
         buffer.writeln(
             '$indent // inputText(${_quoteString(step['text'].toString())}) — 暂不支持');
         break;
+      case 'var':
+        buffer.writeln(
+            '$indent${step['varType']} ${step['name']} = ${_serializeExprValue(step['value'])}');
+        break;
+      case 'assign':
+        buffer.writeln(
+            '$indent${step['name']} = ${_serializeExprValue(step['value'])}');
+        break;
       default:
         buffer.writeln('$indent // 未知指令: $type');
     }
+  }
+
+  /// 把表达式 JSON（literal/var/binary/unary）或 point map 序列化为字符串。
+  static String _serializeExprValue(dynamic value) {
+    if (value is Map) {
+      final op = value['op'] as String?;
+      switch (op) {
+        case 'literal':
+          return value['value'].toString();
+        case 'var':
+          return value['name'] as String;
+        case 'unary':
+          return '${value['operator']}${_serializeExprValue(value['right'])}';
+        case 'binary':
+          final left = _serializeExprValue(value['left']);
+          final right = _serializeExprValue(value['right']);
+          return '$left ${value['operator']} $right';
+      }
+      if (value.containsKey('x') && value.containsKey('y')) {
+        final x = _serializeExprValue(value['x']);
+        final y = _serializeExprValue(value['y']);
+        return 'point($x, $y)';
+      }
+    }
+    return value.toString();
   }
 
   /// click 只支持两种形式：`click(x, y)` 或 `click()`（在 find 块内取栈顶坐标）。
@@ -516,6 +553,36 @@ class _BlockParser {
     if (line.text == '{') {
       cursor++;
       return null;
+    }
+
+    // 变量声明：int score = 0 或 point btn = point(100, 200)
+    final declMatch = RegExp(r'^(\w+)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$')
+        .firstMatch(line.text);
+    if (declMatch != null) {
+      final varType = declMatch.group(1)!;
+      final name = declMatch.group(2)!;
+      final valueSource = declMatch.group(3)!;
+      cursor++;
+      return {
+        'type': 'var',
+        'varType': varType,
+        'name': name,
+        'value': ExpressionParser.parseVariableValue(varType, valueSource),
+      };
+    }
+
+    // 赋值：score = score + 1
+    final assignMatch = RegExp(r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$')
+        .firstMatch(line.text);
+    if (assignMatch != null) {
+      final name = assignMatch.group(1)!;
+      final valueSource = assignMatch.group(2)!;
+      cursor++;
+      return {
+        'type': 'assign',
+        'name': name,
+        'value': ExpressionParser.parse(valueSource).toJson(),
+      };
     }
 
     final match = RegExp(r'^(\w+)\s*\((.*)\)\s*(\{)?\s*$')
@@ -676,6 +743,9 @@ class _BlockParser {
     if (asDouble != null) return asDouble;
     if (s == 'true') return true;
     if (s == 'false') return false;
+    if (RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(s)) {
+      return {'op': 'var', 'name': s};
+    }
     return s;
   }
 }
