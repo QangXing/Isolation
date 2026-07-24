@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import io.flutter.embedding.android.FlutterActivity
@@ -86,6 +87,26 @@ class MainActivity : FlutterActivity() {
                         action = FloatingBallService.ACTION_HIDE
                     }
                     startService(serviceIntent)
+                    result.success(true)
+                }
+                "isFloatingBallRunning" -> {
+                    result.success(FloatingBallService.getInstance() != null)
+                }
+                "checkManageExternalStorage" -> {
+                    result.success(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            Environment.isExternalStorageManager()
+                        } else {
+                            true
+                        }
+                    )
+                }
+                "requestManageExternalStorage" -> {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
                     result.success(true)
                 }
                 "executeAction" -> {

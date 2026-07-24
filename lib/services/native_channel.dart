@@ -75,6 +75,33 @@ class NativeChannel {
     }
   }
 
+  static Future<bool> isFloatingBallRunning() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isFloatingBallRunning');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> checkManageExternalStorage() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('checkManageExternalStorage');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> requestManageExternalStorage() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('requestManageExternalStorage');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<void> executeAction(
       String type, Map<String, dynamic> params) async {
     try {

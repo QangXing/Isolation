@@ -60,18 +60,27 @@ object ScreenCaptureHelper {
         activity.startActivityForResult(intent, requestCode)
     }
 
-    fun onActivityResult(context: Context, resultCode: Int, data: Intent?): Boolean {
+    fun onActivityResult(context: Context, resultCode: Int, data: Intent?, beforeVirtualDisplay: (() -> Unit)? = null): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
         if (resultCode != Activity.RESULT_OK || data == null) return false
         val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        // Android 14+ 禁止复用旧 projection 实例，先释放旧的再获取新的
+        release()
         mediaProjection = manager.getMediaProjection(resultCode, data)
+        mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                clearCaptureResources()
+                mediaProjection = null
+            }
+        }, null)
+        // 给调用方机会在创建 VirtualDisplay 前升级前台服务类型（mediaProjection）
+        beforeVirtualDisplay?.invoke()
         return try {
             initImageReader(context)
             true
         } catch (e: Exception) {
             Log.e(TAG, "initImageReader failed, clearing media projection", e)
-            mediaProjection?.stop()
-            mediaProjection = null
+            release()
             false
         }
     }
@@ -311,16 +320,20 @@ object ScreenCaptureHelper {
         return null
     }
 
-    fun release() {
+    private fun clearCaptureResources() {
         virtualDisplay?.release()
         virtualDisplay = null
         imageReader?.close()
         imageReader = null
-        mediaProjection?.stop()
-        mediaProjection = null
         stopBackgroundThread()
         synchronized(bufferLock) {
             latestBuffer = null
         }
+    }
+
+    fun release() {
+        clearCaptureResources()
+        mediaProjection?.stop()
+        mediaProjection = null
     }
 }

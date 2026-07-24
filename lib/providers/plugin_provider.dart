@@ -70,14 +70,21 @@ class PluginProvider extends ChangeNotifier {
 
   /// 在拥有悬浮窗权限的前提下启动悬浮球。
   /// 注意：悬浮球仅依赖悬浮窗权限，不依赖辅助功能权限。
-  /// 返回是否成功启动。
+  /// 返回是否真正成功启动并存活。
   Future<bool> _startFloatingBallIfReady() async {
     final hasOverlay = await NativeChannel.checkOverlayPermission();
     if (!hasOverlay) {
       // 权限不足时不启动，也不自动跳转
       return false;
     }
-    return await NativeChannel.startFloatingBall();
+    final started = await NativeChannel.startFloatingBall();
+    if (!started) return false;
+    // startForegroundService 是异步的，轮询最多 1 秒确认服务实例真的存活
+    for (var i = 0; i < 10; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (await NativeChannel.isFloatingBallRunning()) return true;
+    }
+    return false;
   }
 
   Future<bool> importPlugin(String path) async {
@@ -111,12 +118,14 @@ class PluginProvider extends ChangeNotifier {
         }
         await _writeEnabledMacro(plugin);
         // 启用宏时若没有开启悬浮球，自动开启以便执行
-        bool ballStarted = false;
+        bool ballStarted;
         if (!_floatingBallVisible) {
           await setFloatingBallVisible(true);
           ballStarted = _floatingBallVisible;
         } else {
-          ballStarted = await NativeChannel.startFloatingBall();
+          // 即使开关是开的状态，也要确认服务实例真的在运行
+          ballStarted = await NativeChannel.isFloatingBallRunning() ||
+              await _startFloatingBallIfReady();
         }
         // 悬浮球启动失败时回退宏启用状态，避免服务异常导致反复崩溃
         if (!ballStarted) {
