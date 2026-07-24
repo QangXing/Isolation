@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -33,6 +34,7 @@ import java.io.File
 
 class FloatingBallService : Service(), MacroExecutorListener {
     companion object {
+        private const val TAG = "FloatingBallService"
         const val ACTION_SHOW = "ACTION_SHOW"
         const val ACTION_HIDE = "ACTION_HIDE"
         const val CHANNEL_ID = "isolation_floating_ball"
@@ -134,6 +136,16 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Android 14+ 要求前台服务尽快调用 startForeground，避免 ANR
+        try {
+            startForegroundNotification()
+        } catch (e: Exception) {
+            Log.e(TAG, "启动前台通知失败", e)
+            Toast.makeText(this, "悬浮球服务启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         // 兜底：START_STICKY 重启时 intent 可能为 null，只要悬浮球没在显示就重新显示
         if (intent == null) {
             if (Settings.canDrawOverlays(this) && floatingView == null) {
@@ -214,7 +226,6 @@ class FloatingBallService : Service(), MacroExecutorListener {
             return
         }
 
-        startForegroundNotification()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         val params = WindowManager.LayoutParams(
