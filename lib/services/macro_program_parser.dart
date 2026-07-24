@@ -593,26 +593,6 @@ class MacroProgramParser {
     return pairs.join(', ');
   }
 
-  /// 判断一段源码是否应作为表达式解析。
-  /// 包含运算符，或既不是单一字面量/标识符/数字时，按表达式解析。
-  static bool _looksLikeExpression(String s) {
-    if (RegExp(r'[\+\-\*/%<>=!&|]').hasMatch(s)) return true;
-    return !RegExp(r'^-?(\d+(\.\d+)?|[a-zA-Z_][a-zA-Z0-9_]*)$').hasMatch(s);
-  }
-
-  /// 解析位置参数：字面量直接返回，复杂表达式解析为 AST。
-  static dynamic _parseExpressionOrValue(String part) {
-    final value = _parseValue(part);
-    if (value is String && _looksLikeExpression(part)) {
-      try {
-        return ExpressionParser.parse(part).toJson();
-      } catch (_) {
-        // 解析失败时回退为原始字符串
-      }
-    }
-    return value;
-  }
-
   static String _quoteString(String s) => '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
 
   static String _quoteValue(dynamic v) {
@@ -853,7 +833,7 @@ class _BlockParser {
     if (s.startsWith('[') && s.endsWith(']') && s.length >= 2) {
       final inner = s.substring(1, s.length - 1);
       final parts = _splitArgs(inner);
-      return parts.map(_parseValue).toList();
+      return parts.map(_parseExpressionOrValue).toList();
     }
     // 十六进制颜色字面量：0xFF0000 / 0XFF0000 / #FF0000
     if (s.startsWith('0x') || s.startsWith('0X')) {
@@ -874,5 +854,25 @@ class _BlockParser {
       return {'op': 'var', 'name': s};
     }
     return s;
+  }
+
+  /// 判断一段源码是否应作为表达式解析。
+  /// 包含运算符，或既不是单一字面量/标识符/数字时，按表达式解析。
+  bool _looksLikeExpression(String s) {
+    if (RegExp(r'[\+\-\*/%<>=!&|]').hasMatch(s)) return true;
+    return !RegExp(r'^-?(\d+(\.\d+)?|[a-zA-Z_][a-zA-Z0-9_]*)$').hasMatch(s);
+  }
+
+  /// 解析位置参数：字面量直接返回，复杂表达式解析为 AST。
+  dynamic _parseExpressionOrValue(String part) {
+    final value = _parseValue(part);
+    if (value is String && _looksLikeExpression(part)) {
+      try {
+        return ExpressionParser.parse(part).toJson();
+      } catch (_) {
+        // 解析失败时回退为原始字符串
+      }
+    }
+    return value;
   }
 }
