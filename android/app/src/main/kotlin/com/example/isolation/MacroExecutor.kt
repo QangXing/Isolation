@@ -249,7 +249,7 @@ class MacroExecutor(
         if (fromX != null && fromY != null && relDx != null && relDy != null) {
             dispatchSwipe(
                 fromX.toFloat(), fromY.toFloat(),
-                (fromX + relDx).toFloat(), (fromY + relDy).toFloat(),
+                (fromX.toFloat() + relDx.toFloat()), (fromY.toFloat() + relDy.toFloat()),
                 duration
             )
             return
