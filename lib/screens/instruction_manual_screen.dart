@@ -31,8 +31,8 @@ class InstructionManualScreen extends StatelessWidget {
           _InstructionCard(
             title: '点击坐标',
             syntax: 'click(x, y)',
-            description: '在屏幕指定坐标执行一次点击。',
-            example: 'click(500, 800)',
+            description: '在屏幕指定坐标执行一次点击。坐标支持数字、变量或表达式。',
+            example: 'click(500, 800)\nclick(x + 10, y - 20)',
           ),
           _InstructionCard(
             title: '点击当前目标',
@@ -43,8 +43,20 @@ class InstructionManualScreen extends StatelessWidget {
           _InstructionCard(
             title: '滑动/滚动',
             syntax: 'roll(dx, dy, duration)',
-            description: '从当前位置按相对偏移滑动。duration 单位为毫秒。',
-            example: 'roll(0, 300, 400)',
+            description: '从屏幕中心按相对偏移滑动；dx、dy 可为负值实现反向滑动。duration 单位为毫秒。',
+            example: 'roll(0, 300, 400)\nroll(-200, 0, 300)',
+          ),
+          _InstructionCard(
+            title: '滑动（指定起点+相对偏移）',
+            syntax: 'roll(fromX=..., fromY=..., dx=..., dy=..., duration=...)',
+            description: '从指定起点按相对偏移滑动，支持变量和表达式。适合从任意位置向左/右/上/下拖动。',
+            example: 'roll(fromX=500, fromY=180, dx=-400, dy=0, duration=300)',
+          ),
+          _InstructionCard(
+            title: '滑动（绝对坐标）',
+            syntax: 'roll(startX, startY, endX, endY, duration)',
+            description: '从起点坐标滑动到终点坐标，支持变量和表达式。',
+            example: 'roll(500, 180, 100, 180, 300)',
           ),
           _InstructionCard(
             title: '输入文字',
@@ -128,6 +140,7 @@ class InstructionManualScreen extends StatelessWidget {
             '图片路径可以是绝对路径,建议把图片放在宏资源目录下。',
             'find 的 tolerance 越大,颜色匹配越宽松,默认 20。',
             'if 条件目前支持 find(text/color/image)。',
+            '图片/颜色查找需要屏幕录制权限；Android 14+ 会自动拉起前台服务承载录制，请按提示授权。',
           ]),
           SizedBox(height: 24),
         ],

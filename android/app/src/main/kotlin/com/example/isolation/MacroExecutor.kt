@@ -239,10 +239,24 @@ class MacroExecutor(
     }
 
     private fun executeRollStep(step: Map<String, Any>) {
+        val duration = evaluateNumber(step["duration"])?.toLong() ?: 400L
+
+        // 命名参数：从指定起点按相对偏移滑动（支持负值反向滑动）
+        val fromX = evaluateNumber(step["fromX"])
+        val fromY = evaluateNumber(step["fromY"])
+        val relDx = evaluateNumber(step["dx"])
+        val relDy = evaluateNumber(step["dy"])
+        if (fromX != null && fromY != null && relDx != null && relDy != null) {
+            dispatchSwipe(
+                fromX.toFloat(), fromY.toFloat(),
+                (fromX + relDx).toFloat(), (fromY + relDy).toFloat(),
+                duration
+            )
+            return
+        }
+
         val start = step["start"]
         val end = step["end"]
-        val duration = (step["duration"] as? Number)?.toLong() ?: 400L
-
         if (start is Map<*, *> && end is Map<*, *>) {
             val startMap = start as? Map<String, Any>
             val endMap = end as? Map<String, Any>
@@ -256,8 +270,8 @@ class MacroExecutor(
             }
         }
 
-        val dx = (step["dx"] as? Number)?.toInt() ?: 0
-        val dy = (step["dy"] as? Number)?.toInt() ?: 0
+        val dx = evaluateNumber(step["dx"])?.toInt() ?: 0
+        val dy = evaluateNumber(step["dy"])?.toInt() ?: 0
         val (cx, cy) = screenCenter()
         dispatchSwipe(cx.toFloat(), cy.toFloat(), (cx + dx).toFloat(), (cy + dy).toFloat(), duration)
     }
@@ -298,12 +312,16 @@ class MacroExecutor(
     }
 
     private fun evaluateCoordinate(value: Any?): Int? {
+        return evaluateNumber(value)?.toInt()
+    }
+
+    private fun evaluateNumber(value: Any?): Number? {
         return when (value) {
-            is Number -> value.toInt()
+            is Number -> value
             is Map<*, *> -> {
                 val expr = value as? Map<String, Any>
                 val result = ExpressionEvaluator.evaluate(expr, variables)
-                if (result is Variable.Number) result.value.toInt() else null
+                if (result is Variable.Number) result.value else null
             }
             else -> null
         }

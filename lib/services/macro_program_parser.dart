@@ -342,14 +342,28 @@ class MacroProgramParser {
         _serializeClick(step, indent, buffer);
         break;
       case 'roll':
-        final start = step['start'] as Map?;
-        final end = step['end'] as Map?;
-        if (start != null && end != null) {
+        final fromX = step['fromX'];
+        final fromY = step['fromY'];
+        if (fromX != null && fromY != null) {
+          // 命名参数：从指定起点按相对偏移滑动（支持负值反向滑动）
           buffer.writeln(
-              '$indent roll(${start['x']}, ${start['y']}, ${end['x']}, ${end['y']}, ${step['duration']})');
+              '$indent roll(fromX=${_serializeExprValue(fromX)}, fromY=${_serializeExprValue(fromY)}, dx=${_serializeExprValue(step['dx'])}, dy=${_serializeExprValue(step['dy'])}, duration=${_serializeExprValue(step['duration'])})');
         } else {
-          buffer.writeln(
-              '$indent roll(${step['dx']}, ${step['dy']}, ${step['duration']})');
+          final start = step['start'] as Map?;
+          final end = step['end'] as Map?;
+          if (start != null && end != null) {
+            final sx = _serializeExprValue(start['x']);
+            final sy = _serializeExprValue(start['y']);
+            final ex = _serializeExprValue(end['x']);
+            final ey = _serializeExprValue(end['y']);
+            final dur = _serializeExprValue(step['duration']);
+            buffer.writeln('$indent roll($sx, $sy, $ex, $ey, $dur)');
+          } else {
+            final dx = _serializeExprValue(step['dx']);
+            final dy = _serializeExprValue(step['dy']);
+            final dur = _serializeExprValue(step['duration']);
+            buffer.writeln('$indent roll($dx, $dy, $dur)');
+          }
         }
         break;
       case 'print':
@@ -490,7 +504,9 @@ class MacroProgramParser {
     final x = step['x'];
     final y = step['y'];
     if (x != null && y != null) {
-      buffer.writeln('$indent click($x, $y)');
+      final sx = _serializeExprValue(x);
+      final sy = _serializeExprValue(y);
+      buffer.writeln('$indent click($sx, $sy)');
     } else {
       buffer.writeln('$indent click()');
     }
@@ -575,6 +591,26 @@ class MacroProgramParser {
       pairs.add('$k=${_quoteValue(v)}');
     });
     return pairs.join(', ');
+  }
+
+  /// 判断一段源码是否应作为表达式解析。
+  /// 包含运算符，或既不是单一字面量/标识符/数字时，按表达式解析。
+  static bool _looksLikeExpression(String s) {
+    if (RegExp(r'[\+\-\*/%<>=!&|]').hasMatch(s)) return true;
+    return !RegExp(r'^-?(\d+(\.\d+)?|[a-zA-Z_][a-zA-Z0-9_]*)$').hasMatch(s);
+  }
+
+  /// 解析位置参数：字面量直接返回，复杂表达式解析为 AST。
+  static dynamic _parseExpressionOrValue(String part) {
+    final value = _parseValue(part);
+    if (value is String && _looksLikeExpression(part)) {
+      try {
+        return ExpressionParser.parse(part).toJson();
+      } catch (_) {
+        // 解析失败时回退为原始字符串
+      }
+    }
+    return value;
   }
 
   static String _quoteString(String s) => '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
@@ -768,8 +804,8 @@ class _BlockParser {
           result[key] = value;
         }
       } else {
-        // 位置参数：交给调用方按 type 解释
-        result['positional\$$positionalIndex'] = _parseValue(part);
+        // 位置参数：先尝试表达式解析（支持 click(x + 10, y) 等）
+        result['positional\$$positionalIndex'] = _parseExpressionOrValue(part);
         positionalIndex++;
       }
     }

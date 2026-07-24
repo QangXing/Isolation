@@ -39,6 +39,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         private const val TAG = "FloatingBallService"
         const val ACTION_SHOW = "ACTION_SHOW"
         const val ACTION_HIDE = "ACTION_HIDE"
+        const val ACTION_PREPARE = "ACTION_PREPARE"
         const val CHANNEL_ID = "isolation_floating_ball"
         const val NOTIFICATION_ID = 1
         const val ENABLED_MACRO_FILE = "enabled_macro.json"
@@ -177,6 +178,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     hideKeyboard()
                     stopForegroundService()
                     stopSelf()
+                }
+                ACTION_PREPARE -> {
+                    // 仅保持前台服务运行，用于在 Android 14+ 中承载屏幕录制，不显示悬浮球
                 }
             }
         } catch (e: Exception) {
