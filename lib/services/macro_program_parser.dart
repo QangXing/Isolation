@@ -27,10 +27,16 @@ class MacroParseError implements Exception {
 class MacroProgramParser {
   /// 将 DSL 源码解析为步骤列表。
   static List<Map<String, dynamic>> parse(String source) {
-    final lines = _preprocess(source);
-    final parser = _BlockParser(lines);
-    final steps = parser.parseBlock(stopOnCloseBrace: false);
-    return steps.map(_normalizeStep).toList();
+    try {
+      final lines = _preprocess(source);
+      final parser = _BlockParser(lines);
+      final steps = parser.parseBlock(stopOnCloseBrace: false);
+      return steps.map(_normalizeStep).toList();
+    } on MacroParseError {
+      rethrow;
+    } catch (e, s) {
+      throw MacroParseError('解析失败: $e', 0);
+    }
   }
 
   /// 递归规范化一个 step：把 positional$N 转为命名字段，递归处理 children/then/else。
@@ -67,7 +73,7 @@ class MacroProgramParser {
         }
         break;
       case 'print':
-        if (positional.isNotEmpty) step['message'] = positional[0].toString();
+        if (positional.isNotEmpty) step['message'] = positional[0];
         break;
       case 'wait':
         if (positional.isNotEmpty) step['duration'] = positional[0];
@@ -77,11 +83,13 @@ class MacroProgramParser {
           final first = positional[0];
           if (first is String && first.contains(';')) {
             final parts = first.split(';').map((s) => s.trim()).toList();
-            if (parts.length == 3) {
-              step['init'] = _parseCForInit(parts[0]);
-              step['condition'] = ExpressionParser.parse(parts[1]).toJson();
-              step['update'] = _parseCForUpdate(parts[2]);
+            if (parts.length != 3) {
+              throw MacroParseError(
+                  'for 循环需要 3 个分号分隔的部分，例如 for (int i = 0; i < 10; i = i + 1)', 0);
             }
+            step['init'] = _parseCForInit(parts[0]);
+            step['condition'] = ExpressionParser.parse(parts[1]).toJson();
+            step['update'] = _parseCForUpdate(parts[2]);
           } else {
             step['count'] = first;
           }
@@ -345,11 +353,10 @@ class MacroProgramParser {
         }
         break;
       case 'print':
-        buffer.writeln(
-            '$indent print(${_quoteString(step['message'].toString())})');
+        buffer.writeln('$indent print(${_serializeArgValue(step['message'])})');
         break;
       case 'wait':
-        buffer.writeln('$indent wait(${step['duration']})');
+        buffer.writeln('$indent wait(${_serializeArgValue(step['duration'])})');
         break;
       case 'back':
       case 'home':
@@ -441,6 +448,14 @@ class MacroProgramParser {
       return '${map['name']} = ${_serializeExprValue(map['value'])}';
     }
     return '';
+  }
+
+  /// 把单个参数值序列化为字符串。
+  /// 字符串字面量会加引号，表达式 JSON 保持原样，数字/布尔值直接输出。
+  static String _serializeArgValue(dynamic value) {
+    if (value is String) return _quoteString(value);
+    if (value is num || value is bool) return value.toString();
+    return _serializeExprValue(value);
   }
 
   /// 把表达式 JSON（literal/var/binary/unary）或 point map 序列化为字符串。

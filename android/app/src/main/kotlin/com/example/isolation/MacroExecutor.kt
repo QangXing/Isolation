@@ -170,11 +170,34 @@ class MacroExecutor(
             "click" -> executeClickStep(step)
             "roll" -> executeRollStep(step)
             "print" -> {
-                val msg = step["message"] as? String ?: ""
+                val messageExpr = step["message"]
+                val msg = when (messageExpr) {
+                    is String -> messageExpr
+                    is Map<*, *> -> {
+                        val result = ExpressionEvaluator.evaluate(
+                            messageExpr as Map<String, Any>,
+                            variables
+                        )
+                        (result as? Variable.Number)?.value?.toInt()?.toString()
+                            ?: result?.toString() ?: ""
+                    }
+                    else -> ""
+                }
                 if (msg.isNotEmpty()) postPrint(msg)
             }
             "wait" -> {
-                val duration = (step["duration"] as? Number)?.toLong() ?: 0L
+                val durationExpr = step["duration"]
+                val duration = when (durationExpr) {
+                    is Number -> durationExpr.toLong()
+                    is Map<*, *> -> {
+                        val result = ExpressionEvaluator.evaluate(
+                            durationExpr as Map<String, Any>,
+                            variables
+                        )
+                        (result as? Variable.Number)?.value?.toLong() ?: 0L
+                    }
+                    else -> 0L
+                }
                 if (duration > 0) Thread.sleep(duration)
             }
             "for" -> executeForStep(step)
