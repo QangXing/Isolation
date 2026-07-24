@@ -69,12 +69,17 @@ class MainActivity : FlutterActivity() {
                     val serviceIntent = Intent(this, FloatingBallService::class.java).apply {
                         action = FloatingBallService.ACTION_SHOW
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(serviceIntent)
-                    } else {
-                        startService(serviceIntent)
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(serviceIntent)
+                        } else {
+                            startService(serviceIntent)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "启动悬浮球服务失败", e)
+                        result.success(false)
                     }
-                    result.success(true)
                 }
                 "stopFloatingBall" -> {
                     val serviceIntent = Intent(this, FloatingBallService::class.java).apply {

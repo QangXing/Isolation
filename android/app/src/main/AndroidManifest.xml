@@ -44,7 +44,11 @@
             android:name=".FloatingBallService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection|specialUse" />
+            android:foregroundServiceType="mediaProjection|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keep the floating ball and macro controls available while the user interacts with other apps." />
+        </service>
 
         <service
             android:name=".InputAccessibilityService"
