@@ -159,6 +159,14 @@ object ImageFinder {
         return Point(centerX, centerY)
     }
 
+    private fun centerPoint(result: SampledPointMatcher.Result, searchRect: Rect?): Point {
+        val offsetX = searchRect?.x ?: 0
+        val offsetY = searchRect?.y ?: 0
+        val centerX = offsetX + result.loc.x.toInt() + result.templateW / 2
+        val centerY = offsetY + result.loc.y.toInt() + result.templateH / 2
+        return Point(centerX, centerY)
+    }
+
     private fun frameToMat(frame: ScreenCaptureHelper.Frame): Mat? {
         val buf = frame.buffer
         val w = frame.width
