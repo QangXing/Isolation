@@ -368,11 +368,21 @@ class MacroExecutor(
     private fun executeFindStep(step: Map<String, Any>) {
         val imageName = step["image"] as? String
         val colorValue = step["color"]
-        val needsScreenCapture = imageName != null || colorValue != null
+        val location = step["location"] as? Map<String, Any>
+        val needsScreenCapture = imageName != null || colorValue != null || location != null
         if (needsScreenCapture && !ensureScreenCapturePermission()) return
 
-        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
+        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> }
         val loop = step["loop"] as? Boolean ?: false
+        val assignTo = step["assignTo"] as? String
+
+        if (assignTo != null) {
+            val coord = findStepCoordinate(step)
+            assignFindResult(step, coord)
+            return
+        }
+
+        val childrenNonNull = children ?: return
 
         if (loop) {
             // loop=true 时每次迭代都重新查找，避免一直使用首次命中的旧坐标
@@ -380,7 +390,7 @@ class MacroExecutor(
                 val coord = findStepCoordinate(step) ?: break
                 foundCoordinates.addFirst(coord)
                 try {
-                    executeSteps(children)
+                    executeSteps(childrenNonNull)
                 } finally {
                     foundCoordinates.removeFirstOrNull()
                 }
@@ -389,11 +399,41 @@ class MacroExecutor(
             val coord = findStepCoordinate(step) ?: return
             foundCoordinates.addFirst(coord)
             try {
-                executeSteps(children)
+                executeSteps(childrenNonNull)
             } finally {
                 foundCoordinates.removeFirstOrNull()
             }
         }
+    }
+
+    /**
+     * 将 find 结果按类型写入变量：
+     * - image / text / node 返回 point（中心坐标）
+     * - location 无 color 参数时返回 color（该点色号）
+     * - location 带 color 或 color 查找返回 bool（1/0）
+     */
+    private fun assignFindResult(step: Map<String, Any>, coord: Pair<Int, Int>?) {
+        val name = step["assignTo"] as? String ?: return
+        val location = step["location"] as? Map<String, Any>
+        val hasColor = step["color"] != null
+
+        val value: Variable = when {
+            location != null -> {
+                if (hasColor) {
+                    Variable.Number(if (coord != null) 1.0 else 0.0)
+                } else {
+                    val (x, y) = coord ?: return
+                    val captured = ScreenCaptureHelper.captureColor(service, x, y) ?: return
+                    Variable.Color(captured)
+                }
+            }
+            hasColor -> Variable.Number(if (coord != null) 1.0 else 0.0)
+            else -> {
+                val (x, y) = coord ?: return
+                Variable.Point(x, y)
+            }
+        }
+        variables[name] = value
     }
 
     /**
@@ -411,6 +451,12 @@ class MacroExecutor(
             val minMatches = step["minMatches"] as? Number
             if (minMatches != null) options["minMatches"] = minMatches.toInt()
 
+            // 把用户指定的采样/缩放参数透传给 ImageFinder
+            for (key in listOf("sampleGrid", "colorTolerance", "matchThreshold", "positionStep", "minScale", "maxScale", "scaleStep", "useColor", "useBlur", "timeoutMs")) {
+                val v = step[key]
+                if (v != null) options[key] = v
+            }
+
             val point = ImageFinder.find(service, assetsDir, imageName, threshold, region, options)
             return if (point != null) {
                 postStatus("find: 图片命中 (${point.x}, ${point.y})")
@@ -423,7 +469,7 @@ class MacroExecutor(
 
         // 颜色查找：find(color=0xFF0000, tolerance=20) { ... }
         val colorValue = step["color"]
-        if (colorValue != null) {
+        if (colorValue != null && step["location"] == null) {
             val targetColor = ColorParser.parseColor(colorValue)
             val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
             val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance)
@@ -434,6 +480,30 @@ class MacroExecutor(
                 postStatus("find: 未找到颜色")
                 null
             }
+        }
+
+        // 位置/点色号查找：find(location=(x, y)) 或 find(location=(x, y), color=0xFF0000)
+        val location = step["location"] as? Map<String, Any>
+        if (location != null) {
+            if (!ScreenCaptureHelper.isGranted(service)) {
+                postStatus("find: 缺少屏幕录制权限")
+                return null
+            }
+            val x = evaluateCoordinate(location["x"]) ?: return null
+            val y = evaluateCoordinate(location["y"]) ?: return null
+            if (colorValue != null) {
+                val targetColor = ColorParser.parseColor(colorValue)
+                val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
+                val captured = ScreenCaptureHelper.captureColor(service, x, y)
+                if (captured != null && colorMatches(captured, targetColor, tolerance)) {
+                    postStatus("find: 位置颜色命中 ($x, $y)")
+                    return Pair(x, y)
+                }
+                postStatus("find: 位置颜色不匹配 ($x, $y)")
+                return null
+            }
+            postStatus("find: 位置读取 ($x, $y)")
+            return Pair(x, y)
         }
 
         // 节点查找：find(text="签到") { click() }
@@ -458,6 +528,18 @@ class MacroExecutor(
             postStatus("find: 节点未命中")
             null
         }
+    }
+
+    private fun colorMatches(captured: Int, target: Int, tolerance: Int): Boolean {
+        val cr = (captured shr 16) and 0xFF
+        val cg = (captured shr 8) and 0xFF
+        val cb = captured and 0xFF
+        val tr = (target shr 16) and 0xFF
+        val tg = (target shr 8) and 0xFF
+        val tb = target and 0xFF
+        return kotlin.math.abs(cr - tr) <= tolerance &&
+                kotlin.math.abs(cg - tg) <= tolerance &&
+                kotlin.math.abs(cb - tb) <= tolerance
     }
 
     private fun executeIfStep(step: Map<String, Any>) {
@@ -510,14 +592,32 @@ class MacroExecutor(
             return point?.let { Pair(it.x, it.y) }
         }
 
-        // 颜色条件
+        // 颜色条件（不含 location）
         val colorValue = condition["color"]
-        if (colorValue != null) {
+        val location = condition["location"] as? Map<String, Any>
+        if (colorValue != null && location == null) {
             val targetColor = ColorParser.parseColor(colorValue)
             val tolerance = (condition["tolerance"] as? Number)?.toInt() ?: 20
             if (!ScreenCaptureHelper.isGranted(service)) return null
             val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance)
             return point?.let { Pair(it.x, it.y) }
+        }
+
+        // 位置/点色号条件
+        if (location != null) {
+            if (!ScreenCaptureHelper.isGranted(service)) return null
+            val x = evaluateCoordinate(location["x"]) ?: return null
+            val y = evaluateCoordinate(location["y"]) ?: return null
+            if (colorValue != null) {
+                val targetColor = ColorParser.parseColor(colorValue)
+                val tolerance = (condition["tolerance"] as? Number)?.toInt() ?: 20
+                val captured = ScreenCaptureHelper.captureColor(service, x, y)
+                if (captured != null && colorMatches(captured, targetColor, tolerance)) {
+                    return Pair(x, y)
+                }
+                return null
+            }
+            return Pair(x, y)
         }
 
         // 节点条件

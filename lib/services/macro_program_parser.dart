@@ -389,9 +389,15 @@ class MacroProgramParser {
         break;
       case 'find':
         final argStr = _serializeFindArgs(step);
-        buffer.writeln('$indent find($argStr) {');
-        _serializeChildren(step['children'], indent, buffer);
-        buffer.writeln('$indent }');
+        final assignTo = step['assignTo'] as String?;
+        final children = step['children'] as List?;
+        if (assignTo != null && (children == null || children.isEmpty)) {
+          buffer.writeln('$indent$assignTo = find($argStr)');
+        } else {
+          buffer.writeln('$indent find($argStr) {');
+          _serializeChildren(children, indent, buffer);
+          buffer.writeln('$indent }');
+        }
         break;
       case 'if':
         if (step['expression'] != null) {
@@ -534,11 +540,22 @@ class MacroProgramParser {
     }
     final tolerance = step['tolerance'];
     if (tolerance != null) pairs.add('tolerance=$tolerance');
+    final location = step['location'] as Map?;
+    if (location != null) {
+      final x = _serializeExprValue(location['x']);
+      final y = _serializeExprValue(location['y']);
+      pairs.add('location=($x, $y)');
+    }
     final target = step['target'] as Map?;
     if (target != null) {
       target!.forEach((k, v) {
         pairs.add('$k=${_quoteValue(v)}');
       });
+    }
+    // 采样匹配相关参数
+    for (final opt in ['sampleGrid', 'colorTolerance', 'matchThreshold', 'positionStep']) {
+      final v = step[opt];
+      if (v != null) pairs.add('$opt=$v');
     }
     return pairs.join(', ');
   }
@@ -658,8 +675,15 @@ class _BlockParser {
     if (declMatch != null) {
       final varType = declMatch.group(1)!;
       final name = declMatch.group(2)!;
-      final valueSource = declMatch.group(3)!;
+      final valueSource = declMatch.group(3)!.trim();
       cursor++;
+      // 支持 point p = find(...) / int c = find(location=(x, y)) 等直接赋值
+      if (valueSource.startsWith('find(') && valueSource.endsWith(')')) {
+        final argsStr = valueSource.substring(5, valueSource.length - 1);
+        final step = _parseFindCall(argsStr);
+        step['assignTo'] = name;
+        return step;
+      }
       return {
         'type': 'var',
         'varType': varType,
@@ -673,8 +697,15 @@ class _BlockParser {
         .firstMatch(line.text);
     if (assignMatch != null) {
       final name = assignMatch.group(1)!;
-      final valueSource = assignMatch.group(2)!;
+      final valueSource = assignMatch.group(2)!.trim();
       cursor++;
+      // 支持 x = find(...) 直接接收查找结果
+      if (valueSource.startsWith('find(') && valueSource.endsWith(')')) {
+        final argsStr = valueSource.substring(5, valueSource.length - 1);
+        final step = _parseFindCall(argsStr);
+        step['assignTo'] = name;
+        return step;
+      }
       return {
         'type': 'assign',
         'name': name,
@@ -835,6 +866,17 @@ class _BlockParser {
       final parts = _splitArgs(inner);
       return parts.map(_parseExpressionOrValue).toList();
     }
+    // 坐标/点元组：location=(100, 200)
+    if (s.startsWith('(') && s.endsWith(')') && s.length >= 2) {
+      final inner = s.substring(1, s.length - 1);
+      final parts = _splitArgs(inner);
+      if (parts.length == 2) {
+        return {
+          'x': _parseExpressionOrValue(parts[0]),
+          'y': _parseExpressionOrValue(parts[1]),
+        };
+      }
+    }
     // 十六进制颜色字面量：0xFF0000 / 0XFF0000 / #FF0000
     if (s.startsWith('0x') || s.startsWith('0X')) {
       final hex = int.tryParse(s.substring(2), radix: 16);
@@ -874,5 +916,12 @@ class _BlockParser {
       }
     }
     return value;
+  }
+
+  /// 解析 find(...) 调用，供 `x = find(...)` / `point p = find(...)` 使用。
+  Map<String, dynamic> _parseFindCall(String argsStr) {
+    final args = _parseArgs(argsStr);
+    final raw = <String, dynamic>{'type': 'find', ...args};
+    return MacroProgramParser._normalizeStep(raw);
   }
 }

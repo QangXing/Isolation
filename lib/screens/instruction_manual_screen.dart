@@ -91,9 +91,27 @@ class InstructionManualScreen extends StatelessWidget {
           ),
           _InstructionCard(
             title: '按图片查找',
-            syntax: 'find(image="图片路径", feature="orb", minMatches=6, threshold=0.8) { ... }',
-            description: '在屏幕中查找与参考图片最匹配的位置。threshold 为相似度阈值,范围 0~1。\nfeature: orb（默认）/ akaze / template，template 仅使用传统模板匹配。\nminMatches: 特征点匹配通过的最少内点数，默认 6。\n执行图片/颜色查找时若未授权屏幕录制，会自动弹出授权。',
-            example: 'find(image="/sdcard/Pictures/btn.png", feature="akaze", minMatches=8, threshold=0.85) {\n  click()\n}',
+            syntax: 'find(image="图片路径", threshold=0.8) { ... }',
+            description: '在屏幕中查找与参考图片最匹配的位置。默认先使用点采样匹配：在参考图上等间隔取点，然后在屏幕上多尺度滑动比对颜色，匹配率达到 70% 即命中，因此对缩放/放大更鲁棒。未命中时会自动 fallback 到 ORB/模板匹配。\n参数（可选）：sampleGrid（采样网格，默认 16）、colorTolerance（颜色容差，默认 20）、matchThreshold（匹配率阈值，默认 0.70）、positionStep（滑动步长，默认 4）。',
+            example: 'find(image="btn.png") {\n  click()\n}\nfind(image="icon.png", sampleGrid=12, matchThreshold=0.75) {\n  click()\n}',
+          ),
+          _InstructionCard(
+            title: '读取指定点颜色',
+            syntax: 'find(location=(x, y))',
+            description: '读取屏幕上某个坐标点的颜色。可结合变量使用，例如把颜色保存下来。',
+            example: 'int c = find(location=(500, 800))\nprint(c)',
+          ),
+          _InstructionCard(
+            title: '按坐标颜色判断',
+            syntax: 'find(location=(x, y), color=0xRRGGBB, tolerance=20)',
+            description: '判断指定坐标点的颜色是否匹配，匹配时返回 true。',
+            example: 'if(find(location=(500, 800), color=0xFF5000, tolerance=20)) {\n  click()\n}',
+          ),
+          _InstructionCard(
+            title: '把 find 结果赋给变量',
+            syntax: 'x = find(...)',
+            description: '按 find 类型自动返回不同结果：image/text 返回 point（中心坐标），location 返回 color，color/text 作为条件时返回 bool（1/0）。',
+            example: 'point p = find(image="btn.png")\nclick(p.x, p.y)\nint c = find(location=(100, 200))\nint ok = find(text="原神")',
           ),
           _InstructionCard(
             title: '限定查找区域',

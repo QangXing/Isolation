@@ -48,6 +48,25 @@ object ImageFinder {
             val timeoutMs = (options?.get("timeoutMs") as? Number)?.toLong() ?: 5000L
             val startTime = System.currentTimeMillis()
 
+            // 1) 点采样匹配：等间隔取点，支持缩放/放大，默认 70% 匹配率即命中
+            if (feature != "template") {
+                val sampledResult = SampledPointMatcher.match(
+                    template, screenMat, searchRect,
+                    gridSize = (options?.get("sampleGrid") as? Number)?.toInt() ?: 16,
+                    colorTolerance = (options?.get("colorTolerance") as? Number)?.toInt() ?: 20,
+                    minScale = (options?.get("minScale") as? Number)?.toDouble() ?: 0.5,
+                    maxScale = (options?.get("maxScale") as? Number)?.toDouble() ?: 2.0,
+                    scaleStep = (options?.get("scaleStep") as? Number)?.toDouble() ?: 0.1,
+                    matchThreshold = (options?.get("matchThreshold") as? Number)?.toDouble() ?: 0.70,
+                    positionStep = (options?.get("positionStep") as? Number)?.toInt() ?: 4
+                )
+                if (sampledResult != null && System.currentTimeMillis() - startTime < timeoutMs) {
+                    Log.d(TAG, "sampled match score=${"%.3f".format(sampledResult.score)}, scale=${"%.2f".format(sampledResult.scale)}")
+                    return centerPoint(sampledResult, searchRect)
+                }
+            }
+
+            // 2) ORB/SIFT 特征匹配 + 模板精修
             if (feature != "template") {
                 val featureResult = FeatureMatcher.match(
                     template, screenMat, feature, minMatches, searchRect
@@ -68,6 +87,7 @@ object ImageFinder {
                 }
             }
 
+            // 3) 传统多尺度模板匹配兜底
             if (System.currentTimeMillis() - startTime < timeoutMs) {
                 val useColor = options?.get("useColor") as? Boolean ?: false
                 val useBlur = options?.get("useBlur") as? Boolean ?: true
