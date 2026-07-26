@@ -141,8 +141,14 @@ class InstructionManualScreen extends StatelessWidget {
           _InstructionCard(
             title: '无限循环查找',
             syntax: 'find(loop) { ... }',
-            description: '找到目标后持续循环执行块内指令,直到通过三连击悬浮球手动停止。适用于轮询签到、刷新奖励等场景。',
+            description: '无限循环执行块内指令,直到通过三连击悬浮球手动停止。适用于轮询签到、刷新奖励等场景。',
             example: 'find(loop) {\n  find(text="签到") {\n    click()\n    wait(1000)\n  }\n}',
+          ),
+          _InstructionCard(
+            title: '循环查找直到命中',
+            syntax: 'find(text="...", loop) { ... }',
+            description: '在屏幕上循环查找指定目标，命中后执行一次块内指令。常用于等待某个文字/图片/颜色出现后再操作。',
+            example: 'find(text="加载完成", loop) {\n  click()\n}\nfind(image="ok.png", loop) {\n  click()\n}',
           ),
           _SectionTitle('系统按键'),
           _InstructionCard(

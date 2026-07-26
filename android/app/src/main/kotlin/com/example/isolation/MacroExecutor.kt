@@ -385,12 +385,14 @@ class MacroExecutor(
         val imageName = step["image"] as? String
         val colorValue = step["color"]
         val location = step["location"] as? Map<String, Any>
+        val target = step["target"] as? Map<String, Any>
         val needsScreenCapture = imageName != null || colorValue != null || location != null
         if (needsScreenCapture && !ensureScreenCapturePermission()) return
 
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> }
         val loop = step["loop"] as? Boolean ?: false
         val assignTo = step["assignTo"] as? String
+        val hasFindTarget = imageName != null || colorValue != null || location != null || target != null
 
         if (assignTo != null) {
             val coord = findStepCoordinate(step)
@@ -400,16 +402,26 @@ class MacroExecutor(
 
         val childrenNonNull = children ?: return
 
-        if (loop) {
-            // loop=true 时每次迭代都重新查找，避免一直使用首次命中的旧坐标
+        if (loop && hasFindTarget) {
+            // loop 与查找目标一起使用时：循环查找直到命中，执行一次块内指令
             while (!stopRequested) {
-                val coord = findStepCoordinate(step) ?: break
-                foundCoordinates.addFirst(coord)
-                try {
-                    executeSteps(childrenNonNull)
-                } finally {
-                    foundCoordinates.removeFirstOrNull()
+                val coord = findStepCoordinate(step)
+                if (coord != null) {
+                    foundCoordinates.addFirst(coord)
+                    try {
+                        executeSteps(childrenNonNull)
+                    } finally {
+                        foundCoordinates.removeFirstOrNull()
+                    }
+                    break
                 }
+                Thread.sleep(300)
+            }
+        } else if (loop) {
+            // loop 单独使用：无限循环执行块内指令，直到手动停止
+            while (!stopRequested) {
+                executeSteps(childrenNonNull)
+                Thread.sleep(50)
             }
         } else {
             val coord = findStepCoordinate(step) ?: return
