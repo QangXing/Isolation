@@ -37,15 +37,18 @@ object ImageFinder {
             return null
         }
 
+        val cacheKey = if (assetsDir.isNullOrEmpty()) imageName else "$assetsDir/$imageName"
+
         return try {
             val searchRect = parseSearchRegion(region, frame.width, frame.height)
             val result = FeaturePointMatcher.match(
+                cacheKey,
                 template,
                 frame,
                 searchRect,
                 featureCount = (options?.get("featureCount") as? Number)?.toInt() ?: 8,
                 colorTolerance = (options?.get("colorTolerance") as? Number)?.toInt() ?: 20,
-                originSearchStep = (options?.get("originSearchStep") as? Number)?.toInt() ?: 2,
+                searchStep = (options?.get("searchStep") as? Number)?.toInt() ?: 2,
                 matchThreshold = (options?.get("featurePointThreshold") as? Number)?.toDouble() ?: 0.80
             )
             if (result != null) {
