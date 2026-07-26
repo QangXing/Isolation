@@ -589,13 +589,11 @@ if (score > 0) {
     final name =
         nameController.text.trim().isEmpty ? '未命名宏' : nameController.text.trim();
     final description = descController.text.trim();
-    const settings = MacroSettings();
 
     final success = await provider.saveMacroPlugin(
       name: name,
       description: description,
       steps: steps,
-      settings: settings,
       pluginId: widget.pluginId,
     );
 

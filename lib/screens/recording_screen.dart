@@ -478,12 +478,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
       // 保存前若处于代码视图，先把代码解析回 _steps，避免丢失手动编辑
       if (_codeView) _syncStepsFromCode();
       provider.updateRecordedSteps(_steps);
-      const settings = MacroSettings();
       final success = await provider.saveMacroPlugin(
         name: name,
         description: description,
         steps: _steps,
-        settings: settings,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

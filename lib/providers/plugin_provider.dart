@@ -369,7 +369,7 @@ class PluginProvider extends ChangeNotifier {
     required String name,
     required String description,
     required List<Map<String, dynamic>> steps,
-    MacroSettings settings = const MacroSettings(),
+    MacroSettings? settings,
     String? pluginId,
     String? iconPath,
   }) async {
@@ -401,9 +401,24 @@ class PluginProvider extends ChangeNotifier {
       }
     }
 
+    // 编辑现有插件时保留原来的 settings，避免保存宏代码时把设置重置
+    MacroSettings? existingSettings;
+    if (pluginId != null && await targetDir.exists()) {
+      final existingMacroFile = File('${targetDir.path}/macro.json');
+      if (await existingMacroFile.exists()) {
+        try {
+          final decoded = jsonDecode(await existingMacroFile.readAsString());
+          existingSettings = MacroData.fromJson(decoded).settings;
+        } catch (_) {
+          // 忽略损坏的旧文件
+        }
+      }
+    }
+
     final macroFileName = 'macro.json';
     final macroFile = File('${targetDir.path}/$macroFileName');
-    final macroData = MacroData(settings: settings, steps: steps);
+    final effectiveSettings = settings ?? existingSettings ?? const MacroSettings();
+    final macroData = MacroData(settings: effectiveSettings, steps: steps);
     await macroFile.writeAsString(jsonEncode(macroData.toJson()));
 
     final manifest = {
