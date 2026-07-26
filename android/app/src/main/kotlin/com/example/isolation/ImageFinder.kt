@@ -45,7 +45,8 @@ object ImageFinder {
                 searchRect,
                 featureCount = (options?.get("featureCount") as? Number)?.toInt() ?: 8,
                 colorTolerance = (options?.get("colorTolerance") as? Number)?.toInt() ?: 20,
-                originSearchStep = (options?.get("originSearchStep") as? Number)?.toInt() ?: 2
+                originSearchStep = (options?.get("originSearchStep") as? Number)?.toInt() ?: 2,
+                matchThreshold = (options?.get("featurePointThreshold") as? Number)?.toDouble() ?: 0.80
             )
             if (result != null) {
                 Log.d(TAG, "find: 命中 (${result.x}, ${result.y})")

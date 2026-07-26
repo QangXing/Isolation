@@ -101,6 +101,11 @@ class MacroExecutor(
     private var defaultFeaturePointCount = 8
 
     /**
+     * 图片匹配默认特征点命中比例阈值，从宏设置读取。
+     */
+    private var defaultFeaturePointThreshold = 0.80
+
+    /**
      * find 块命中的坐标栈。click() 无参时取栈顶点击。
      * 支持 find 嵌套：内层 find 命中会压栈，块结束自动弹栈。
      */
@@ -118,6 +123,8 @@ class MacroExecutor(
         debugMode = settings["debugMode"] as? Boolean ?: false
         defaultFeaturePointCount =
             (settings["featurePointCount"] as? Number)?.toInt()?.coerceIn(1, 32) ?: 8
+        defaultFeaturePointThreshold =
+            (settings["featurePointThreshold"] as? Number)?.toDouble()?.coerceIn(0.0, 1.0) ?: 0.80
         activeExecutor = this
 
         val infiniteLoop = (settings["loopCount"] as? Number)?.toInt()?.let { it <= 0 } ?: false
@@ -141,6 +148,7 @@ class MacroExecutor(
                 activeExecutor = null
                 debugMode = false
                 defaultFeaturePointCount = 8
+                defaultFeaturePointThreshold = 0.80
                 variables.clear()
             }
         }.start()
@@ -454,7 +462,8 @@ class MacroExecutor(
             val region = step["region"] as? List<*>
             val options = mutableMapOf<String, Any>(
                 "featureCount" to (step["featureCount"] as? Number ?: defaultFeaturePointCount),
-                "colorTolerance" to (step["colorTolerance"] as? Number ?: 20)
+                "colorTolerance" to (step["colorTolerance"] as? Number ?: 20),
+                "featurePointThreshold" to (step["featurePointThreshold"] as? Number ?: defaultFeaturePointThreshold)
             )
 
             val point = ImageFinder.find(service, assetsDir, imageName, 0.80, region, options)
@@ -588,7 +597,8 @@ class MacroExecutor(
             val region = condition["region"] as? List<*>
             val options = mapOf<String, Any>(
                 "featureCount" to (condition["featureCount"] as? Number ?: defaultFeaturePointCount),
-                "colorTolerance" to (condition["colorTolerance"] as? Number ?: 20)
+                "colorTolerance" to (condition["colorTolerance"] as? Number ?: 20),
+                "featurePointThreshold" to (condition["featurePointThreshold"] as? Number ?: defaultFeaturePointThreshold)
             )
             if (!ScreenCaptureHelper.isGranted(service)) return null
             val point = ImageFinder.find(service, assetsDir, imageName, 0.80, region, options)

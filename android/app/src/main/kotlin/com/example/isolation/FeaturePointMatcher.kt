@@ -27,6 +27,7 @@ object FeaturePointMatcher {
     private const val DEFAULT_FEATURE_COUNT = 8
     private const val DEFAULT_COLOR_TOLERANCE = 20
     private const val DEFAULT_ORIGIN_SEARCH_STEP = 2
+    private const val DEFAULT_MATCH_THRESHOLD = 0.80
     private const val MAX_TEMPLATE_SIZE = 1280
 
     data class Result(val x: Int, val y: Int)
@@ -47,7 +48,8 @@ object FeaturePointMatcher {
         searchRect: Rect? = null,
         featureCount: Int = DEFAULT_FEATURE_COUNT,
         colorTolerance: Int = DEFAULT_COLOR_TOLERANCE,
-        originSearchStep: Int = DEFAULT_ORIGIN_SEARCH_STEP
+        originSearchStep: Int = DEFAULT_ORIGIN_SEARCH_STEP,
+        matchThreshold: Double = DEFAULT_MATCH_THRESHOLD
     ): Result? {
         if (template.empty() || frame.width <= 0 || frame.height <= 0) return null
 
@@ -86,7 +88,8 @@ object FeaturePointMatcher {
         val buf = frame.buffer
         val rowStride = frame.rowStride
         val pixelStride = frame.pixelStride
-        val needed = features.size
+        val needed = kotlin.math.ceil(features.size * matchThreshold.coerceIn(0.0, 1.0)).toInt()
+            .coerceIn(1, features.size)
 
         var bestX = -1
         var bestY = -1
@@ -115,8 +118,8 @@ object FeaturePointMatcher {
                     bestMatched = matched
                     bestX = x
                     bestY = y
-                    if (bestMatched == needed) {
-                        Log.d(TAG, "命中 origin=($bestX,$bestY), 特征点=$needed")
+                    if (bestMatched >= needed) {
+                        Log.d(TAG, "命中 origin=($bestX,$bestY), 命中特征点=$bestMatched/${features.size}, threshold=$matchThreshold")
                         return Result(bestX, bestY)
                     }
                 }
@@ -125,11 +128,11 @@ object FeaturePointMatcher {
             y += originSearchStep
         }
 
-        return if (bestMatched == needed) {
-            Log.d(TAG, "命中 origin=($bestX,$bestY), 特征点=$needed")
+        return if (bestMatched >= needed) {
+            Log.d(TAG, "命中 origin=($bestX,$bestY), 命中特征点=$bestMatched/${features.size}, threshold=$matchThreshold")
             Result(bestX, bestY)
         } else {
-            Log.d(TAG, "未完全匹配 bestMatched=$bestMatched/$needed")
+            Log.d(TAG, "未达阈值 bestMatched=$bestMatched/${features.size}, threshold=$matchThreshold")
             null
         }
     }

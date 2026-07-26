@@ -92,8 +92,8 @@ class InstructionManualScreen extends StatelessWidget {
           _InstructionCard(
             title: '按图片查找',
             syntax: 'find(image="图片路径") { ... }',
-            description: '在屏幕中查找与参考图片匹配的位置。算法以参考图中心为原点，在周围颜色差异明显的地方选取特征点并记录相对偏移；然后在屏幕上寻找原点颜色，再按相对偏移校验各特征点颜色，全部命中即返回目标中心。\n参数（可选）：featureCount（特征点采样数目，默认 8，可在宏设置中修改）、colorTolerance（颜色容差，默认 20）。',
-            example: 'find(image="btn.png") {\n  click()\n}\nfind(image="icon.png", featureCount=12, colorTolerance=25) {\n  click()\n}',
+            description: '在屏幕中查找与参考图片匹配的位置。算法以参考图中心为原点，在周围颜色差异明显的地方选取特征点并记录相对偏移；然后在屏幕上寻找原点颜色，再按相对偏移校验各特征点颜色，命中比例达到阈值即返回目标中心。\n参数（可选）：featureCount（特征点采样数目，默认 8）、featurePointThreshold（命中比例阈值，默认 0.8）、colorTolerance（颜色容差，默认 20）。以上默认值可在宏设置中修改。',
+            example: 'find(image="btn.png") {\n  click()\n}\nfind(image="icon.png", featureCount=12, featurePointThreshold=0.9, colorTolerance=25) {\n  click()\n}',
           ),
           _InstructionCard(
             title: '读取指定点颜色',

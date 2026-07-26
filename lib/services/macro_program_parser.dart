@@ -558,6 +558,10 @@ class MacroProgramParser {
     if (featureCount != null) pairs.add('featureCount=$featureCount');
     final colorTolerance = step['colorTolerance'];
     if (colorTolerance != null) pairs.add('colorTolerance=$colorTolerance');
+    final featurePointThreshold = step['featurePointThreshold'];
+    if (featurePointThreshold != null) {
+      pairs.add('featurePointThreshold=$featurePointThreshold');
+    }
     return pairs.join(', ');
   }
 
