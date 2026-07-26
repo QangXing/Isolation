@@ -541,6 +541,8 @@ class MacroProgramParser {
     }
     final tolerance = step['tolerance'];
     if (tolerance != null) pairs.add('tolerance=$tolerance');
+    final stepVal = step['step'];
+    if (stepVal != null) pairs.add('step=$stepVal');
     final location = step['location'] as Map?;
     if (location != null) {
       final x = _serializeExprValue(location['x']);

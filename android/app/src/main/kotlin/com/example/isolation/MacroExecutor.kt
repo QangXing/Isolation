@@ -488,12 +488,14 @@ class MacroExecutor(
             }
         }
 
-        // 颜色查找：find(color=0xFF0000, tolerance=20) { ... }
+        // 颜色查找：find(color=0xFF0000, tolerance=20, step=2, region=[...]) { ... }
         val colorValue = step["color"]
         if (colorValue != null && step["location"] == null) {
             val targetColor = ColorParser.parseColor(colorValue)
             val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
-            val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance)
+            val step = (step["step"] as? Number)?.toInt() ?: 2
+            val region = step["region"] as? List<*>
+            val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance, step, region)
             return if (point != null) {
                 postStatus("find: 颜色命中 (${point.x}, ${point.y})")
                 Pair(point.x, point.y)
@@ -623,8 +625,10 @@ class MacroExecutor(
         if (colorValue != null && location == null) {
             val targetColor = ColorParser.parseColor(colorValue)
             val tolerance = (condition["tolerance"] as? Number)?.toInt() ?: 20
+            val step = (condition["step"] as? Number)?.toInt() ?: 2
+            val region = condition["region"] as? List<*>
             if (!ScreenCaptureHelper.isGranted(service)) return null
-            val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance)
+            val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance, step, region)
             return point?.let { Pair(it.x, it.y) }
         }
 

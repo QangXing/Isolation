@@ -85,9 +85,9 @@ class InstructionManualScreen extends StatelessWidget {
           ),
           _InstructionCard(
             title: '按颜色查找',
-            syntax: 'find(color=0xRRGGBB, tolerance=10) { ... }',
-            description: '在屏幕中查找最近匹配颜色,将坐标压入栈,块内 click() 使用该坐标。',
-            example: 'find(color=0xFF5000, tolerance=20) {\n  click()\n}',
+            syntax: 'find(color=0xRRGGBB, tolerance=10, step=2, region=[...]) { ... }',
+            description: '在屏幕中查找最近匹配颜色,将坐标压入栈,块内 click() 使用该坐标。step 越小越精确但越慢，默认 2；region 可限定查找区域大幅加速。',
+            example: 'find(color=0xFF5000, tolerance=20) {\n  click()\n}\nfind(color=0xFFFA40, tolerance=30, step=1, region=[100, 1000, 1000, 1800]) {\n  click()\n}',
           ),
           _InstructionCard(
             title: '按图片查找',
