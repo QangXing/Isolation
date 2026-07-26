@@ -7,6 +7,7 @@
 /// - `wait(ms)`
 /// - `for(n) { ... }`
 /// - `find(text="x") { ... }`
+/// - `find(image="x.png") { ... }`
 /// - `find(loop) { ... }`
 /// - `if(find(text="x")) { ... } else { ... }`
 /// - `back()` / `home()` / `recents()`
@@ -552,11 +553,11 @@ class MacroProgramParser {
         pairs.add('$k=${_quoteValue(v)}');
       });
     }
-    // 采样匹配相关参数
-    for (final opt in ['sampleGrid', 'colorTolerance', 'matchThreshold', 'positionStep']) {
-      final v = step[opt];
-      if (v != null) pairs.add('$opt=$v');
-    }
+    // 特征点匹配相关参数
+    final featureCount = step['featureCount'];
+    if (featureCount != null) pairs.add('featureCount=$featureCount');
+    final colorTolerance = step['colorTolerance'];
+    if (colorTolerance != null) pairs.add('colorTolerance=$colorTolerance');
     return pairs.join(', ');
   }
 

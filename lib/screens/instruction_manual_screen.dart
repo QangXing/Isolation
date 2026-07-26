@@ -91,9 +91,9 @@ class InstructionManualScreen extends StatelessWidget {
           ),
           _InstructionCard(
             title: '按图片查找',
-            syntax: 'find(image="图片路径", threshold=0.8) { ... }',
-            description: '在屏幕中查找与参考图片最匹配的位置。默认先使用点采样匹配：在参考图上等间隔取点，然后在屏幕上多尺度滑动比对颜色，匹配率达到 70% 即命中，因此对缩放/放大更鲁棒。未命中时会自动 fallback 到 ORB/模板匹配。\n参数（可选）：sampleGrid（采样网格，默认 16）、colorTolerance（颜色容差，默认 20）、matchThreshold（匹配率阈值，默认 0.70）、positionStep（滑动步长，默认 4）。',
-            example: 'find(image="btn.png") {\n  click()\n}\nfind(image="icon.png", sampleGrid=12, matchThreshold=0.75) {\n  click()\n}',
+            syntax: 'find(image="图片路径") { ... }',
+            description: '在屏幕中查找与参考图片匹配的位置。算法以参考图中心为原点，在周围颜色差异明显的地方选取特征点并记录相对偏移；然后在屏幕上寻找原点颜色，再按相对偏移校验各特征点颜色，全部命中即返回目标中心。\n参数（可选）：featureCount（特征点采样数目，默认 8，可在宏设置中修改）、colorTolerance（颜色容差，默认 20）。',
+            example: 'find(image="btn.png") {\n  click()\n}\nfind(image="icon.png", featureCount=12, colorTolerance=25) {\n  click()\n}',
           ),
           _InstructionCard(
             title: '读取指定点颜色',
@@ -128,9 +128,9 @@ class InstructionManualScreen extends StatelessWidget {
           ),
           _InstructionCard(
             title: '按图片条件判断',
-            syntax: 'if(find(image="...", threshold=0.8)) { ... }',
+            syntax: 'if(find(image="...")) { ... }',
             description: '如果屏幕中存在匹配图片,则执行 then 块。',
-            example: 'if(find(image="popup.png", threshold=0.85)) {\n  click()\n  wait(500)\n}',
+            example: 'if(find(image="popup.png")) {\n  click()\n  wait(500)\n}',
           ),
           _InstructionCard(
             title: '循环',

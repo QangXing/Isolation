@@ -96,6 +96,11 @@ class MacroExecutor(
     private var debugMode = false
 
     /**
+     * 图片匹配默认特征点采样数目，从宏设置读取。
+     */
+    private var defaultFeaturePointCount = 8
+
+    /**
      * find 块命中的坐标栈。click() 无参时取栈顶点击。
      * 支持 find 嵌套：内层 find 命中会压栈，块结束自动弹栈。
      */
@@ -111,6 +116,8 @@ class MacroExecutor(
         running = true
         stopRequested = false
         debugMode = settings["debugMode"] as? Boolean ?: false
+        defaultFeaturePointCount =
+            (settings["featurePointCount"] as? Number)?.toInt()?.coerceIn(1, 32) ?: 8
         activeExecutor = this
 
         val infiniteLoop = (settings["loopCount"] as? Number)?.toInt()?.let { it <= 0 } ?: false
@@ -133,6 +140,7 @@ class MacroExecutor(
                 running = false
                 activeExecutor = null
                 debugMode = false
+                defaultFeaturePointCount = 8
                 variables.clear()
             }
         }.start()
@@ -443,21 +451,13 @@ class MacroExecutor(
     private fun findStepCoordinate(step: Map<String, Any>): Pair<Int, Int>? {
         val imageName = step["image"] as? String
         if (imageName != null) {
-            val threshold = (step["threshold"] as? Number)?.toDouble() ?: 0.80
             val region = step["region"] as? List<*>
-            val options = mutableMapOf<String, Any>()
-            val feature = step["feature"] as? String
-            if (feature != null) options["feature"] = feature
-            val minMatches = step["minMatches"] as? Number
-            if (minMatches != null) options["minMatches"] = minMatches.toInt()
+            val options = mutableMapOf<String, Any>(
+                "featureCount" to (step["featureCount"] as? Number ?: defaultFeaturePointCount),
+                "colorTolerance" to (step["colorTolerance"] as? Number ?: 20)
+            )
 
-            // 把用户指定的采样/缩放参数透传给 ImageFinder
-            for (key in listOf("sampleGrid", "colorTolerance", "matchThreshold", "positionStep", "minScale", "maxScale", "scaleStep", "useColor", "useBlur", "timeoutMs")) {
-                val v = step[key]
-                if (v != null) options[key] = v
-            }
-
-            val point = ImageFinder.find(service, assetsDir, imageName, threshold, region, options)
+            val point = ImageFinder.find(service, assetsDir, imageName, 0.80, region, options)
             return if (point != null) {
                 postStatus("find: 图片命中 (${point.x}, ${point.y})")
                 Pair(point.x, point.y)
@@ -585,10 +585,13 @@ class MacroExecutor(
         // 图片条件
         val imageName = condition["image"] as? String
         if (imageName != null) {
-            val threshold = (condition["threshold"] as? Number)?.toDouble() ?: 0.80
             val region = condition["region"] as? List<*>
+            val options = mapOf<String, Any>(
+                "featureCount" to (condition["featureCount"] as? Number ?: defaultFeaturePointCount),
+                "colorTolerance" to (condition["colorTolerance"] as? Number ?: 20)
+            )
             if (!ScreenCaptureHelper.isGranted(service)) return null
-            val point = ImageFinder.find(service, assetsDir, imageName, threshold, region)
+            val point = ImageFinder.find(service, assetsDir, imageName, 0.80, region, options)
             return point?.let { Pair(it.x, it.y) }
         }
 
