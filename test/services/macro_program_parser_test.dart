@@ -34,7 +34,7 @@ if (score > 5) {
   test('c-style for round-trip', () {
     const code = '''
 for (int i = 0; i < 3; i = i + 1) {
-    roll(0, 300, 400)
+    swipe(0, 300, 400)
 }
 '''.trim();
     final parsed = MacroProgramParser.parse(code);

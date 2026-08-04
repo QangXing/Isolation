@@ -3,7 +3,6 @@ package com.example.isolation
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
-import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
@@ -182,57 +181,33 @@ class MacroExecutor(
         if (stopRequested) return
 
         when (type) {
-            // 新指令
+            // 动作
             "click" -> executeClickStep(step)
-            "roll" -> executeRollStep(step)
-            "print" -> {
-                val messageExpr = step["message"]
-                val msg = when (messageExpr) {
-                    is String -> messageExpr
-                    is Map<*, *> -> {
-                        val result = ExpressionEvaluator.evaluate(
-                            messageExpr as Map<String, Any>,
-                            variables
-                        )
-                        (result as? Variable.Number)?.value?.toInt()?.toString()
-                            ?: result?.toString() ?: ""
-                    }
-                    else -> ""
-                }
-                if (msg.isNotEmpty()) postPrint(msg)
-            }
-            "wait" -> {
-                val durationExpr = step["duration"]
-                val duration = when (durationExpr) {
-                    is Number -> durationExpr.toLong()
-                    is Map<*, *> -> {
-                        val result = ExpressionEvaluator.evaluate(
-                            durationExpr as Map<String, Any>,
-                            variables
-                        )
-                        (result as? Variable.Number)?.value?.toLong() ?: 0L
-                    }
-                    else -> 0L
-                }
-                if (duration > 0) Thread.sleep(duration)
-            }
-            "for" -> executeForStep(step)
-            "find" -> executeFindStep(step)
-            "if" -> executeIfStep(step)
-            "var" -> executeVarStep(step)
-            "assign" -> executeAssignStep(step)
+            "swipe" -> executeSwipeStep(step)
+            "input" -> executeInputStep(step)
+            "print" -> executePrintStep(step)
+            "wait" -> executeWaitStep(step)
 
             // 系统键
             "back" -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
             "home" -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
             "recents" -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
 
-            // 旧指令兼容
-            "clickNode" -> executeClickNode(step)
-            "clickPoint" -> executeClickPoint(step)
-            "swipe" -> executeSwipe(step)
-            "launchApp" -> executeLaunchApp(step)
-            "inputText" -> executeInputText(step)
+            // 查找与等待
+            "findText", "findColor", "findImage" -> executeFindLikeStep(step)
+            "waitForText", "waitForColor", "waitForImage" -> executeWaitForStep(step)
+            "loop" -> executeLoopStep(step)
+            "colorAt" -> executeColorAtStep(step)
+
+            // 流程控制
+            "for" -> executeForStep(step)
+            "if" -> executeIfStep(step)
+            "ifText", "ifColor", "ifImage", "ifColorAt" -> executeIfLikeStep(step)
+
+            // 变量
+            "let" -> executeLetStep(step)
+            "var" -> executeVarStep(step)
+            "assign" -> executeAssignStep(step)
         }
     }
 
@@ -254,7 +229,7 @@ class MacroExecutor(
         }
     }
 
-    private fun executeRollStep(step: Map<String, Any>) {
+    private fun executeSwipeStep(step: Map<String, Any>) {
         val duration = evaluateNumber(step["duration"])?.toLong() ?: 400L
 
         // 命名参数：从指定起点按相对偏移滑动（支持负值反向滑动）
@@ -290,6 +265,67 @@ class MacroExecutor(
         val dy = evaluateNumber(step["dy"])?.toInt() ?: 0
         val (cx, cy) = screenCenter()
         dispatchSwipe(cx.toFloat(), cy.toFloat(), (cx + dx).toFloat(), (cy + dy).toFloat(), duration)
+    }
+
+    private fun executeInputStep(step: Map<String, Any>) {
+        val textExpr = step["text"]
+        val text = when (textExpr) {
+            is String -> textExpr
+            is Map<*, *> -> {
+                val result = ExpressionEvaluator.evaluate(
+                    textExpr as Map<String, Any>, variables
+                )
+                (result as? Variable.Number)?.value?.toInt()?.toString()
+                    ?: result?.toString() ?: ""
+            }
+            else -> ""
+        }
+        if (text.isNotEmpty()) {
+            val node = service.rootInActiveWindow?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+            if (node != null) {
+                val args = Bundle()
+                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            }
+        }
+    }
+
+    private fun executePrintStep(step: Map<String, Any>) {
+        val messageExpr = step["message"]
+        val msg = when (messageExpr) {
+            is String -> messageExpr
+            is Map<*, *> -> {
+                val result = ExpressionEvaluator.evaluate(
+                    messageExpr as Map<String, Any>, variables
+                )
+                (result as? Variable.Number)?.value?.toInt()?.toString()
+                    ?: result?.toString() ?: ""
+            }
+            else -> ""
+        }
+        if (msg.isNotEmpty()) postPrint(msg)
+    }
+
+    private fun executeWaitStep(step: Map<String, Any>) {
+        val durationExpr = step["duration"]
+        val duration = when (durationExpr) {
+            is Number -> durationExpr.toLong()
+            is Map<*, *> -> {
+                val result = ExpressionEvaluator.evaluate(
+                    durationExpr as Map<String, Any>, variables
+                )
+                (result as? Variable.Number)?.value?.toLong() ?: 0L
+            }
+            else -> 0L
+        }
+        if (duration > 0) Thread.sleep(duration)
+    }
+
+    private fun executeLetStep(step: Map<String, Any>) {
+        val name = step["name"] as? String ?: return
+        val value = step["value"] as? Map<String, Any> ?: return
+        val result = ExpressionEvaluator.evaluate(value, variables) ?: return
+        variables[name] = result
     }
 
     private fun executeVarStep(step: Map<String, Any>) {
@@ -373,196 +409,100 @@ class MacroExecutor(
 
     private fun ensureScreenCapturePermission(): Boolean {
         if (ScreenCaptureHelper.isGranted(service)) return true
-        postStatus("find: 需要屏幕录制权限，请在弹窗中点击开始")
+        postStatus("需要屏幕录制权限，请在弹窗中点击开始")
         val granted = ScreenCapturePermissionRequester.request(service)
         if (!granted) {
-            postStatus("find: 未获得屏幕录制权限（Android 14+ 需悬浮球前台服务保持运行）")
+            postStatus("未获得屏幕录制权限（Android 14+ 需悬浮球前台服务保持运行）")
         }
         return granted
     }
 
-    private fun executeFindStep(step: Map<String, Any>) {
-        val imageName = step["image"] as? String
-        val colorValue = step["color"]
-        val location = step["location"] as? Map<String, Any>
-        val target = step["target"] as? Map<String, Any>
-        val needsScreenCapture = imageName != null || colorValue != null || location != null
-        if (needsScreenCapture && !ensureScreenCapturePermission()) return
+    // ---------- 查找、等待、颜色、条件 ----------
 
-        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> }
-        val loop = step["loop"] as? Boolean ?: false
+    private fun executeFindLikeStep(step: Map<String, Any>) {
+        val type = step["type"] as? String ?: return
         val assignTo = step["assignTo"] as? String
-        val hasFindTarget = imageName != null || colorValue != null || location != null || target != null
-
+        val coord = findTargetCoordinate(step)
         if (assignTo != null) {
-            val coord = findStepCoordinate(step)
-            assignFindResult(step, coord)
+            if (coord != null) variables[assignTo] = Variable.Point(coord.first, coord.second)
             return
         }
+        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
+        if (coord == null) {
+            postStatus("$type: 未命中")
+            return
+        }
+        foundCoordinates.addFirst(coord)
+        try {
+            executeSteps(children)
+        } finally {
+            foundCoordinates.removeFirstOrNull()
+        }
+    }
 
-        val childrenNonNull = children ?: return
-
-        if (loop && hasFindTarget) {
-            // loop 与查找目标一起使用时：循环查找直到命中，执行一次块内指令
-            while (!stopRequested) {
-                val coord = findStepCoordinate(step)
-                if (coord != null) {
-                    foundCoordinates.addFirst(coord)
-                    try {
-                        executeSteps(childrenNonNull)
-                    } finally {
-                        foundCoordinates.removeFirstOrNull()
-                    }
-                    break
+    private fun executeWaitForStep(step: Map<String, Any>) {
+        val type = step["type"] as? String ?: return
+        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
+        while (!stopRequested) {
+            val coord = findTargetCoordinate(step)
+            if (coord != null) {
+                foundCoordinates.addFirst(coord)
+                try {
+                    executeSteps(children)
+                } finally {
+                    foundCoordinates.removeFirstOrNull()
                 }
-                Thread.sleep(300)
+                break
             }
-        } else if (loop) {
-            // loop 单独使用：无限循环执行块内指令，直到手动停止
-            while (!stopRequested) {
-                executeSteps(childrenNonNull)
-                Thread.sleep(50)
+            postStatus("$type: 等待中...")
+            Thread.sleep(300)
+        }
+    }
+
+    private fun executeLoopStep(step: Map<String, Any>) {
+        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
+        while (!stopRequested) {
+            executeSteps(children)
+            Thread.sleep(50)
+        }
+    }
+
+    private fun executeColorAtStep(step: Map<String, Any>) {
+        if (!ensureScreenCapturePermission()) return
+        val x = evaluateCoordinate(step["x"]) ?: return
+        val y = evaluateCoordinate(step["y"]) ?: return
+        val color = ScreenCaptureHelper.captureColor(service, x, y) ?: return
+        val assignTo = step["assignTo"] as? String
+        if (assignTo != null) {
+            variables[assignTo] = Variable.Color(color)
+        }
+    }
+
+    private fun executeIfLikeStep(step: Map<String, Any>) {
+        val type = step["type"] as? String ?: return
+        val then = (step["then"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
+        val elseBranch = (step["else"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: emptyList()
+        val coord = when (type) {
+            "ifText" -> findTextCoordinate(step)
+            "ifColor" -> findColorCoordinate(step)
+            "ifImage" -> findImageCoordinate(step)
+            "ifColorAt" -> {
+                val x = evaluateCoordinate(step["x"]) ?: return executeSteps(elseBranch)
+                val y = evaluateCoordinate(step["y"]) ?: return executeSteps(elseBranch)
+                if (evaluateColorAt(step)) Pair(x, y) else null
             }
-        } else {
-            val coord = findStepCoordinate(step) ?: return
+            else -> null
+        }
+        if (coord != null) {
             foundCoordinates.addFirst(coord)
             try {
-                executeSteps(childrenNonNull)
+                executeSteps(then)
             } finally {
                 foundCoordinates.removeFirstOrNull()
             }
-        }
-    }
-
-    /**
-     * 将 find 结果按类型写入变量：
-     * - image / text / node 返回 point（中心坐标）
-     * - location 无 color 参数时返回 color（该点色号）
-     * - location 带 color 或 color 查找返回 bool（1/0）
-     */
-    private fun assignFindResult(step: Map<String, Any>, coord: Pair<Int, Int>?) {
-        val name = step["assignTo"] as? String ?: return
-        val location = step["location"] as? Map<String, Any>
-        val hasColor = step["color"] != null
-
-        val value: Variable = when {
-            location != null -> {
-                if (hasColor) {
-                    Variable.Number(if (coord != null) 1.0 else 0.0)
-                } else {
-                    val (x, y) = coord ?: return
-                    val captured = ScreenCaptureHelper.captureColor(service, x, y) ?: return
-                    Variable.Color(captured)
-                }
-            }
-            hasColor -> Variable.Number(if (coord != null) 1.0 else 0.0)
-            else -> {
-                val (x, y) = coord ?: return
-                Variable.Point(x, y)
-            }
-        }
-        variables[name] = value
-    }
-
-    /**
-     * 执行一次 find 查找，返回命中坐标；未命中返回 null 并输出状态。
-     * 支持图片、颜色和节点三种查找方式。
-     */
-    private fun findStepCoordinate(step: Map<String, Any>): Pair<Int, Int>? {
-        val imageName = step["image"] as? String
-        if (imageName != null) {
-            val region = step["region"] as? List<*>
-            val options = mutableMapOf<String, Any>(
-                "featureCount" to (step["featureCount"] as? Number ?: defaultFeaturePointCount),
-                "colorTolerance" to (step["colorTolerance"] as? Number ?: 20),
-                "featurePointThreshold" to (step["featurePointThreshold"] as? Number ?: defaultFeaturePointThreshold)
-            )
-
-            val point = ImageFinder.find(service, assetsDir, imageName, 0.80, region, options)
-            return if (point != null) {
-                postStatus("find: 图片命中 (${point.x}, ${point.y})")
-                Pair(point.x, point.y)
-            } else {
-                postStatus("find: 未找到图片")
-                null
-            }
-        }
-
-        // 颜色查找：find(color=0xFF0000, tolerance=20, step=2, region=[...]) { ... }
-        val colorValue = step["color"]
-        if (colorValue != null && step["location"] == null) {
-            val targetColor = ColorParser.parseColor(colorValue)
-            val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
-            val step = (step["step"] as? Number)?.toInt() ?: 2
-            val region = step["region"] as? List<*>
-            val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance, step, region)
-            return if (point != null) {
-                postStatus("find: 颜色命中 (${point.x}, ${point.y})")
-                Pair(point.x, point.y)
-            } else {
-                postStatus("find: 未找到颜色")
-                null
-            }
-        }
-
-        // 位置/点色号查找：find(location=(x, y)) 或 find(location=(x, y), color=0xFF0000)
-        val location = step["location"] as? Map<String, Any>
-        if (location != null) {
-            if (!ScreenCaptureHelper.isGranted(service)) {
-                postStatus("find: 缺少屏幕录制权限")
-                return null
-            }
-            val x = evaluateCoordinate(location["x"]) ?: return null
-            val y = evaluateCoordinate(location["y"]) ?: return null
-            if (colorValue != null) {
-                val targetColor = ColorParser.parseColor(colorValue)
-                val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
-                val captured = ScreenCaptureHelper.captureColor(service, x, y)
-                if (captured != null && colorMatches(captured, targetColor, tolerance)) {
-                    postStatus("find: 位置颜色命中 ($x, $y)")
-                    return Pair(x, y)
-                }
-                postStatus("find: 位置颜色不匹配 ($x, $y)")
-                return null
-            }
-            postStatus("find: 位置读取 ($x, $y)")
-            return Pair(x, y)
-        }
-
-        // 节点查找：find(text="签到") { click() }
-        val target = step["target"] as? Map<String, Any>
-        if (target == null) {
-            postStatus("find: 缺少 color 或 target 参数")
-            return null
-        }
-        val root = service.rootInActiveWindow ?: run {
-            postStatus("find: 当前无窗口")
-            return null
-        }
-        val node = findMatchingNode(root, target)
-        return if (node != null) {
-            val rect = Rect()
-            node.getBoundsInScreen(rect)
-            val cx = (rect.left + rect.right) / 2
-            val cy = (rect.top + rect.bottom) / 2
-            postStatus("find: 节点命中 ($cx, $cy)")
-            Pair(cx, cy)
         } else {
-            postStatus("find: 节点未命中")
-            null
+            executeSteps(elseBranch)
         }
-    }
-
-    private fun colorMatches(captured: Int, target: Int, tolerance: Int): Boolean {
-        val cr = (captured shr 16) and 0xFF
-        val cg = (captured shr 8) and 0xFF
-        val cb = captured and 0xFF
-        val tr = (target shr 16) and 0xFF
-        val tg = (target shr 8) and 0xFF
-        val tb = target and 0xFF
-        return kotlin.math.abs(cr - tr) <= tolerance &&
-                kotlin.math.abs(cg - tg) <= tolerance &&
-                kotlin.math.abs(cb - tb) <= tolerance
     }
 
     private fun executeIfStep(step: Map<String, Any>) {
@@ -579,8 +519,18 @@ class MacroExecutor(
             return
         }
 
-        // 条件命中时把坐标压栈，then 块内可用 click() 直接点击
-        val matchedCoord = evaluateConditionWithCoord(condition)
+        val condType = condition?.get("type") as? String
+        val matchedCoord = when (condType) {
+            "findText" -> findTextCoordinate(condition)
+            "findColor" -> findColorCoordinate(condition)
+            "findImage" -> findImageCoordinate(condition)
+            "colorAt" -> {
+                val x = evaluateCoordinate(condition["x"]) ?: return executeSteps(elseBranch)
+                val y = evaluateCoordinate(condition["y"]) ?: return executeSteps(elseBranch)
+                if (evaluateColorAt(condition)) Pair(x, y) else null
+            }
+            else -> null
+        }
         if (matchedCoord != null) {
             foundCoordinates.addFirst(matchedCoord)
             try {
@@ -593,128 +543,98 @@ class MacroExecutor(
         }
     }
 
-    /**
-     * 评估 if 条件。条件只支持 find(...) 形式：
-     * - find(color=0xFF0000)  颜色查找
-     * - find(text="签到")      节点查找
-     * - find(image="xxx.jpg") 图片查找
-     * 命中返回坐标，未命中返回 null。
-     */
-    private fun evaluateConditionWithCoord(condition: Map<String, Any>?): Pair<Int, Int>? {
-        if (condition == null) return null
-        val type = condition["type"] as? String ?: return null
-        if (type != "find") return null
+    // ---------- 查找辅助 ----------
 
-        // 图片条件
-        val imageName = condition["image"] as? String
-        if (imageName != null) {
-            val region = condition["region"] as? List<*>
-            val options = mapOf<String, Any>(
-                "featureCount" to (condition["featureCount"] as? Number ?: defaultFeaturePointCount),
-                "colorTolerance" to (condition["colorTolerance"] as? Number ?: 20),
-                "featurePointThreshold" to (condition["featurePointThreshold"] as? Number ?: defaultFeaturePointThreshold)
-            )
-            if (!ScreenCaptureHelper.isGranted(service)) return null
-            val point = ImageFinder.find(service, assetsDir, imageName, 0.80, region, options)
-            return point?.let { Pair(it.x, it.y) }
+    private fun findTargetCoordinate(step: Map<String, Any>): Pair<Int, Int>? {
+        val type = step["type"] as? String ?: return null
+        return when (type) {
+            "findText", "waitForText", "ifText" -> findTextCoordinate(step)
+            "findColor", "waitForColor", "ifColor" -> findColorCoordinate(step)
+            "findImage", "waitForImage", "ifImage" -> findImageCoordinate(step)
+            else -> null
         }
+    }
 
-        // 颜色条件（不含 location）
-        val colorValue = condition["color"]
-        val location = condition["location"] as? Map<String, Any>
-        if (colorValue != null && location == null) {
-            val targetColor = ColorParser.parseColor(colorValue)
-            val tolerance = (condition["tolerance"] as? Number)?.toInt() ?: 20
-            val step = (condition["step"] as? Number)?.toInt() ?: 2
-            val region = condition["region"] as? List<*>
-            if (!ScreenCaptureHelper.isGranted(service)) return null
-            val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance, step, region)
-            return point?.let { Pair(it.x, it.y) }
+    private fun findTextCoordinate(step: Map<String, Any>): Pair<Int, Int>? {
+        val text = step["text"] as? String ?: return null
+        val root = service.rootInActiveWindow ?: run {
+            postStatus("findText: 当前无窗口")
+            return null
         }
-
-        // 位置/点色号条件
-        if (location != null) {
-            if (!ScreenCaptureHelper.isGranted(service)) return null
-            val x = evaluateCoordinate(location["x"]) ?: return null
-            val y = evaluateCoordinate(location["y"]) ?: return null
-            if (colorValue != null) {
-                val targetColor = ColorParser.parseColor(colorValue)
-                val tolerance = (condition["tolerance"] as? Number)?.toInt() ?: 20
-                val captured = ScreenCaptureHelper.captureColor(service, x, y)
-                if (captured != null && colorMatches(captured, targetColor, tolerance)) {
-                    return Pair(x, y)
-                }
-                return null
-            }
-            return Pair(x, y)
+        val target = if (text.contains('/') || text.contains(':')) {
+            mapOf("resourceId" to text)
+        } else {
+            mapOf("text" to text)
         }
-
-        // 节点条件
-        val target = condition["target"] as? Map<String, Any> ?: return null
-        val root = service.rootInActiveWindow ?: return null
-        val node = findMatchingNode(root, target) ?: return null
+        val node = findMatchingNode(root, target) ?: run {
+            postStatus("findText: 未命中 \"$text\"")
+            return null
+        }
         val rect = Rect()
         node.getBoundsInScreen(rect)
-        return Pair((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2)
+        val cx = (rect.left + rect.right) / 2
+        val cy = (rect.top + rect.bottom) / 2
+        postStatus("findText: 命中 \"$text\" ($cx, $cy)")
+        return Pair(cx, cy)
     }
 
-    // ---------- 旧指令实现（保留兼容） ----------
-
-    private fun executeClickNode(step: Map<String, Any>) {
-        val target = step["target"] as? Map<String, Any> ?: return
-        val boundsList = target["bounds"] as? List<*>
-        val fallbackBounds = boundsList?.mapNotNull { (it as? Number)?.toInt() }
-
-        val root = service.rootInActiveWindow ?: return
-        val node = findMatchingNode(root, target)
-
-        if (node != null) {
-            val clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (clicked) return
-        }
-
-        if (fallbackBounds != null && fallbackBounds.size == 4) {
-            val centerX = (fallbackBounds[0] + fallbackBounds[2]) / 2
-            val centerY = (fallbackBounds[1] + fallbackBounds[3]) / 2
-            dispatchClick(centerX, centerY)
+    private fun findColorCoordinate(step: Map<String, Any>): Pair<Int, Int>? {
+        if (!ensureScreenCapturePermission()) return null
+        val colorValue = step["color"] ?: return null
+        val targetColor = ColorParser.parseColor(colorValue)
+        val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
+        val scanStep = (step["step"] as? Number)?.toInt() ?: 2
+        val region = step["region"] as? List<*>
+        val point = ScreenCaptureHelper.findColor(service, targetColor, tolerance, scanStep, region)
+        return if (point != null) {
+            postStatus("findColor: 命中 (${point.x}, ${point.y})")
+            Pair(point.x, point.y)
+        } else {
+            postStatus("findColor: 未命中")
+            null
         }
     }
 
-    private fun executeClickPoint(step: Map<String, Any>) {
-        val point = step["point"] as? Map<String, Any> ?: return
-        val x = (point["x"] as? Number)?.toInt() ?: return
-        val y = (point["y"] as? Number)?.toInt() ?: return
-        dispatchClick(x, y)
-    }
-
-    private fun executeSwipe(step: Map<String, Any>) {
-        val start = step["start"] as? Map<String, Any> ?: return
-        val end = step["end"] as? Map<String, Any> ?: return
-        val duration = (step["duration"] as? Number)?.toLong() ?: 300L
-        val sx = (start["x"] as? Number)?.toFloat() ?: return
-        val sy = (start["y"] as? Number)?.toFloat() ?: return
-        val ex = (end["x"] as? Number)?.toFloat() ?: return
-        val ey = (end["y"] as? Number)?.toFloat() ?: return
-        dispatchSwipe(sx, sy, ex, ey, duration)
-    }
-
-    private fun executeLaunchApp(step: Map<String, Any>) {
-        val packageName = step["packageName"] as? String ?: return
-        val intent = service.packageManager.getLaunchIntentForPackage(packageName) ?: return
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        service.startActivity(intent)
-    }
-
-    private fun executeInputText(step: Map<String, Any>) {
-        val text = step["text"] as? String ?: return
-        val root = service.rootInActiveWindow ?: return
-        val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        if (node != null) {
-            val args = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
-            }
-            node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    private fun findImageCoordinate(step: Map<String, Any>): Pair<Int, Int>? {
+        if (!ensureScreenCapturePermission()) return null
+        val imageName = step["image"] as? String ?: return null
+        val region = step["region"] as? List<*>
+        val options = mutableMapOf<String, Any>(
+            "featureCount" to (step["featureCount"] as? Number ?: defaultFeaturePointCount),
+            "colorTolerance" to (step["colorTolerance"] as? Number ?: 20),
+            "featurePointThreshold" to (step["featurePointThreshold"] as? Number ?: defaultFeaturePointThreshold)
+        )
+        val point = ImageFinder.find(service, assetsDir, imageName, 0.80, region, options)
+        return if (point != null) {
+            postStatus("findImage: 命中 (${point.x}, ${point.y})")
+            Pair(point.x, point.y)
+        } else {
+            postStatus("findImage: 未命中")
+            null
         }
+    }
+
+    private fun evaluateColorAt(step: Map<String, Any>): Boolean {
+        if (!ensureScreenCapturePermission()) return false
+        val x = evaluateCoordinate(step["x"]) ?: return false
+        val y = evaluateCoordinate(step["y"]) ?: return false
+        val colorValue = step["color"] ?: return false
+        val targetColor = ColorParser.parseColor(colorValue)
+        val tolerance = (step["tolerance"] as? Number)?.toInt() ?: 20
+        val captured = ScreenCaptureHelper.captureColor(service, x, y) ?: return false
+        return colorMatches(captured, targetColor, tolerance)
+    }
+
+    private fun colorMatches(captured: Int, target: Int, tolerance: Int): Boolean {
+        val cr = (captured shr 16) and 0xFF
+        val cg = (captured shr 8) and 0xFF
+        val cb = captured and 0xFF
+        val tr = (target shr 16) and 0xFF
+        val tg = (target shr 8) and 0xFF
+        val tb = target and 0xFF
+        return kotlin.math.abs(cr - tr) <= tolerance &&
+                kotlin.math.abs(cg - tg) <= tolerance &&
+                kotlin.math.abs(cb - tb) <= tolerance
     }
 
     // ---------- 节点查找 ----------

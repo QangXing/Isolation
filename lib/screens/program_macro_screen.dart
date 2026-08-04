@@ -28,27 +28,27 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
 print("开始")
 
 // 按文字查找并点击
-find(text="签到") {
+findText("签到") {
     click()
     wait(500)
 }
 
 // 无限循环查找（常用于轮询签到按钮）
-find(loop) {
-    find(text="签到") {
+loop {
+    waitForText("签到") {
         click()
         wait(1000)
     }
 }
 
 // 按颜色查找并点击
-find(color=0xFF5000, tolerance=20) {
+findColor(0xFF5000, tolerance=20) {
     click()
     wait(500)
 }
 
 // 条件判断
-if(find(color=0x00FF00, tolerance=20)) {
+ifColorAt(500, 800, 0x00FF00, tolerance=20) {
     click()
 } else {
     print("今日无奖励")
@@ -61,10 +61,10 @@ int score = 0
 score = score + 1
 
 point btn = point(100, 200)
-click(btn)
+click(btn.x, btn.y)
 
 for (int i = 0; i < 3; i = i + 1) {
-    roll(0, 300, 500)
+    swipe(0, 300, 500)
 }
 
 if (score > 0) {
@@ -176,12 +176,12 @@ if (score > 0) {
             _InstructionChip(
               label: '查找点击',
               icon: Icons.ads_click_rounded,
-              onTap: () => _insert('find(text="") {\n    click()\n}'),
+              onTap: () => _insert('findText("") {\n    click()\n}'),
             ),
             _InstructionChip(
-              label: 'roll',
+              label: 'swipe',
               icon: Icons.swipe_down_rounded,
-              onTap: () => _insert('roll(0, 300, 500)'),
+              onTap: () => _insert('swipe(0, 300, 500)'),
             ),
             _InstructionChip(
               label: 'input',
@@ -204,19 +204,19 @@ if (score > 0) {
               onTap: () => _insert('for(5) {\n    \n}'),
             ),
             _InstructionChip(
-              label: 'find(text=)',
+              label: 'findText()',
               icon: Icons.find_in_page_outlined,
-              onTap: () => _insert('find(text="领取") {\n    click()\n}'),
+              onTap: () => _insert('findText("领取") {\n    click()\n}'),
             ),
             _InstructionChip(
-              label: 'find(color=)',
+              label: 'findColor()',
               icon: Icons.colorize_rounded,
-              onTap: () => _insert('find(color=0xFF5000, tolerance=20) {\n    click()\n}'),
+              onTap: () => _insert('findColor(0xFF5000, tolerance=20) {\n    click()\n}'),
             ),
             _InstructionChip(
-              label: 'find(image=)',
+              label: 'findImage()',
               icon: Icons.image_search_rounded,
-              onTap: () => _insert('find(image="template.jpg") {\n    click()\n}'),
+              onTap: () => _insert('findImage("template.jpg") {\n    click()\n}'),
             ),
             _InstructionChip(
               label: '导入图片',
@@ -224,16 +224,16 @@ if (score > 0) {
               onTap: _importImage,
             ),
             _InstructionChip(
-              label: 'if',
+              label: 'ifColorAt',
               icon: Icons.call_split_rounded,
               onTap: () =>
-                  _insert('if(find(color=0x00FF00)) {\n    click()\n} else {\n    print("未找到")\n}'),
+                  _insert('ifColorAt(500, 800, 0x00FF00, tolerance=20) {\n    click()\n} else {\n    print("未找到")\n}'),
             ),
             _InstructionChip(
-              label: 'if(image)',
+              label: 'ifImage',
               icon: Icons.image_search_rounded,
               onTap: () => _insert(
-                  'if(find(image="template.jpg", threshold=0.85)) {\n    click()\n    wait(500)\n}'),
+                  'ifImage("template.jpg") {\n    click()\n    wait(500)\n}'),
             ),
             _InstructionChip(
               label: 'back',
@@ -350,7 +350,7 @@ if (score > 0) {
         itemBuilder: (context, index) {
           final name = _assets[index];
           return GestureDetector(
-            onTap: () => _insert('find(image="$name") {\n    click()\n}'),
+            onTap: () => _insert('findImage("$name") {\n    click()\n}'),
             onLongPress: () => _deleteAsset(name),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

@@ -1,19 +1,16 @@
-/// 可视化编程宏的 DSL 解析与序列化。
+/// Isolation 宏 DSL 解析与序列化（v2）。
 ///
-/// 支持指令：
-/// - `click(x, y)` / `click(text="签到")` / `click(resourceId="...")`
-/// - `roll(dx, dy, duration)`
-/// - `print("text")`
-/// - `wait(ms)`
-/// - `for(n) { ... }`
-/// - `find(text="x") { ... }`
-/// - `find(image="x.png") { ... }`
-/// - `find(loop) { ... }`
-/// - `if(find(text="x")) { ... } else { ... }`
-/// - `back()` / `home()` / `recents()`
+/// 采用“一个命令只做一件事”的设计：
+/// - 查找：findText / findColor / findImage
+/// - 等待命中：waitForText / waitForColor / waitForImage
+/// - 颜色：colorAt / ifColorAt
+/// - 条件：ifText / ifColor / ifImage / if
+/// - 循环：for / loop
+/// - 动作：click / swipe / input / wait / print / back / home / recents
+/// - 变量：let
 ///
-/// 也兼容录制产生的 `clickNode` / `clickPoint` / `swipe` 等旧类型，
-/// 序列化时自动转为新的 DSL 写法。
+/// 录制产生的 clickNode / clickPoint / swipe 等旧 step 仍会在 convertLegacySteps
+/// 中转换为新 DSL 写法，但用户编写的旧 `find(...)` 语法不再兼容。
 import 'macro_expression_parser.dart';
 
 class MacroParseError implements Exception {
@@ -64,7 +61,7 @@ class MacroProgramParser {
           step['y'] = positional[1];
         }
         break;
-      case 'roll':
+      case 'swipe':
         if (positional.length == 5) {
           step['start'] = {'x': positional[0], 'y': positional[1]};
           step['end'] = {'x': positional[2], 'y': positional[3]};
@@ -72,6 +69,9 @@ class MacroProgramParser {
         } else {
           assign(['dx', 'dy', 'duration']);
         }
+        break;
+      case 'input':
+        if (positional.isNotEmpty) step['text'] = positional[0];
         break;
       case 'print':
         if (positional.isNotEmpty) step['message'] = positional[0];
@@ -96,15 +96,24 @@ class MacroProgramParser {
           }
         }
         break;
-      case 'find':
-        if (positional.isNotEmpty) {
-          final first = positional[0];
-          if (first == true ||
-              first == 'loop' ||
-              (first is Map && first['op'] == 'var' && first['name'] == 'loop')) {
-            step['loop'] = true;
-          }
-        }
+      case 'findText':
+      case 'waitForText':
+      case 'ifText':
+        assign(['text']);
+        break;
+      case 'findColor':
+      case 'waitForColor':
+      case 'ifColor':
+        assign(['color']);
+        break;
+      case 'findImage':
+      case 'waitForImage':
+      case 'ifImage':
+        assign(['image']);
+        break;
+      case 'colorAt':
+      case 'ifColorAt':
+        assign(['x', 'y', 'color', 'tolerance']);
         break;
     }
 
@@ -157,8 +166,8 @@ class MacroProgramParser {
 
   /// 把录制产生的旧格式 step 列表转换成新的指令格式 step 列表。
   ///
-  /// 支持：clickNode / clickPoint / swipe → find+click / click(x,y) / roll。
-  /// 智能识别捕获的 color 字段会转换为 if(find(color=..., tolerance=..., region=[...])) 条件块。
+  /// 支持：clickNode / clickPoint / swipe → findText+click / click(x,y) / swipe。
+  /// 智能识别捕获的 color 字段会转换为 ifColorAt(...) 条件块。
   static List<Map<String, dynamic>> convertLegacySteps(
       List<Map<String, dynamic>> steps) {
     return steps.map(_convertLegacyStep).whereType<Map<String, dynamic>>().toList();
@@ -178,19 +187,35 @@ class MacroProgramParser {
           final text = target['text'] as String?;
           final contentDescription = target['contentDescription'] as String?;
           final resourceId = target['resourceId'] as String?;
-          final newTarget = <String, dynamic>{};
+
           if (text != null && text.isNotEmpty) {
-            newTarget['text'] = text;
-          } else if (contentDescription != null && contentDescription.isNotEmpty) {
-            newTarget['contentDescription'] = contentDescription;
-          } else if (resourceId != null && resourceId.isNotEmpty) {
-            newTarget['resourceId'] = resourceId;
+            result = {
+              'type': 'findText',
+              'text': text,
+              if (delay != null) 'delay': delay,
+              'children': [
+                {'type': 'click'},
+              ],
+            };
+            break;
           }
 
-          if (newTarget.isNotEmpty) {
+          if (contentDescription != null && contentDescription.isNotEmpty) {
             result = {
-              'type': 'find',
-              'target': newTarget,
+              'type': 'findText',
+              'text': contentDescription,
+              if (delay != null) 'delay': delay,
+              'children': [
+                {'type': 'click'},
+              ],
+            };
+            break;
+          }
+
+          if (resourceId != null && resourceId.isNotEmpty) {
+            result = {
+              'type': 'findText',
+              'text': resourceId,
               if (delay != null) 'delay': delay,
               'children': [
                 {'type': 'click'},
@@ -234,12 +259,10 @@ class MacroProgramParser {
         final end = step['end'] as Map<String, dynamic>?;
         final duration = step['duration'] ?? 300;
         if (start != null && end != null) {
-          final dx = (end['x'] as num) - (start['x'] as num);
-          final dy = (end['y'] as num) - (start['y'] as num);
           result = {
-            'type': 'roll',
-            'dx': dx,
-            'dy': dy,
+            'type': 'swipe',
+            'start': start,
+            'end': end,
             'duration': duration,
             if (delay != null) 'delay': delay,
           };
@@ -258,13 +281,11 @@ class MacroProgramParser {
       final cy = (color['y'] as num).toInt();
       final c = (color['color'] as num).toInt();
       return {
-        'type': 'if',
-        'condition': {
-          'type': 'find',
-          'color': c,
-          'tolerance': 30,
-          'region': [cx - 20, cy - 20, cx + 20, cy + 20],
-        },
+        'type': 'ifColorAt',
+        'x': cx,
+        'y': cy,
+        'color': c,
+        'tolerance': 30,
         'then': [result],
       };
     }
@@ -306,7 +327,6 @@ class MacroProgramParser {
     final rawLines = source.split('\n');
     for (int idx = 0; idx < rawLines.length; idx++) {
       var line = rawLines[idx];
-      // Strip // comments (but only when not inside a string - 简化处理)
       final commentIdx = _findCommentStart(line);
       if (commentIdx >= 0) {
         line = line.substring(0, commentIdx);
@@ -342,41 +362,17 @@ class MacroProgramParser {
       case 'click':
         _serializeClick(step, indent, buffer);
         break;
-      case 'roll':
-        final fromX = step['fromX'];
-        final fromY = step['fromY'];
-        if (fromX != null && fromY != null) {
-          // 命名参数：从指定起点按相对偏移滑动（支持负值反向滑动）
-          buffer.writeln(
-              '$indent roll(fromX=${_serializeExprValue(fromX)}, fromY=${_serializeExprValue(fromY)}, dx=${_serializeExprValue(step['dx'])}, dy=${_serializeExprValue(step['dy'])}, duration=${_serializeExprValue(step['duration'])})');
-        } else {
-          final start = step['start'] as Map?;
-          final end = step['end'] as Map?;
-          if (start != null && end != null) {
-            final sx = _serializeExprValue(start['x']);
-            final sy = _serializeExprValue(start['y']);
-            final ex = _serializeExprValue(end['x']);
-            final ey = _serializeExprValue(end['y']);
-            final dur = _serializeExprValue(step['duration']);
-            buffer.writeln('$indent roll($sx, $sy, $ex, $ey, $dur)');
-          } else {
-            final dx = _serializeExprValue(step['dx']);
-            final dy = _serializeExprValue(step['dy']);
-            final dur = _serializeExprValue(step['duration']);
-            buffer.writeln('$indent roll($dx, $dy, $dur)');
-          }
-        }
+      case 'swipe':
+        _serializeSwipe(step, indent, buffer);
+        break;
+      case 'input':
+        buffer.writeln('$indent input(${_serializeArgValue(step['text'])})');
         break;
       case 'print':
         buffer.writeln('$indent print(${_serializeArgValue(step['message'])})');
         break;
       case 'wait':
         buffer.writeln('$indent wait(${_serializeArgValue(step['duration'])})');
-        break;
-      case 'back':
-      case 'home':
-      case 'recents':
-        buffer.writeln('$indent $type()');
         break;
       case 'for':
         if (step['condition'] != null) {
@@ -388,17 +384,28 @@ class MacroProgramParser {
         _serializeChildren(step['children'], indent, buffer);
         buffer.writeln('$indent }');
         break;
-      case 'find':
-        final argStr = _serializeFindArgs(step);
-        final assignTo = step['assignTo'] as String?;
-        final children = step['children'] as List?;
-        if (assignTo != null && (children == null || children.isEmpty)) {
-          buffer.writeln('$indent$assignTo = find($argStr)');
-        } else {
-          buffer.writeln('$indent find($argStr) {');
-          _serializeChildren(children, indent, buffer);
-          buffer.writeln('$indent }');
-        }
+      case 'findText':
+      case 'waitForText':
+      case 'ifText':
+        _serializeFindLike(step, indent, buffer, type, ['text']);
+        break;
+      case 'findColor':
+      case 'waitForColor':
+      case 'ifColor':
+        _serializeFindLike(step, indent, buffer, type, ['color', 'tolerance', 'step', 'region']);
+        break;
+      case 'findImage':
+      case 'waitForImage':
+      case 'ifImage':
+        _serializeFindLike(step, indent, buffer, type,
+            ['image', 'featureCount', 'featurePointThreshold', 'colorTolerance', 'region']);
+        break;
+      case 'colorAt':
+        buffer.writeln(
+            '$indent colorAt(${_serializeExprValue(step['x'])}, ${_serializeExprValue(step['y'])})');
+        break;
+      case 'ifColorAt':
+        _serializeIfColorAt(step, indent, buffer);
         break;
       case 'if':
         if (step['expression'] != null) {
@@ -408,8 +415,8 @@ class MacroProgramParser {
           final condition = step['condition'] is Map
               ? Map<String, dynamic>.from(step['condition'] as Map)
               : <String, dynamic>{};
-          final condArgStr = _serializeFindArgs(condition);
-          buffer.writeln('$indent if(find($condArgStr)) {');
+          final condCode = _stepToInlineCode(condition);
+          buffer.writeln('$indent if ($condCode) {');
         }
         _serializeChildren(step['then'], indent, buffer);
         final elseBranch = step['else'];
@@ -419,31 +426,14 @@ class MacroProgramParser {
         }
         buffer.writeln('$indent }');
         break;
-      // 兼容旧类型
-      case 'clickNode':
-        _serializeLegacyClickNode(step, indent, buffer);
+      case 'loop':
+        buffer.writeln('$indent loop {');
+        _serializeChildren(step['children'], indent, buffer);
+        buffer.writeln('$indent }');
         break;
-      case 'clickPoint':
-        final point = step['point'] as Map;
-        buffer.writeln('$indent click(${point['x']}, ${point['y']})');
-        break;
-      case 'swipe':
-        final start = step['start'] as Map?;
-        final end = step['end'] as Map?;
-        final duration = step['duration'] ?? 300;
-        if (start != null && end != null) {
-          final dx = (end['x'] as num) - (start['x'] as num);
-          final dy = (end['y'] as num) - (start['y'] as num);
-          buffer.writeln('$indent roll($dx, $dy, $duration)');
-        }
-        break;
-      case 'launchApp':
+      case 'let':
         buffer.writeln(
-            '$indent // launchApp(${step['packageName']}) — 请手动转换为对应操作');
-        break;
-      case 'inputText':
-        buffer.writeln(
-            '$indent // inputText(${_quoteString(step['text'].toString())}) — 暂不支持');
+            '$indent let ${step['name']} = ${_serializeExprValue(step['value'])}');
         break;
       case 'var':
         buffer.writeln(
@@ -453,8 +443,120 @@ class MacroProgramParser {
         buffer.writeln(
             '$indent${step['name']} = ${_serializeExprValue(step['value'])}');
         break;
+      case 'back':
+      case 'home':
+      case 'recents':
+        buffer.writeln('$indent $type()');
+        break;
       default:
         buffer.writeln('$indent // 未知指令: $type');
+    }
+  }
+
+  static void _serializeFindLike(
+      Map<String, dynamic> step,
+      String indent,
+      StringBuffer buffer,
+      String type,
+      List<String> argNames) {
+    final pairs = <String>[];
+    for (final name in argNames) {
+      final value = step[name];
+      if (value == null) continue;
+      if (name == 'color') {
+        final c = (value as num).toInt();
+        pairs.add('color=0x${c.toRadixString(16).padLeft(6, '0').toUpperCase()}');
+      } else if (name == 'region' && value is List) {
+        pairs.add('region=[${value.join(', ')}]');
+      } else if (value is String) {
+        pairs.add('$name=${_quoteString(value)}');
+      } else {
+        pairs.add('$name=$value');
+      }
+    }
+
+    final assignTo = step['assignTo'] as String?;
+    final children = step['children'] as List?;
+    final then = step['then'] as List?;
+    final elseBranch = step['else'] as List?;
+
+    if (assignTo != null) {
+      buffer.writeln('$indent$assignTo = $type(${pairs.join(', ')})');
+      return;
+    }
+
+    if (then != null || elseBranch != null) {
+      // ifText / ifColor / ifImage
+      buffer.writeln('$indent $type(${pairs.join(', ')}) {');
+      _serializeChildren(then, indent, buffer);
+      if (elseBranch is List && elseBranch.isNotEmpty) {
+        buffer.writeln('$indent } else {');
+        _serializeChildren(elseBranch, indent, buffer);
+      }
+      buffer.writeln('$indent }');
+      return;
+    }
+
+    buffer.writeln('$indent $type(${pairs.join(', ')}) {');
+    _serializeChildren(children, indent, buffer);
+    buffer.writeln('$indent }');
+  }
+
+  static void _serializeIfColorAt(
+      Map<String, dynamic> step, String indent, StringBuffer buffer) {
+    final x = _serializeExprValue(step['x']);
+    final y = _serializeExprValue(step['y']);
+    final color = (step['color'] as num).toInt();
+    final colorStr = '0x${color.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+    final tolerance = step['tolerance'];
+    final args = <String>[x, y, colorStr];
+    if (tolerance != null) args.add('tolerance=$tolerance');
+    buffer.writeln('$indent ifColorAt(${args.join(', ')}) {');
+    _serializeChildren(step['then'], indent, buffer);
+    final elseBranch = step['else'];
+    if (elseBranch is List && elseBranch.isNotEmpty) {
+      buffer.writeln('$indent } else {');
+      _serializeChildren(elseBranch, indent, buffer);
+    }
+    buffer.writeln('$indent }');
+  }
+
+  static void _serializeClick(
+      Map<String, dynamic> step, String indent, StringBuffer buffer) {
+    final x = step['x'];
+    final y = step['y'];
+    if (x != null && y != null) {
+      final sx = _serializeExprValue(x);
+      final sy = _serializeExprValue(y);
+      buffer.writeln('$indent click($sx, $sy)');
+    } else {
+      buffer.writeln('$indent click()');
+    }
+  }
+
+  static void _serializeSwipe(
+      Map<String, dynamic> step, String indent, StringBuffer buffer) {
+    final fromX = step['fromX'];
+    final fromY = step['fromY'];
+    if (fromX != null && fromY != null) {
+      buffer.writeln(
+          '$indent swipe(fromX=${_serializeExprValue(fromX)}, fromY=${_serializeExprValue(fromY)}, dx=${_serializeExprValue(step['dx'])}, dy=${_serializeExprValue(step['dy'])}, duration=${_serializeExprValue(step['duration'])})');
+    } else {
+      final start = step['start'] as Map?;
+      final end = step['end'] as Map?;
+      if (start != null && end != null) {
+        final sx = _serializeExprValue(start['x']);
+        final sy = _serializeExprValue(start['y']);
+        final ex = _serializeExprValue(end['x']);
+        final ey = _serializeExprValue(end['y']);
+        final dur = _serializeExprValue(step['duration']);
+        buffer.writeln('$indent swipe($sx, $sy, $ex, $ey, $dur)');
+      } else {
+        final dx = _serializeExprValue(step['dx']);
+        final dy = _serializeExprValue(step['dy']);
+        final dur = _serializeExprValue(step['duration']);
+        buffer.writeln('$indent swipe($dx, $dy, $dur)');
+      }
     }
   }
 
@@ -472,14 +574,13 @@ class MacroProgramParser {
   }
 
   /// 把单个参数值序列化为字符串。
-  /// 字符串字面量会加引号，表达式 JSON 保持原样，数字/布尔值直接输出。
   static String _serializeArgValue(dynamic value) {
     if (value is String) return _quoteString(value);
     if (value is num || value is bool) return value.toString();
     return _serializeExprValue(value);
   }
 
-  /// 把表达式 JSON（literal/var/binary/unary）或 point map 序列化为字符串。
+  /// 把表达式 JSON 或 point map 序列化为字符串。
   static String _serializeExprValue(dynamic value) {
     if (value is Map) {
       final op = value['op'] as String?;
@@ -504,98 +605,21 @@ class MacroProgramParser {
     return value.toString();
   }
 
-  /// click 只支持两种形式：`click(x, y)` 或 `click()`（在 find 块内取栈顶坐标）。
-  /// 旧 click(text=...) 形式已废弃，由 _serializeLegacyClickNode 转为 find+click()。
-  static void _serializeClick(
-      Map<String, dynamic> step, String indent, StringBuffer buffer) {
-    final x = step['x'];
-    final y = step['y'];
-    if (x != null && y != null) {
-      final sx = _serializeExprValue(x);
-      final sy = _serializeExprValue(y);
-      buffer.writeln('$indent click($sx, $sy)');
-    } else {
-      buffer.writeln('$indent click()');
+  /// 把一个 condition step（如 findText / findColor）序列化为内联字符串，用于 if(...)。
+  static String _stepToInlineCode(Map<String, dynamic> step) {
+    final type = step['type'] as String;
+    switch (type) {
+      case 'findText':
+        return 'findText(${_quoteValue(step['text'])})';
+      case 'findColor':
+        final c = (step['color'] as num).toInt();
+        return 'findColor(0x${c.toRadixString(16).padLeft(6, '0').toUpperCase()})';
+      case 'findImage':
+        return 'findImage(${_quoteValue(step['image'])})';
+      case 'colorAt':
+        return 'colorAt(${_serializeExprValue(step['x'])}, ${_serializeExprValue(step['y'])})';
     }
-  }
-
-  /// 把 find 的参数序列化为字符串。支持 loop / image / threshold / region / color / tolerance / text / resourceId 等。
-  static String _serializeFindArgs(Map<String, dynamic> step) {
-    final pairs = <String>[];
-    if (step['loop'] == true) pairs.add('loop');
-    final image = step['image'];
-    if (image != null) pairs.add('image=${_quoteValue(image)}');
-    final threshold = step['threshold'];
-    if (threshold != null) pairs.add('threshold=$threshold');
-    final region = step['region'] as List?;
-    if (region != null) pairs.add('region=[${region.join(', ')}]');
-    final feature = step['feature'];
-    if (feature != null) pairs.add('feature=${_quoteValue(feature)}');
-    final minMatches = step['minMatches'];
-    if (minMatches != null) pairs.add('minMatches=$minMatches');
-    final color = step['color'];
-    if (color != null) {
-      // 颜色统一输出 0xRRGGBB 十六进制
-      final c = (color as num).toInt();
-      pairs.add('color=0x${c.toRadixString(16).padLeft(6, '0').toUpperCase()}');
-    }
-    final tolerance = step['tolerance'];
-    if (tolerance != null) pairs.add('tolerance=$tolerance');
-    final stepVal = step['step'];
-    if (stepVal != null) pairs.add('step=$stepVal');
-    final location = step['location'] as Map?;
-    if (location != null) {
-      final x = _serializeExprValue(location['x']);
-      final y = _serializeExprValue(location['y']);
-      pairs.add('location=($x, $y)');
-    }
-    final target = step['target'] as Map?;
-    if (target != null) {
-      target!.forEach((k, v) {
-        pairs.add('$k=${_quoteValue(v)}');
-      });
-    }
-    // 特征点匹配相关参数
-    final featureCount = step['featureCount'];
-    if (featureCount != null) pairs.add('featureCount=$featureCount');
-    final colorTolerance = step['colorTolerance'];
-    if (colorTolerance != null) pairs.add('colorTolerance=$colorTolerance');
-    final featurePointThreshold = step['featurePointThreshold'];
-    if (featurePointThreshold != null) {
-      pairs.add('featurePointThreshold=$featurePointThreshold');
-    }
-    return pairs.join(', ');
-  }
-
-  /// 旧 clickNode 序列化为 find(target) { click() } 形式，符合新语义。
-  static void _serializeLegacyClickNode(
-      Map<String, dynamic> step, String indent, StringBuffer buffer) {
-    final target = step['target'] as Map?;
-    if (target == null) return;
-    final text = target!['text'];
-    final cd = target['contentDescription'];
-    final resourceId = target['resourceId'];
-    final pairs = <String>[];
-    if (text != null && (text as String).isNotEmpty) {
-      pairs.add('text=${_quoteString(text)}');
-    } else if (cd != null && (cd as String).isNotEmpty) {
-      pairs.add('contentDescription=${_quoteString(cd)}');
-    } else if (resourceId != null && (resourceId as String).isNotEmpty) {
-      pairs.add('resourceId=${_quoteString(resourceId)}');
-    }
-    if (pairs.isNotEmpty) {
-      buffer.writeln('$indent find(${pairs.join(', ')}) {');
-      buffer.writeln('$indent    click()');
-      buffer.writeln('$indent }');
-      return;
-    }
-    // 兜底：用 bounds 中心坐标直接 click(x, y)
-    final bounds = target['bounds'] as List?;
-    if (bounds != null && bounds.length == 4) {
-      final cx = ((bounds[0] as num) + (bounds[2] as num)) ~/ 2;
-      final cy = ((bounds[1] as num) + (bounds[3] as num)) ~/ 2;
-      buffer.writeln('$indent click($cx, $cy)');
-    }
+    return '';
   }
 
   static void _serializeChildren(
@@ -605,16 +629,6 @@ class MacroProgramParser {
     for (final child in list) {
       _serializeStep(child, '$indent    ', buffer);
     }
-  }
-
-  static String _serializeTarget(dynamic target) {
-    if (target == null) return '';
-    final map = Map<String, dynamic>.from(target as Map);
-    final pairs = <String>[];
-    map.forEach((k, v) {
-      pairs.add('$k=${_quoteValue(v)}');
-    });
-    return pairs.join(', ');
   }
 
   static String _quoteString(String s) => '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
@@ -636,12 +650,10 @@ class _BlockParser {
   int cursor = 0;
   _BlockParser(this.lines);
 
-  /// 解析一个块。当 stopOnCloseBrace=true 时，遇到 `}` 停止。
   List<Map<String, dynamic>> parseBlock({required bool stopOnCloseBrace}) {
     final result = <Map<String, dynamic>>[];
     while (cursor < lines.length) {
       final line = lines[cursor];
-      // 把 `} else {` 也视为块结束标记，否则 else 分支会被吞进 then 块
       final isElseClose = line.text.startsWith('}') && line.text.contains('else');
       if (line.text == '}' || isElseClose) {
         if (stopOnCloseBrace) {
@@ -663,10 +675,7 @@ class _BlockParser {
 
   Map<String, dynamic>? _parseStatement() {
     final line = lines[cursor];
-    // 形如: name(args) {       或     name(args)        或     name()
-    // 也可能是: } else {
     if (line.text.startsWith('}')) {
-      // skip
       cursor++;
       return null;
     }
@@ -675,7 +684,26 @@ class _BlockParser {
       return null;
     }
 
-    // 变量声明：int score = 0 或 point btn = point(100, 200)
+    // let 变量声明：let name = ...
+    final letMatch = RegExp(r'^let\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$')
+        .firstMatch(line.text);
+    if (letMatch != null) {
+      final name = letMatch.group(1)!;
+      final valueSource = letMatch.group(2)!.trim();
+      cursor++;
+      final callStep = _tryParseCallAssignment(valueSource);
+      if (callStep != null) {
+        callStep['assignTo'] = name;
+        return callStep;
+      }
+      return {
+        'type': 'let',
+        'name': name,
+        'value': ExpressionParser.parse(valueSource).toJson(),
+      };
+    }
+
+    // 类型化变量声明：int score = 0 / point btn = point(100, 200)
     final declMatch = RegExp(
             r'^(int|double|point|color)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*)$')
         .firstMatch(line.text);
@@ -684,13 +712,6 @@ class _BlockParser {
       final name = declMatch.group(2)!;
       final valueSource = declMatch.group(3)!.trim();
       cursor++;
-      // 支持 point p = find(...) / int c = find(location=(x, y)) 等直接赋值
-      if (valueSource.startsWith('find(') && valueSource.endsWith(')')) {
-        final argsStr = valueSource.substring(5, valueSource.length - 1);
-        final step = _parseFindCall(argsStr);
-        step['assignTo'] = name;
-        return step;
-      }
       return {
         'type': 'var',
         'varType': varType,
@@ -706,12 +727,10 @@ class _BlockParser {
       final name = assignMatch.group(1)!;
       final valueSource = assignMatch.group(2)!.trim();
       cursor++;
-      // 支持 x = find(...) 直接接收查找结果
-      if (valueSource.startsWith('find(') && valueSource.endsWith(')')) {
-        final argsStr = valueSource.substring(5, valueSource.length - 1);
-        final step = _parseFindCall(argsStr);
-        step['assignTo'] = name;
-        return step;
+      final callStep = _tryParseCallAssignment(valueSource);
+      if (callStep != null) {
+        callStep['assignTo'] = name;
+        return callStep;
       }
       return {
         'type': 'assign',
@@ -733,19 +752,18 @@ class _BlockParser {
     final args = _parseArgs(argsStr);
     final step = <String, dynamic>{'type': name, ...args};
 
-    // if 条件：find(...) 保持 condition，否则解析为表达式
+    // if / ifText / ifColor / ifImage / ifColorAt 统一处理 condition/else
     if (name == 'if') {
-      final isFindCondition = step.containsKey('condition') &&
-          RegExp(r'^find\s*\(.*\)$').hasMatch(argsStr);
-      if (!isFindCondition) {
+      final conditionCallMatch = RegExp(
+              r'^(findText|findColor|findImage|colorAt)\s*\(.*\)\s*$')
+          .firstMatch(argsStr);
+      if (conditionCallMatch == null) {
         step['expression'] = ExpressionParser.parse(argsStr).toJson();
         step.remove('condition');
       }
     }
 
-    // 处理块
     if (hasBraceInline) {
-      // 块开始就在当前行
       final children = parseBlock(stopOnCloseBrace: true);
       step['children'] = children;
     } else if (cursor < lines.length && lines[cursor].text == '{') {
@@ -754,9 +772,7 @@ class _BlockParser {
       step['children'] = children;
     }
 
-    // 处理 if 的 else 子句
-    if (name == 'if') {
-      // 情况1: } else { 与 if 的结束括号在同一行，parseBlock 已整行吃掉
+    if (name == 'if' || name.startsWith('if')) {
       final closeLineIndex = cursor - 1;
       if (closeLineIndex >= 0) {
         final closeLineText = lines[closeLineIndex].text;
@@ -766,7 +782,6 @@ class _BlockParser {
         }
       }
 
-      // 情况2: else { 或 else 在下一行单独出现
       if (!step.containsKey('else') && cursor < lines.length) {
         final nextLine = lines[cursor];
         if (nextLine.text == 'else {' ||
@@ -781,7 +796,6 @@ class _BlockParser {
         }
       }
 
-      // 把 condition 单独提出来，把 children 改名 then
       if (step.containsKey('children') && !step.containsKey('then')) {
         step['then'] = step.remove('children');
       }
@@ -790,11 +804,31 @@ class _BlockParser {
     return step;
   }
 
+  static final _assignableCommands = {
+    'findText',
+    'findColor',
+    'findImage',
+    'waitForText',
+    'waitForColor',
+    'waitForImage',
+    'colorAt',
+  };
+
+  Map<String, dynamic>? _tryParseCallAssignment(String valueSource) {
+    final callMatch = RegExp(r'^(\w+)\s*\((.*)\)\s*$').firstMatch(valueSource);
+    if (callMatch == null) return null;
+    final funcName = callMatch.group(1)!;
+    if (!_assignableCommands.contains(funcName)) return null;
+    final argsStr = callMatch.group(2)!;
+    final args = _parseArgs(argsStr);
+    return MacroProgramParser._normalizeStep({'type': funcName, ...args});
+  }
+
   Map<String, dynamic> _parseArgs(String argsStr) {
     final result = <String, dynamic>{};
     if (argsStr.isEmpty) return result;
 
-    // 1) 先尝试匹配嵌套函数调用（如 find(text="领取")）
+    // 先尝试匹配嵌套函数调用（如 if(findText("领取"))）
     final funcMatch = RegExp(r'^(\w+)\s*\((.*)\)$').firstMatch(argsStr);
     if (funcMatch != null) {
       final funcName = funcMatch.group(1)!;
@@ -803,7 +837,6 @@ class _BlockParser {
       return result;
     }
 
-    // 2) 解析参数列表
     final parts = _splitArgs(argsStr);
     int positionalIndex = 0;
     for (final part in parts) {
@@ -811,18 +844,8 @@ class _BlockParser {
       if (namedMatch != null) {
         final key = namedMatch.group(1)!;
         final value = _parseValue(namedMatch.group(2)!);
-        // 处理 target 子字段：text="..." / resourceId="..." / contentDescription="..."
-        if (const ['text', 'resourceId', 'contentDescription', 'className']
-            .contains(key)) {
-          final target =
-              Map<String, dynamic>.from(result['target'] as Map? ?? {});
-          target[key] = value;
-          result['target'] = target;
-        } else {
-          result[key] = value;
-        }
+        result[key] = value;
       } else {
-        // 位置参数：先尝试表达式解析（支持 click(x + 10, y) 等）
         result['positional\$$positionalIndex'] = _parseExpressionOrValue(part);
         positionalIndex++;
       }
@@ -867,13 +890,11 @@ class _BlockParser {
     if (s.startsWith("'") && s.endsWith("'") && s.length >= 2) {
       return s.substring(1, s.length - 1);
     }
-    // 列表字面量：region=[100, 200, 900, 1200]
     if (s.startsWith('[') && s.endsWith(']') && s.length >= 2) {
       final inner = s.substring(1, s.length - 1);
       final parts = _splitArgs(inner);
       return parts.map(_parseExpressionOrValue).toList();
     }
-    // 坐标/点元组：location=(100, 200)
     if (s.startsWith('(') && s.endsWith(')') && s.length >= 2) {
       final inner = s.substring(1, s.length - 1);
       final parts = _splitArgs(inner);
@@ -884,7 +905,6 @@ class _BlockParser {
         };
       }
     }
-    // 十六进制颜色字面量：0xFF0000 / 0XFF0000 / #FF0000
     if (s.startsWith('0x') || s.startsWith('0X')) {
       final hex = int.tryParse(s.substring(2), radix: 16);
       if (hex != null) return hex;
@@ -905,30 +925,18 @@ class _BlockParser {
     return s;
   }
 
-  /// 判断一段源码是否应作为表达式解析。
-  /// 包含运算符，或既不是单一字面量/标识符/数字时，按表达式解析。
   bool _looksLikeExpression(String s) {
     if (RegExp(r'[\+\-\*/%<>=!&|]').hasMatch(s)) return true;
     return !RegExp(r'^-?(\d+(\.\d+)?|[a-zA-Z_][a-zA-Z0-9_]*)$').hasMatch(s);
   }
 
-  /// 解析位置参数：字面量直接返回，复杂表达式解析为 AST。
   dynamic _parseExpressionOrValue(String part) {
     final value = _parseValue(part);
     if (value is String && _looksLikeExpression(part)) {
       try {
         return ExpressionParser.parse(part).toJson();
-      } catch (_) {
-        // 解析失败时回退为原始字符串
-      }
+      } catch (_) {}
     }
     return value;
-  }
-
-  /// 解析 find(...) 调用，供 `x = find(...)` / `point p = find(...)` 使用。
-  Map<String, dynamic> _parseFindCall(String argsStr) {
-    final args = _parseArgs(argsStr);
-    final raw = <String, dynamic>{'type': 'find', ...args};
-    return MacroProgramParser._normalizeStep(raw);
   }
 }

@@ -2,14 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:isolation/services/macro_program_parser.dart';
 
 void main() {
-  test('find image with feature and minMatches round-trip', () {
+  test('findImage with feature options round-trip', () {
     final steps = [
       {
-        'type': 'find',
+        'type': 'findImage',
         'image': 'btn.jpg',
-        'feature': 'akaze',
-        'minMatches': 8,
-        'threshold': 0.85,
+        'featureCount': 12,
+        'featurePointThreshold': 0.9,
+        'colorTolerance': 25,
         'children': <Map<String, dynamic>>[
           {'type': 'click'},
         ],
@@ -17,16 +17,17 @@ void main() {
     ];
     final code = MacroProgramParser.serialize(steps);
     final parsed = MacroProgramParser.parse(code);
-    expect(parsed.first['feature'], 'akaze');
-    expect(parsed.first['minMatches'], 8);
+    expect(parsed.first['featureCount'], 12);
+    expect(parsed.first['featurePointThreshold'], 0.9);
+    expect(parsed.first['colorTolerance'], 25);
     expect(parsed.first['image'], 'btn.jpg');
   });
 
-  test('roll absolute coordinates round-trip', () {
-    const code = 'roll(100, 200, 100, 800, 500)';
+  test('swipe absolute coordinates round-trip', () {
+    const code = 'swipe(100, 200, 100, 800, 500)';
     final parsed = MacroProgramParser.parse(code);
     expect(parsed.length, 1);
-    expect(parsed.first['type'], 'roll');
+    expect(parsed.first['type'], 'swipe');
     expect(parsed.first['start'], {'x': 100, 'y': 200});
     expect(parsed.first['end'], {'x': 100, 'y': 800});
     expect(parsed.first['duration'], 500);
@@ -37,11 +38,8 @@ void main() {
   group('if-else round-trip', () {
     final ifSteps = [
       {
-        'type': 'if',
-        'condition': {
-          'type': 'find',
-          'target': {'text': '领取'},
-        },
+        'type': 'ifText',
+        'text': '领取',
         'then': <Map<String, dynamic>>[
           {'type': 'print', 'message': 'yes'},
         ],
@@ -55,7 +53,7 @@ void main() {
       final code = MacroProgramParser.serialize(ifSteps);
       final parsed = MacroProgramParser.parse(code);
       expect(parsed.length, 1);
-      expect(parsed.first['type'], 'if');
+      expect(parsed.first['type'], 'ifText');
       expect(parsed.first['then'], isA<List>());
       expect(parsed.first['else'], isA<List>());
       expect((parsed.first['then'] as List).length, 1);
@@ -65,7 +63,7 @@ void main() {
 
     test('separate-line else { preserves else branch', () {
       const code = '''
-if(find(text="领取")) {
+ifText("领取") {
     print("yes")
 }
 else {
@@ -74,19 +72,16 @@ else {
 ''';
       final parsed = MacroProgramParser.parse(code);
       expect(parsed.length, 1);
-      expect(parsed.first['type'], 'if');
+      expect(parsed.first['type'], 'ifText');
       expect(parsed.first['else'], isA<List>());
       expect((parsed.first['else'] as List).length, 1);
     });
 
-    test('if without else keeps no else key', () {
+    test('ifText without else keeps no else key', () {
       final steps = [
         {
-          'type': 'if',
-          'condition': {
-            'type': 'find',
-            'target': {'text': '领取'},
-          },
+          'type': 'ifText',
+          'text': '领取',
           'then': <Map<String, dynamic>>[
             {'type': 'print', 'message': 'yes'},
           ],
@@ -94,25 +89,19 @@ else {
       ];
       final code = MacroProgramParser.serialize(steps);
       final parsed = MacroProgramParser.parse(code);
-      expect(parsed.first['type'], 'if');
+      expect(parsed.first['type'], 'ifText');
       expect(parsed.first.containsKey('else'), isFalse);
     });
 
     test('nested if-else preserves both branches', () {
       final steps = [
         {
-          'type': 'if',
-          'condition': {
-            'type': 'find',
-            'target': {'text': 'A'},
-          },
+          'type': 'ifText',
+          'text': 'A',
           'then': <Map<String, dynamic>>[
             {
-              'type': 'if',
-              'condition': {
-                'type': 'find',
-                'target': {'text': 'B'},
-              },
+              'type': 'ifText',
+              'text': 'B',
               'then': <Map<String, dynamic>>[
                 {'type': 'print', 'message': 'both'},
               ],
@@ -132,7 +121,7 @@ else {
       expect(outerElse.length, 1);
       expect(outerElse.first['message'], 'neither');
       final innerIf = (parsed.first['then'] as List).first as Map<String, dynamic>;
-      expect(innerIf['type'], 'if');
+      expect(innerIf['type'], 'ifText');
       expect((innerIf['else'] as List).first['message'], 'only A');
     });
   });

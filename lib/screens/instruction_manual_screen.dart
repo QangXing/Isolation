@@ -1,11 +1,21 @@
 import 'package:flutter/material.dart';
-import '../services/macro_syntax_highlighter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// 宏指令说明书。
 ///
-/// 列出所有支持的 DSL 指令、语法、说明和示例。
+/// 点击后跳转到 GitHub 仓库的 DSL_SPEC.md 查看最新完整语法规范。
 class InstructionManualScreen extends StatelessWidget {
   const InstructionManualScreen({super.key});
+
+  static const String _dslSpecUrl =
+      'https://github.com/QangXing/Isolation/blob/main/docs/DSL_SPEC.md';
+
+  Future<void> _openSpec() async {
+    final uri = Uri.parse(_dslSpecUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,309 +34,55 @@ class InstructionManualScreen extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: const [
-          _SectionTitle('基础操作'),
-          _InstructionCard(
-            title: '点击坐标',
-            syntax: 'click(x, y)',
-            description: '在屏幕指定坐标执行一次点击。坐标支持数字、变量或表达式。',
-            example: 'click(500, 800)\nclick(x + 10, y - 20)',
-          ),
-          _InstructionCard(
-            title: '点击当前目标',
-            syntax: 'click()',
-            description: '只能写在 find 块内部,点击 find 找到的目标。',
-            example: 'find(text="签到") {\n  click()\n}',
-          ),
-          _InstructionCard(
-            title: '滑动/滚动',
-            syntax: 'roll(dx, dy, duration)',
-            description: '从屏幕中心按相对偏移滑动；dx、dy 可为负值实现反向滑动。duration 单位为毫秒。',
-            example: 'roll(0, 300, 400)\nroll(-200, 0, 300)',
-          ),
-          _InstructionCard(
-            title: '滑动（指定起点+相对偏移）',
-            syntax: 'roll(fromX=..., fromY=..., dx=..., dy=..., duration=...)',
-            description: '从指定起点按相对偏移滑动，支持变量和表达式。适合从任意位置向左/右/上/下拖动。',
-            example: 'roll(fromX=500, fromY=180, dx=-400, dy=0, duration=300)',
-          ),
-          _InstructionCard(
-            title: '滑动（绝对坐标）',
-            syntax: 'roll(startX, startY, endX, endY, duration)',
-            description: '从起点坐标滑动到终点坐标，支持变量和表达式。',
-            example: 'roll(500, 180, 100, 180, 300)',
-          ),
-          _InstructionCard(
-            title: '输入文字',
-            syntax: 'input("文字")',
-            description: '在已聚焦的输入框中输入文字。',
-            example: 'input("Hello world")',
-          ),
-          _InstructionCard(
-            title: '等待',
-            syntax: 'wait(ms)',
-            description: '暂停指定毫秒。',
-            example: 'wait(1000)',
-          ),
-          _InstructionCard(
-            title: '打印日志',
-            syntax: 'print("文字")',
-            description: '在调试日志中输出信息。',
-            example: 'print("开始执行任务")',
-          ),
-          _SectionTitle('查找目标'),
-          _InstructionCard(
-            title: '按文字查找',
-            syntax: 'find(text="...") { ... }',
-            description: '查找屏幕上包含指定文字的节点,然后执行块内指令。',
-            example: 'find(text="签到") {\n  click()\n  wait(500)\n}',
-          ),
-          _InstructionCard(
-            title: '按颜色查找',
-            syntax: 'find(color=0xRRGGBB, tolerance=10, step=2, region=[...]) { ... }',
-            description: '在屏幕中查找最近匹配颜色,将坐标压入栈,块内 click() 使用该坐标。step 越小越精确但越慢，默认 2；region 可限定查找区域大幅加速。',
-            example: 'find(color=0xFF5000, tolerance=20) {\n  click()\n}\nfind(color=0xFFFA40, tolerance=30, step=1, region=[100, 1000, 1000, 1800]) {\n  click()\n}',
-          ),
-          _InstructionCard(
-            title: '按图片查找',
-            syntax: 'find(image="图片路径") { ... }',
-            description: '在屏幕中查找与参考图片匹配的位置。导入图片后会自动计算并缓存特征数据：以中心为原点，优先选取颜色最稀有、位于明显色块分界线的点作为特征点；距离原点最远的特征点会作为主参考点，其余为副参考点。搜索时先找主参考点，再沿原点方向按距离匹配原点颜色，自动算出缩放比例后校验副参考点，命中比例达到阈值即返回目标中心。同一图片后续搜索会直接使用缓存数据。\n参数（可选）：featureCount（特征点采样数目，默认 8）、featurePointThreshold（命中比例阈值，默认 0.8）、colorTolerance（颜色容差，默认 20）。以上默认值可在宏设置中修改。',
-            example: 'find(image="btn.png") {\n  click()\n}\nfind(image="icon.png", featureCount=12, featurePointThreshold=0.9, colorTolerance=25) {\n  click()\n}',
-          ),
-          _InstructionCard(
-            title: '读取指定点颜色',
-            syntax: 'find(location=(x, y))',
-            description: '读取屏幕上某个坐标点的颜色。可结合变量使用，例如把颜色保存下来。',
-            example: 'int c = find(location=(500, 800))\nprint(c)',
-          ),
-          _InstructionCard(
-            title: '按坐标颜色判断',
-            syntax: 'find(location=(x, y), color=0xRRGGBB, tolerance=20)',
-            description: '判断指定坐标点的颜色是否匹配，匹配时返回 true。',
-            example: 'if(find(location=(500, 800), color=0xFF5000, tolerance=20)) {\n  click()\n}',
-          ),
-          _InstructionCard(
-            title: '把 find 结果赋给变量',
-            syntax: 'x = find(...)',
-            description: '按 find 类型自动返回不同结果：image/text 返回 point（中心坐标），location 返回 color，color/text 作为条件时返回 bool（1/0）。',
-            example: 'point p = find(image="btn.png")\nclick(p.x, p.y)\nint c = find(location=(100, 200))\nint ok = find(text="原神")',
-          ),
-          _InstructionCard(
-            title: '限定查找区域',
-            syntax: 'find(..., region=[x, y, x2, y2]) { ... }',
-            description: '只在指定矩形区域内查找目标。',
-            example: 'find(text="确定", region=[100, 500, 900, 1100]) {\n  click()\n}',
-          ),
-          _SectionTitle('流程控制'),
-          _InstructionCard(
-            title: '条件判断',
-            syntax: 'if(find(...)) { ... } else { ... }',
-            description: '如果找到目标则执行 then 块,否则执行 else 块(else 可省略)。',
-            example: 'if(find(text="同意")) {\n  click()\n} else {\n  print("未找到")\n}',
-          ),
-          _InstructionCard(
-            title: '按图片条件判断',
-            syntax: 'if(find(image="...")) { ... }',
-            description: '如果屏幕中存在匹配图片,则执行 then 块。',
-            example: 'if(find(image="popup.png")) {\n  click()\n  wait(500)\n}',
-          ),
-          _InstructionCard(
-            title: '循环',
-            syntax: 'for(n) { ... }',
-            description: '将块内指令重复执行 n 次。',
-            example: 'for(3) {\n  roll(0, 300, 400)\n  wait(500)\n}',
-          ),
-          _InstructionCard(
-            title: '无限循环查找',
-            syntax: 'find(loop) { ... }',
-            description: '无限循环执行块内指令,直到通过三连击悬浮球手动停止。适用于轮询签到、刷新奖励等场景。',
-            example: 'find(loop) {\n  find(text="签到") {\n    click()\n    wait(1000)\n  }\n}',
-          ),
-          _InstructionCard(
-            title: '循环查找直到命中',
-            syntax: 'find(text="...", loop) { ... }',
-            description: '在屏幕上循环查找指定目标，命中后执行一次块内指令。常用于等待某个文字/图片/颜色出现后再操作。',
-            example: 'find(text="加载完成", loop) {\n  click()\n}\nfind(image="ok.png", loop) {\n  click()\n}',
-          ),
-          _SectionTitle('系统按键'),
-          _InstructionCard(
-            title: '返回 / 主页 / 最近任务',
-            syntax: 'back() / home() / recents()',
-            description: '模拟系统按键。',
-            example: 'back()\nhome()\nrecents()',
-          ),
-          _SectionTitle('注意事项'),
-          _BulletCard([
-            'click() 没有参数时必须放在 find 块内,否则无法执行。',
-            '坐标、颜色等数值均使用屏幕像素坐标系。',
-            '图片路径可以是绝对路径,建议把图片放在宏资源目录下。',
-            'find 的 tolerance 越大,颜色匹配越宽松,默认 20。',
-            'if 条件目前支持 find(text/color/image)。',
-            '图片/颜色查找需要屏幕录制权限；Android 14+ 会自动拉起前台服务承载录制，请按提示授权。',
-          ]),
-          SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  const _SectionTitle(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-          color: Colors.black54,
-        ),
-      ),
-    );
-  }
-}
-
-class _InstructionCard extends StatelessWidget {
-  final String title;
-  final String syntax;
-  final String description;
-  final String example;
-
-  const _InstructionCard({
-    required this.title,
-    required this.syntax,
-    required this.description,
-    required this.example,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: Colors.white,
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _CodeBlock(syntax),
-            const SizedBox(height: 8),
-            Text(
-              description,
-              style: const TextStyle(fontSize: 13, color: Colors.black54, height: 1.4),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0F0F0),
-                borderRadius: BorderRadius.circular(8),
-              ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Card(
+            color: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
+                  const Icon(
+                    Icons.menu_book_rounded,
+                    size: 56,
+                    color: Colors.black54,
+                  ),
+                  const SizedBox(height: 20),
                   const Text(
-                    '示例',
+                    'DSL 指令规范',
                     style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.black38,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  _CodeBlock(example),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '最新、完整的宏指令语法说明已迁移到 GitHub 仓库的 DSL_SPEC.md，点击下面按钮即可查看。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.black54,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _openSpec,
+                      icon: const Icon(Icons.open_in_new_rounded),
+                      label: const Text('查看 DSL_SPEC.md'),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BulletCard extends StatelessWidget {
-  final List<String> items;
-  const _BulletCard(this.items);
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: Colors.white,
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: items.map((item) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('• ', style: TextStyle(color: Colors.black54)),
-                  Expanded(
-                    child: Text(
-                      item,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Colors.black54,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-}
-
-class _CodeBlock extends StatelessWidget {
-  final String code;
-  const _CodeBlock(this.code);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(
-            fontSize: 13,
-            height: 1.5,
-            fontFamily: 'monospace',
           ),
-          children: MacroSyntaxHighlighter.highlight(code),
         ),
       ),
     );
