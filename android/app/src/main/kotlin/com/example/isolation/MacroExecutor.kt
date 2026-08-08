@@ -356,7 +356,7 @@ class MacroExecutor(
         val value = step["value"] as? Map<String, Any> ?: return
         if (value["type"] == "launch") {
             val success = executeLaunchStep(value)
-            variables[name] = Variable.Number(if (success) 1 else 0)
+            variables[name] = Variable.Number(if (success) 1.0 else 0.0)
             return
         }
         val result = ExpressionEvaluator.evaluate(value, variables) ?: return
