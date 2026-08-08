@@ -6,6 +6,7 @@ on:
       - main
       - master
       - feature/image-find-feature-redesign
+      - feature/*
     tags:
       - 'v*.*.*'
   pull_request:
@@ -13,6 +14,7 @@ on:
       - main
       - master
       - feature/image-find-feature-redesign
+      - feature/*
   workflow_dispatch:
     inputs:
       branch:
