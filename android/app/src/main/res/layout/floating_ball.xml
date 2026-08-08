@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/floating_ball_image"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="56dp"
     android:layout_height="56dp"
-    android:src="@drawable/floating_ball_bg"
-    android:scaleType="fitXY"
+    android:background="@drawable/floating_ball_bg"
     android:clipToOutline="true"
-    android:contentDescription="悬浮球" />
+    android:contentDescription="悬浮球">
+
+    <ImageView
+        android:id="@+id/floating_ball_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop" />
+</FrameLayout>

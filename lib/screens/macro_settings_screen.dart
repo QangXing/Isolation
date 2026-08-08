@@ -16,12 +16,26 @@ class MacroSettingsScreen extends StatefulWidget {
 
 class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
   MacroSettings? _settings;
+  String? _iconName;
   bool _loading = true;
 
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _featurePointCountController = TextEditingController();
   final _featurePointThresholdController = TextEditingController();
+
+  static const List<MapEntry<String, IconData>> _presetIcons = [
+    MapEntry('touch', Icons.touch_app_rounded),
+    MapEntry('mouse', Icons.mouse_rounded),
+    MapEntry('gamepad', Icons.gamepad_rounded),
+    MapEntry('smartToy', Icons.smart_toy_rounded),
+    MapEntry('android', Icons.android_rounded),
+    MapEntry('favorite', Icons.favorite_rounded),
+    MapEntry('star', Icons.star_rounded),
+    MapEntry('flash', Icons.flash_on_rounded),
+    MapEntry('rocket', Icons.rocket_rounded),
+    MapEntry('settings', Icons.settings_rounded),
+  ];
 
   @override
   void initState() {
@@ -48,6 +62,7 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
     if (mounted) {
       setState(() {
         _settings = data?.settings ?? const MacroSettings();
+        _iconName = plugin?.iconName;
         _nameController.text = plugin?.name ?? '';
         _descriptionController.text = plugin?.description ?? '';
         _featurePointCountController.text =
@@ -73,6 +88,7 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
       name: _nameController.text.trim(),
       description: _descriptionController.text.trim(),
       settings: _settings!,
+      iconName: _iconName,
     );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -204,6 +220,58 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                                   borderSide: const BorderSide(color: Colors.black87),
                                 ),
                               ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      // 图标选择
+                      GlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '宏图标',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.black.withValues(alpha: 0.6),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: _presetIcons.map((entry) {
+                                final selected = _iconName == entry.key;
+                                return GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _iconName = entry.key;
+                                    });
+                                  },
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: selected
+                                          ? Colors.black87
+                                          : Colors.black.withValues(alpha: 0.05),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: selected
+                                            ? Colors.black87
+                                            : Colors.black.withValues(alpha: 0.08),
+                                        width: selected ? 2 : 1,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      entry.value,
+                                      color: selected ? Colors.white : Colors.black.withValues(alpha: 0.6),
+                                      size: 22,
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
                             ),
                           ],
                         ),

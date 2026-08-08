@@ -28,6 +28,7 @@ class Plugin {
   final String description;
   final String author;
   final String? iconPath;
+  final String? iconName;
   final bool builtIn;
   final List<PluginAction> actions;
   bool enabled;
@@ -39,6 +40,7 @@ class Plugin {
     required this.description,
     required this.author,
     this.iconPath,
+    this.iconName,
     this.builtIn = false,
     this.actions = const [],
     this.enabled = false,
@@ -47,6 +49,7 @@ class Plugin {
   factory Plugin.fromManifest(
     Map<String, dynamic> json, {
     String? iconPath,
+    String? iconName,
     bool builtIn = false,
   }) {
     final actions = (json['actions'] as List<dynamic>? ?? [])
@@ -59,6 +62,7 @@ class Plugin {
       description: json['description'] as String? ?? '',
       author: json['author'] as String? ?? '',
       iconPath: iconPath,
+      iconName: iconName ?? json['iconName'] as String?,
       builtIn: builtIn,
       actions: actions,
     );
@@ -72,6 +76,7 @@ class Plugin {
       'description': description,
       'author': author,
       'iconPath': iconPath,
+      'iconName': iconName,
       'builtIn': builtIn,
       'actions': actions
           .map((a) => {
@@ -88,6 +93,7 @@ class Plugin {
     final plugin = Plugin.fromManifest(
       json,
       iconPath: json['iconPath'] as String?,
+      iconName: json['iconName'] as String?,
       builtIn: json['builtIn'] as bool? ?? false,
     );
     plugin.enabled = json['enabled'] as bool? ?? false;

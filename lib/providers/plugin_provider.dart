@@ -299,12 +299,13 @@ class PluginProvider extends ChangeNotifier {
     return true;
   }
 
-  /// 更新宏插件的元数据（名称、简介）与运行设置。
+  /// 更新宏插件的元数据（名称、简介、图标）与运行设置。
   Future<bool> updateMacroMetadata(
     String pluginId, {
     required String name,
     required String description,
     required MacroSettings settings,
+    String? iconName,
   }) async {
     final pluginIndex = _plugins.indexWhere((p) => p.id == pluginId);
     if (pluginIndex < 0) return false;
@@ -319,6 +320,9 @@ class PluginProvider extends ChangeNotifier {
       final manifest = jsonDecode(manifestContent) as Map<String, dynamic>;
       manifest['name'] = name;
       manifest['description'] = description;
+      if (iconName != null) {
+        manifest['iconName'] = iconName;
+      }
       await manifestFile.writeAsString(jsonEncode(manifest));
     }
 
@@ -347,6 +351,7 @@ class PluginProvider extends ChangeNotifier {
       description: description,
       author: plugin.author,
       iconPath: plugin.iconPath,
+      iconName: iconName ?? plugin.iconName,
       builtIn: plugin.builtIn,
       actions: plugin.actions,
       enabled: plugin.enabled,
@@ -379,13 +384,25 @@ class PluginProvider extends ChangeNotifier {
     final pluginDir = await _pluginDirectory();
     final targetDir = Directory('${pluginDir.path}/$id');
 
-    // 编辑现有插件时先备份图片资源，避免覆盖式保存导致资源丢失
+    // 编辑现有插件时先读取原 settings 与备份图片资源，避免覆盖式保存导致设置/资源丢失
+    MacroSettings? existingSettings;
     String? assetsBackupDir;
     final existingAssetsDir = Directory('${targetDir.path}/assets');
-    if (pluginId != null && await existingAssetsDir.exists()) {
-      final tempDir = await getTemporaryDirectory();
-      assetsBackupDir = '${tempDir.path}/isolation_assets_backup_${DateTime.now().millisecondsSinceEpoch}';
-      await existingAssetsDir.rename(assetsBackupDir);
+    if (pluginId != null && await targetDir.exists()) {
+      final existingMacroFile = File('${targetDir.path}/macro.json');
+      if (await existingMacroFile.exists()) {
+        try {
+          final decoded = jsonDecode(await existingMacroFile.readAsString());
+          existingSettings = MacroData.fromJson(decoded).settings;
+        } catch (_) {
+          // 忽略损坏的旧文件
+        }
+      }
+      if (await existingAssetsDir.exists()) {
+        final tempDir = await getTemporaryDirectory();
+        assetsBackupDir = '${tempDir.path}/isolation_assets_backup_${DateTime.now().millisecondsSinceEpoch}';
+        await existingAssetsDir.rename(assetsBackupDir);
+      }
     }
 
     if (await targetDir.exists()) {
@@ -398,20 +415,6 @@ class PluginProvider extends ChangeNotifier {
       final backupDir = Directory(assetsBackupDir);
       if (await backupDir.exists()) {
         await backupDir.rename(existingAssetsDir.path);
-      }
-    }
-
-    // 编辑现有插件时保留原来的 settings，避免保存宏代码时把设置重置
-    MacroSettings? existingSettings;
-    if (pluginId != null && await targetDir.exists()) {
-      final existingMacroFile = File('${targetDir.path}/macro.json');
-      if (await existingMacroFile.exists()) {
-        try {
-          final decoded = jsonDecode(await existingMacroFile.readAsString());
-          existingSettings = MacroData.fromJson(decoded).settings;
-        } catch (_) {
-          // 忽略损坏的旧文件
-        }
       }
     }
 

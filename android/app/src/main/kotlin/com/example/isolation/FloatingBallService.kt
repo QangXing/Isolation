@@ -422,7 +422,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun applyDefaultIcon() {
         val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
-        ball.setImageResource(R.drawable.floating_ball_bg)
+        // 清除 src，让外层 FrameLayout 的 oval 背景显示为默认圆形悬浮球
+        ball.setImageDrawable(null)
     }
 
     internal fun postTouchEffect(effect: TouchEffect) {

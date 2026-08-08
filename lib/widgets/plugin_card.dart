@@ -63,6 +63,19 @@ class PluginCard extends StatelessWidget {
     );
   }
 
+  static final Map<String, IconData> _presetIcons = {
+    'touch': Icons.touch_app_rounded,
+    'mouse': Icons.mouse_rounded,
+    'gamepad': Icons.gamepad_rounded,
+    'smartToy': Icons.smart_toy_rounded,
+    'android': Icons.android_rounded,
+    'favorite': Icons.favorite_rounded,
+    'star': Icons.star_rounded,
+    'flash': Icons.flash_on_rounded,
+    'rocket': Icons.rocket_rounded,
+    'settings': Icons.settings_rounded,
+  };
+
   Widget _buildIcon(Plugin plugin) {
     final iconPath = plugin.iconPath;
     if (iconPath != null && File(iconPath).existsSync()) {
@@ -76,6 +89,8 @@ class PluginCard extends StatelessWidget {
         ),
       );
     }
+
+    final presetIcon = plugin.iconName != null ? _presetIcons[plugin.iconName] : null;
     return Container(
       width: 48,
       height: 48,
@@ -85,7 +100,7 @@ class PluginCard extends StatelessWidget {
         border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
       ),
       child: Icon(
-        plugin.builtIn ? Icons.touch_app_rounded : Icons.extension_rounded,
+        presetIcon ?? (plugin.builtIn ? Icons.touch_app_rounded : Icons.extension_rounded),
         color: Colors.black54,
         size: 24,
       ),
