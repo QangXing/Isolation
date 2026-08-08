@@ -20,6 +20,8 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
 
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _featurePointCountController = TextEditingController();
+  final _featurePointThresholdController = TextEditingController();
 
   @override
   void initState() {
@@ -31,6 +33,8 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _featurePointCountController.dispose();
+    _featurePointThresholdController.dispose();
     super.dispose();
   }
 
@@ -46,6 +50,10 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
         _settings = data?.settings ?? const MacroSettings();
         _nameController.text = plugin?.name ?? '';
         _descriptionController.text = plugin?.description ?? '';
+        _featurePointCountController.text =
+            _settings!.featurePointCount.toString();
+        _featurePointThresholdController.text =
+            (_settings!.featurePointThreshold * 100).round().toString();
         _loading = false;
       });
     }
@@ -53,6 +61,12 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
 
   Future<void> _save() async {
     if (_settings == null) return;
+    final count = int.tryParse(_featurePointCountController.text) ?? _settings!.featurePointCount;
+    final thresholdPercent = int.tryParse(_featurePointThresholdController.text) ?? 80;
+    _settings = _settings!.copyWith(
+      featurePointCount: count.clamp(1, 32),
+      featurePointThreshold: (thresholdPercent.clamp(1, 100) / 100.0),
+    );
     final provider = context.read<PluginProvider>();
     final success = await provider.updateMacroMetadata(
       widget.pluginId,
@@ -285,6 +299,169 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                                     });
                                   },
                                   activeColor: Colors.black87,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      // 特征点采样数目
+                      GlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.scatter_plot_rounded,
+                                  size: 20,
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        '特征点采样数目',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '图片匹配时围绕中心原点采样的特征点数量（1-32），越大越稳定但越慢',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.withValues(alpha: 0.7),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 64,
+                                  child: TextField(
+                                    controller: _featurePointCountController,
+                                    textAlign: TextAlign.center,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 10,
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.black.withValues(alpha: 0.1),
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.black.withValues(alpha: 0.1),
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(color: Colors.black87),
+                                      ),
+                                    ),
+                                    onChanged: (value) {
+                                      final count = int.tryParse(value);
+                                      if (count != null) {
+                                        setState(() {
+                                          _settings = _settings!.copyWith(
+                                            featurePointCount: count.clamp(1, 32),
+                                          );
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      // 特征点匹配比例阈值
+                      GlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.percent_rounded,
+                                  size: 20,
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        '特征点匹配比例阈值',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '命中特征点比例达到该值才算识别成功（1%-100%），默认 80%',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.withValues(alpha: 0.7),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 64,
+                                  child: TextField(
+                                    controller: _featurePointThresholdController,
+                                    textAlign: TextAlign.center,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      suffixText: '%',
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 10,
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.black.withValues(alpha: 0.1),
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.black.withValues(alpha: 0.1),
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(color: Colors.black87),
+                                      ),
+                                    ),
+                                    onChanged: (value) {
+                                      final percent = int.tryParse(value);
+                                      if (percent != null) {
+                                        setState(() {
+                                          _settings = _settings!.copyWith(
+                                            featurePointThreshold: percent.clamp(1, 100) / 100.0,
+                                          );
+                                        });
+                                      }
+                                    },
+                                  ),
                                 ),
                               ],
                             ),

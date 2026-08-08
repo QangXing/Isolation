@@ -36,7 +36,12 @@ class PluginProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _floatingBallVisible = prefs.getBool('floating_ball_visible') ?? false;
     if (_floatingBallVisible) {
-      await _startFloatingBallIfReady();
+      final ok = await _startFloatingBallIfReady();
+      if (!ok) {
+        // 启动失败时清除持久化状态，避免应用启动即崩溃
+        _floatingBallVisible = false;
+        await prefs.setBool('floating_ball_visible', false);
+      }
     }
 
     notifyListeners();
@@ -51,7 +56,12 @@ class PluginProvider extends ChangeNotifier {
     await prefs.setBool('floating_ball_visible', visible);
 
     if (visible) {
-      await _startFloatingBallIfReady();
+      final ok = await _startFloatingBallIfReady();
+      if (!ok) {
+        // 启动失败时回退状态，避免下次进入应用再次尝试启动导致闪退
+        _floatingBallVisible = false;
+        await prefs.setBool('floating_ball_visible', false);
+      }
     } else {
       await NativeChannel.stopFloatingBall();
     }
@@ -60,13 +70,21 @@ class PluginProvider extends ChangeNotifier {
 
   /// 在拥有悬浮窗权限的前提下启动悬浮球。
   /// 注意：悬浮球仅依赖悬浮窗权限，不依赖辅助功能权限。
-  Future<void> _startFloatingBallIfReady() async {
+  /// 返回是否真正成功启动并存活。
+  Future<bool> _startFloatingBallIfReady() async {
     final hasOverlay = await NativeChannel.checkOverlayPermission();
     if (!hasOverlay) {
-      // 权限不足时不启动，也不自动跳转；保持开关开启，用户下次切回可继续操作
-      return;
+      // 权限不足时不启动，也不自动跳转
+      return false;
     }
-    await NativeChannel.startFloatingBall();
+    final started = await NativeChannel.startFloatingBall();
+    if (!started) return false;
+    // startForegroundService 是异步的，轮询最多 1 秒确认服务实例真的存活
+    for (var i = 0; i < 10; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (await NativeChannel.isFloatingBallRunning()) return true;
+    }
+    return false;
   }
 
   Future<bool> importPlugin(String path) async {
@@ -99,11 +117,23 @@ class PluginProvider extends ChangeNotifier {
           await NativeChannel.requestAccessibilityPermission();
         }
         await _writeEnabledMacro(plugin);
-        // 启用宏时若没有开启悬浮球，自动开启以便执行；并把状态持久化
+        // 启用宏时若没有开启悬浮球，自动开启以便执行
+        bool ballStarted;
         if (!_floatingBallVisible) {
           await setFloatingBallVisible(true);
+          ballStarted = _floatingBallVisible;
         } else {
-          await NativeChannel.startFloatingBall();
+          // 即使开关是开的状态，也要确认服务实例真的在运行
+          ballStarted = await NativeChannel.isFloatingBallRunning() ||
+              await _startFloatingBallIfReady();
+        }
+        // 悬浮球启动失败时回退宏启用状态，避免服务异常导致反复崩溃
+        if (!ballStarted) {
+          await _clearEnabledMacro();
+          await _manager.setEnabled(id, false);
+          _plugins = List.from(_manager.plugins);
+          notifyListeners();
+          return;
         }
       } else {
         await _clearEnabledMacro();
@@ -339,7 +369,7 @@ class PluginProvider extends ChangeNotifier {
     required String name,
     required String description,
     required List<Map<String, dynamic>> steps,
-    MacroSettings settings = const MacroSettings(),
+    MacroSettings? settings,
     String? pluginId,
     String? iconPath,
   }) async {
@@ -371,9 +401,24 @@ class PluginProvider extends ChangeNotifier {
       }
     }
 
+    // 编辑现有插件时保留原来的 settings，避免保存宏代码时把设置重置
+    MacroSettings? existingSettings;
+    if (pluginId != null && await targetDir.exists()) {
+      final existingMacroFile = File('${targetDir.path}/macro.json');
+      if (await existingMacroFile.exists()) {
+        try {
+          final decoded = jsonDecode(await existingMacroFile.readAsString());
+          existingSettings = MacroData.fromJson(decoded).settings;
+        } catch (_) {
+          // 忽略损坏的旧文件
+        }
+      }
+    }
+
     final macroFileName = 'macro.json';
     final macroFile = File('${targetDir.path}/$macroFileName');
-    final macroData = MacroData(settings: settings, steps: steps);
+    final effectiveSettings = settings ?? existingSettings ?? const MacroSettings();
+    final macroData = MacroData(settings: effectiveSettings, steps: steps);
     await macroFile.writeAsString(jsonEncode(macroData.toJson()));
 
     final manifest = {

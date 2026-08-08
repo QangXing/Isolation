@@ -31,11 +31,24 @@
             </intent-filter>
         </activity>
 
+        <!-- 透明 Activity：仅用于从服务/后台申请屏幕录制权限，不显示应用 UI -->
+        <activity
+            android:name=".ScreenCapturePermissionActivity"
+            android:exported="false"
+            android:theme="@style/TransparentTheme"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" />
+
         <service
             android:name=".FloatingBallService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="mediaProjection|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keep the floating ball and macro controls available while the user interacts with other apps." />
+        </service>
 
         <service
             android:name=".InputAccessibilityService"

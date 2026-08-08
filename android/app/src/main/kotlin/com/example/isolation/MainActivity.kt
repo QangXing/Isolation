@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import io.flutter.embedding.android.FlutterActivity
@@ -69,18 +70,43 @@ class MainActivity : FlutterActivity() {
                     val serviceIntent = Intent(this, FloatingBallService::class.java).apply {
                         action = FloatingBallService.ACTION_SHOW
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(serviceIntent)
-                    } else {
-                        startService(serviceIntent)
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(serviceIntent)
+                        } else {
+                            startService(serviceIntent)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainActivity", "启动悬浮球服务失败", e)
+                        result.success(false)
                     }
-                    result.success(true)
                 }
                 "stopFloatingBall" -> {
                     val serviceIntent = Intent(this, FloatingBallService::class.java).apply {
                         action = FloatingBallService.ACTION_HIDE
                     }
                     startService(serviceIntent)
+                    result.success(true)
+                }
+                "isFloatingBallRunning" -> {
+                    result.success(FloatingBallService.getInstance() != null)
+                }
+                "checkManageExternalStorage" -> {
+                    result.success(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            Environment.isExternalStorageManager()
+                        } else {
+                            true
+                        }
+                    )
+                }
+                "requestManageExternalStorage" -> {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                    startActivity(intent)
                     result.success(true)
                 }
                 "executeAction" -> {
@@ -141,7 +167,18 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_SCREEN_CAPTURE) {
-            val granted = ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+            // Android 14+ 要求 VirtualDisplay 在带有 mediaProjection 前台服务类型的 Service 中创建。
+            val granted = try {
+                val service = FloatingBallService.getInstance()
+                if (service != null) {
+                    service.initScreenCapture(resultCode, data)
+                } else {
+                    ScreenCaptureHelper.onActivityResult(this, resultCode, data)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "屏幕录制初始化失败", e)
+                false
+            }
             pendingResult?.success(granted)
             pendingResult = null
         }

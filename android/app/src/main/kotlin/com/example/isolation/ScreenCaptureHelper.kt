@@ -13,10 +13,12 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Log
 import android.view.Display
 import android.view.WindowManager
 
 object ScreenCaptureHelper {
+    private const val TAG = "ScreenCaptureHelper"
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
@@ -48,7 +50,7 @@ object ScreenCaptureHelper {
     private var backgroundHandler: Handler? = null
 
     fun isGranted(context: Context): Boolean {
-        return mediaProjection != null
+        return mediaProjection != null && virtualDisplay != null
     }
 
     fun requestPermission(activity: Activity, requestCode: Int) {
@@ -58,13 +60,29 @@ object ScreenCaptureHelper {
         activity.startActivityForResult(intent, requestCode)
     }
 
-    fun onActivityResult(context: Context, resultCode: Int, data: Intent?): Boolean {
+    fun onActivityResult(context: Context, resultCode: Int, data: Intent?, beforeVirtualDisplay: (() -> Unit)? = null): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
         if (resultCode != Activity.RESULT_OK || data == null) return false
         val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        // Android 14+ 禁止复用旧 projection 实例，先释放旧的再获取新的
+        release()
         mediaProjection = manager.getMediaProjection(resultCode, data)
-        initImageReader(context)
-        return true
+        mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                clearCaptureResources()
+                mediaProjection = null
+            }
+        }, null)
+        // 给调用方机会在创建 VirtualDisplay 前升级前台服务类型（mediaProjection）
+        beforeVirtualDisplay?.invoke()
+        return try {
+            initImageReader(context)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "initImageReader failed, clearing media projection", e)
+            release()
+            false
+        }
     }
 
     private fun startBackgroundThread() {
@@ -155,27 +173,35 @@ object ScreenCaptureHelper {
         }
 
         // 优先从持续缓存读取，更快且更接近“当前”时刻
-        synchronized(bufferLock) {
+        val snapshot = synchronized(bufferLock) {
             val buf = latestBuffer
             if (buf != null && latestPixelStride > 0 && latestRowStride > 0) {
-                try {
-                    val clampedX = x.coerceIn(0, latestWidth - 1)
-                    val clampedY = y.coerceIn(0, latestHeight - 1)
-                    val offset = clampedY * latestRowStride + clampedX * latestPixelStride
-                    if (offset + 2 < buf.size) {
-                        val r = buf[offset].toInt() and 0xFF
-                        val g = buf[offset + 1].toInt() and 0xFF
-                        val b = buf[offset + 2].toInt() and 0xFF
-                        val a = if (latestPixelStride >= 4) buf[offset + 3].toInt() and 0xFF else 0xFF
-                        return (a shl 24) or (r shl 16) or (g shl 8) or b
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                CaptureSnapshot(buf, latestPixelStride, latestRowStride, latestWidth, latestHeight)
+            } else null
+        }
+
+        if (snapshot != null) {
+            try {
+                val clampedX = x.coerceIn(0, snapshot.width - 1)
+                val clampedY = y.coerceIn(0, snapshot.height - 1)
+                val offset = clampedY * snapshot.rowStride + clampedX * snapshot.pixelStride
+                if (offset + 2 < snapshot.buf.size) {
+                    val r = snapshot.buf[offset].toInt() and 0xFF
+                    val g = snapshot.buf[offset + 1].toInt() and 0xFF
+                    val b = snapshot.buf[offset + 2].toInt() and 0xFF
+                    val a = if (snapshot.pixelStride >= 4) snapshot.buf[offset + 3].toInt() and 0xFF else 0xFF
+                    return (a shl 24) or (r shl 16) or (g shl 8) or b
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
 
         // fallback：直接从 ImageReader 取最新帧
+        return captureColorFromImageReader(x, y)
+    }
+
+    private fun captureColorFromImageReader(x: Int, y: Int): Int? {
         try {
             val image = imageReader!!.acquireLatestImage() ?: return null
             try {
@@ -202,19 +228,29 @@ object ScreenCaptureHelper {
         }
     }
 
+    private data class CaptureSnapshot(
+        val buf: ByteArray,
+        val pixelStride: Int,
+        val rowStride: Int,
+        val width: Int,
+        val height: Int
+    )
+
     /**
-     * 在全屏范围内寻找第一个匹配目标颜色的像素坐标。
+     * 在全屏或指定区域内寻找第一个匹配目标颜色的像素坐标。
      *
      * @param targetColor 形如 0xAARRGGBB 或 0xRRGGBB 的颜色
      * @param tolerance   每个通道允许的偏差
-     * @param step        扫描步长（像素），>1 可加速但会降低精度
+     * @param step        扫描步长（像素），越小越精确，默认 2
+     * @param region      限定查找区域 [left, top, right, bottom]
      * @return 命中坐标；未命中或无屏幕权限时返回 null
      */
     fun findColor(
         context: Context,
         targetColor: Int,
         tolerance: Int = 20,
-        step: Int = 4
+        step: Int = 2,
+        region: List<*>? = null
     ): Point? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return null
         if (mediaProjection == null || imageReader == null) return null
@@ -223,43 +259,56 @@ object ScreenCaptureHelper {
         val tr = (targetColor shr 16) and 0xFF
         val tg = (targetColor shr 8) and 0xFF
         val tb = targetColor and 0xFF
+        val scanStep = step.coerceAtLeast(1)
 
-        // 优先从缓存读取
-        synchronized(bufferLock) {
+        // 优先从缓存读取：先把引用和元数据拷出来，避免长时间持有锁阻塞 ImageReader 回调
+        val snapshot = synchronized(bufferLock) {
             val buf = latestBuffer
             if (buf != null && latestPixelStride > 0 && latestRowStride > 0 && latestWidth > 0 && latestHeight > 0) {
-                try {
-                    val h = latestHeight
-                    val w = latestWidth
-                    var y = 0
-                    while (y < h) {
-                        val rowStart = y * latestRowStride
-                        var x = 0
-                        while (x < w) {
-                            val offset = rowStart + x * latestPixelStride
-                            if (offset + 2 < buf.size) {
-                                val r = buf[offset].toInt() and 0xFF
-                                val g = buf[offset + 1].toInt() and 0xFF
-                                val b = buf[offset + 2].toInt() and 0xFF
-                                if (kotlin.math.abs(r - tr) <= tolerance &&
-                                    kotlin.math.abs(g - tg) <= tolerance &&
-                                    kotlin.math.abs(b - tb) <= tolerance
-                                ) {
-                                    return Point(x, y)
-                                }
+                CaptureSnapshot(buf, latestPixelStride, latestRowStride, latestWidth, latestHeight)
+            } else null
+        }
+
+        if (snapshot != null) {
+            try {
+                val (startX, startY, endX, endY) = parseRegion(region, snapshot.width, snapshot.height)
+                var y = startY
+                while (y < endY) {
+                    val rowStart = y * snapshot.rowStride
+                    var x = startX
+                    while (x < endX) {
+                        val offset = rowStart + x * snapshot.pixelStride
+                        if (offset + 2 < snapshot.buf.size) {
+                            val r = snapshot.buf[offset].toInt() and 0xFF
+                            val g = snapshot.buf[offset + 1].toInt() and 0xFF
+                            val b = snapshot.buf[offset + 2].toInt() and 0xFF
+                            if (kotlin.math.abs(r - tr) <= tolerance &&
+                                kotlin.math.abs(g - tg) <= tolerance &&
+                                kotlin.math.abs(b - tb) <= tolerance
+                            ) {
+                                return Point(x, y)
                             }
-                            x += step
                         }
-                        y += step
+                        x += scanStep
                     }
-                    return null
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                    y += scanStep
                 }
+                return null
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
 
         // fallback：直接从 ImageReader 取最新帧
+        return findColorFromImageReader(targetColor, tolerance, scanStep, region)
+    }
+
+    private fun findColorFromImageReader(
+        targetColor: Int,
+        tolerance: Int,
+        step: Int,
+        region: List<*>?
+    ): Point? {
         try {
             val image = imageReader!!.acquireLatestImage() ?: return null
             try {
@@ -269,13 +318,16 @@ object ScreenCaptureHelper {
                 val pixelStride = planes[0].pixelStride
                 val rowStride = planes[0].rowStride
 
-                val h = screenHeight
-                val w = screenWidth
-                var y = 0
-                while (y < h) {
+                val tr = (targetColor shr 16) and 0xFF
+                val tg = (targetColor shr 8) and 0xFF
+                val tb = targetColor and 0xFF
+
+                val (startX, startY, endX, endY) = parseRegion(region, screenWidth, screenHeight)
+                var y = startY
+                while (y < endY) {
                     val rowStart = y * rowStride
-                    var x = 0
-                    while (x < w) {
+                    var x = startX
+                    while (x < endX) {
                         val offset = rowStart + x * pixelStride
                         if (offset + 2 < buffer.capacity()) {
                             buffer.position(offset)
@@ -302,16 +354,35 @@ object ScreenCaptureHelper {
         return null
     }
 
-    fun release() {
+    private fun parseRegion(region: List<*>?, width: Int, height: Int): IntArray {
+        if (region == null || region.size < 4) {
+            return intArrayOf(0, 0, width, height)
+        }
+        val left = (region[0] as? Number)?.toInt() ?: 0
+        val top = (region[1] as? Number)?.toInt() ?: 0
+        val right = (region[2] as? Number)?.toInt() ?: width
+        val bottom = (region[3] as? Number)?.toInt() ?: height
+        val x = left.coerceIn(0, width - 1)
+        val y = top.coerceIn(0, height - 1)
+        val x2 = right.coerceIn(x + 1, width)
+        val y2 = bottom.coerceIn(y + 1, height)
+        return intArrayOf(x, y, x2, y2)
+    }
+
+    private fun clearCaptureResources() {
         virtualDisplay?.release()
         virtualDisplay = null
         imageReader?.close()
         imageReader = null
-        mediaProjection?.stop()
-        mediaProjection = null
         stopBackgroundThread()
         synchronized(bufferLock) {
             latestBuffer = null
         }
+    }
+
+    fun release() {
+        clearCaptureResources()
+        mediaProjection?.stop()
+        mediaProjection = null
     }
 }

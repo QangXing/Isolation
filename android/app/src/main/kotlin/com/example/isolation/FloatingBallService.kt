@@ -15,15 +15,18 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.content.SharedPreferences
+import android.content.pm.ServiceInfo
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.widget.ImageView
+import androidx.core.app.ServiceCompat
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -33,11 +36,26 @@ import java.io.File
 
 class FloatingBallService : Service(), MacroExecutorListener {
     companion object {
+        private const val TAG = "FloatingBallService"
         const val ACTION_SHOW = "ACTION_SHOW"
         const val ACTION_HIDE = "ACTION_HIDE"
+        const val ACTION_PREPARE = "ACTION_PREPARE"
         const val CHANNEL_ID = "isolation_floating_ball"
         const val NOTIFICATION_ID = 1
         const val ENABLED_MACRO_FILE = "enabled_macro.json"
+
+        /** Android 14+ 前台服务类型：平时仅使用 specialUse，避免 mediaProjection 类型在没有活跃投影时触发 SecurityException */
+        private val NORMAL_FGS_TYPES: Int
+            get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            } else 0
+
+        /** 屏幕录制时再把前台服务类型升级为 specialUse|mediaProjection */
+        private val SCREEN_CAPTURE_FGS_TYPES: Int
+            get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            } else 0
+
         private const val BALL_SIZE_DP = 56
         private const val BUBBLE_GAP_DP = 12
         private const val BUBBLE_AUTO_HIDE_MS = 2500L
@@ -49,6 +67,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
         @Volatile
         private var instance: FloatingBallService? = null
+
+        /** 获取当前运行的服务实例，用于在前台服务上下文中初始化屏幕录制。 */
+        fun getInstance(): FloatingBallService? = instance
 
         /**
          * 显示一次点击动画。坐标为屏幕像素坐标系（左上角原点）。
@@ -131,23 +152,68 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 兜底：START_STICKY 重启时 intent 可能为 null，只要悬浮球没在显示就重新显示
-        if (intent == null) {
-            if (Settings.canDrawOverlays(this) && floatingView == null) {
-                showFloatingBall()
-            }
-            return START_STICKY
+        // Android 14+ 要求前台服务尽快调用 startForeground，避免 ANR
+        try {
+            // 仅使用 specialUse 类型启动，mediaProjection 类型在没有活跃投影时会导致 SecurityException
+            startForegroundNotification(NORMAL_FGS_TYPES)
+        } catch (e: Exception) {
+            Log.e(TAG, "启动前台通知失败", e)
+            Toast.makeText(this, "悬浮球服务启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+            stopSelf()
+            return START_NOT_STICKY
         }
-        when (intent.action) {
-            ACTION_SHOW -> showFloatingBall()
-            ACTION_HIDE -> {
-                hideFloatingBall()
-                hideKeyboard()
-                stopForegroundService()
-                stopSelf()
+
+        try {
+            // 兜底：START_STICKY 重启时 intent 可能为 null，只要悬浮球没在显示就重新显示
+            if (intent == null) {
+                if (Settings.canDrawOverlays(this) && floatingView == null) {
+                    showFloatingBall()
+                }
+                return START_STICKY
             }
+            when (intent.action) {
+                ACTION_SHOW -> showFloatingBall()
+                ACTION_HIDE -> {
+                    hideFloatingBall()
+                    hideKeyboard()
+                    stopForegroundService()
+                    stopSelf()
+                }
+                ACTION_PREPARE -> {
+                    // 仅保持前台服务运行，用于在 Android 14+ 中承载屏幕录制，不显示悬浮球
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "处理悬浮球意图失败: ${intent?.action}", e)
         }
         return START_STICKY
+    }
+
+    /**
+     * 在前台服务上下文中初始化屏幕录制。
+     * Android 14+ 要求 VirtualDisplay 必须由带有 mediaProjection 前台服务类型的 Service 创建。
+     */
+    fun initScreenCapture(resultCode: Int, data: Intent?): Boolean {
+        return try {
+            // Android 14+ 需要在创建 VirtualDisplay 前，先把前台服务类型升级为 mediaProjection。
+            // 为避免 SecurityException，在 ScreenCaptureHelper 已获得 MediaProjection 实例后再升级。
+            val ok = ScreenCaptureHelper.onActivityResult(this, resultCode, data) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    startForegroundNotification(SCREEN_CAPTURE_FGS_TYPES)
+                }
+            }
+            if (!ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // 屏幕录制未成功，降级回普通 specialUse 类型
+                startForegroundNotification(NORMAL_FGS_TYPES)
+            }
+            ok
+        } catch (e: Exception) {
+            android.util.Log.e("FloatingBallService", "初始化屏幕录制失败", e)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                try { startForegroundNotification(NORMAL_FGS_TYPES) } catch (_: Exception) {}
+            }
+            false
+        }
     }
 
     private fun createNotificationChannel() {
@@ -164,7 +230,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
-    private fun startForegroundNotification() {
+    private fun startForegroundNotification(serviceTypes: Int = NORMAL_FGS_TYPES) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -179,7 +245,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, serviceTypes)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun stopForegroundService() {
@@ -198,7 +268,6 @@ class FloatingBallService : Service(), MacroExecutorListener {
             return
         }
 
-        startForegroundNotification()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         val params = WindowManager.LayoutParams(

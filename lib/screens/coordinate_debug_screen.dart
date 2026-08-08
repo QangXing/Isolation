@@ -10,7 +10,7 @@ import 'package:image/image.dart' as img;
 ///
 /// 用户从相册选一张屏幕截图作为背景，在图片上点击任意位置，
 /// 获取该点在屏幕坐标系下的坐标与像素颜色，并一键复制为 `click(x, y)` 或
-/// `find(color=0xRRGGBB, tolerance=20) { click() }` 代码片段。
+/// `findColor(0xRRGGBB, tolerance=20) { click() }` 代码片段。
 ///
 /// 坐标系约定：图片像素坐标 = Android 屏幕像素坐标
 ///   - 原点：图片左上角 = 屏幕左上角
@@ -398,10 +398,10 @@ class _CoordinateDebugScreenState extends State<CoordinateDebugScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.colorize_rounded, size: 18),
-                  tooltip: '复制 find(color=)',
+                  tooltip: '复制 findColor()',
                   onPressed: () => _copyCode(
-                    'find(color=${_colorHex(p.color)}, tolerance=20) {\n    click()\n}',
-                    'find(color=${_colorHex(p.color)}) 代码',
+                    'findColor(${_colorHex(p.color)}, tolerance=20) {\n    click()\n}',
+                    'findColor(${_colorHex(p.color)}) 代码',
                   ),
                 ),
                 IconButton(
@@ -486,13 +486,13 @@ class _CoordinateDebugScreenState extends State<CoordinateDebugScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.colorize_rounded),
-              title: const Text('复制 find(color=) { click() }'),
+              title: const Text('复制 findColor() { click() }'),
               subtitle: const Text('颜色 + 坐标一并生成', style: TextStyle(fontSize: 11)),
               onTap: () {
                 Navigator.pop(sheetCtx);
                 _copyCode(
-                  'find(color=${_colorHex(p.color)}, tolerance=20) {\n    click()\n}',
-                  'find(color=${_colorHex(p.color)}) 代码',
+                  'findColor(${_colorHex(p.color)}, tolerance=20) {\n    click()\n}',
+                  'findColor(${_colorHex(p.color)}) 代码',
                 );
               },
             ),

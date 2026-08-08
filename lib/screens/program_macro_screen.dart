@@ -28,33 +28,48 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
 print("开始")
 
 // 按文字查找并点击
-find(text="签到") {
+findText("签到") {
     click()
     wait(500)
 }
 
 // 无限循环查找（常用于轮询签到按钮）
-find(loop) {
-    find(text="签到") {
+loop {
+    waitForText("签到") {
         click()
         wait(1000)
     }
 }
 
 // 按颜色查找并点击
-find(color=0xFF5000, tolerance=20) {
+findColor(0xFF5000, tolerance=20) {
     click()
     wait(500)
 }
 
 // 条件判断
-if(find(color=0x00FF00, tolerance=20)) {
+ifColorAt(500, 800, 0x00FF00, tolerance=20) {
     click()
 } else {
     print("今日无奖励")
 }
 
 print("完成")
+
+// 变量与表达式
+int score = 0
+score = score + 1
+
+point btn = point(100, 200)
+click(btn.x, btn.y)
+
+for (int i = 0; i < 3; i = i + 1) {
+    swipe(0, 300, 500)
+}
+
+if (score > 0) {
+    print("得分大于 0")
+}
 ''';
 
   @override
@@ -66,14 +81,27 @@ print("完成")
   Future<void> _init() async {
     if (widget.pluginId != null) {
       final provider = context.read<PluginProvider>();
-      final data = await provider.loadMacroData(widget.pluginId!);
-      if (data != null) {
-        _codeController.text = MacroProgramParser.serialize(data.steps);
-        final plugin =
-            provider.plugins.firstWhere((p) => p.id == widget.pluginId);
-        _initialName = plugin.name;
+      try {
+        final data = await provider.loadMacroData(widget.pluginId!);
+        if (data != null) {
+          _codeController.text = MacroProgramParser.serialize(data.steps);
+          final plugin =
+              provider.plugins.firstWhere((p) => p.id == widget.pluginId);
+          _initialName = plugin.name;
+        }
+        _assets = await provider.listMacroAssets(widget.pluginId!);
+      } catch (e, s) {
+        debugPrint('加载宏数据失败: $e\n$s');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('加载宏失败: $e'),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
       }
-      _assets = await provider.listMacroAssets(widget.pluginId!);
     } else {
       _codeController.text = _template;
     }
@@ -148,12 +176,12 @@ print("完成")
             _InstructionChip(
               label: '查找点击',
               icon: Icons.ads_click_rounded,
-              onTap: () => _insert('find(text="") {\n    click()\n}'),
+              onTap: () => _insert('findText("") {\n    click()\n}'),
             ),
             _InstructionChip(
-              label: 'roll',
+              label: 'swipe',
               icon: Icons.swipe_down_rounded,
-              onTap: () => _insert('roll(0, 300, 500)'),
+              onTap: () => _insert('swipe(0, 300, 500)'),
             ),
             _InstructionChip(
               label: 'input',
@@ -176,19 +204,19 @@ print("完成")
               onTap: () => _insert('for(5) {\n    \n}'),
             ),
             _InstructionChip(
-              label: 'find(text=)',
+              label: 'findText()',
               icon: Icons.find_in_page_outlined,
-              onTap: () => _insert('find(text="领取") {\n    click()\n}'),
+              onTap: () => _insert('findText("领取") {\n    click()\n}'),
             ),
             _InstructionChip(
-              label: 'find(color=)',
+              label: 'findColor()',
               icon: Icons.colorize_rounded,
-              onTap: () => _insert('find(color=0xFF5000, tolerance=20) {\n    click()\n}'),
+              onTap: () => _insert('findColor(0xFF5000, tolerance=20) {\n    click()\n}'),
             ),
             _InstructionChip(
-              label: 'find(image=)',
+              label: 'findImage()',
               icon: Icons.image_search_rounded,
-              onTap: () => _insert('find(image="template.jpg") {\n    click()\n}'),
+              onTap: () => _insert('findImage("template.jpg") {\n    click()\n}'),
             ),
             _InstructionChip(
               label: '导入图片',
@@ -196,16 +224,16 @@ print("完成")
               onTap: _importImage,
             ),
             _InstructionChip(
-              label: 'if',
+              label: 'ifColorAt',
               icon: Icons.call_split_rounded,
               onTap: () =>
-                  _insert('if(find(color=0x00FF00)) {\n    click()\n} else {\n    print("未找到")\n}'),
+                  _insert('ifColorAt(500, 800, 0x00FF00, tolerance=20) {\n    click()\n} else {\n    print("未找到")\n}'),
             ),
             _InstructionChip(
-              label: 'if(image)',
+              label: 'ifImage',
               icon: Icons.image_search_rounded,
               onTap: () => _insert(
-                  'if(find(image="template.jpg", threshold=0.85)) {\n    click()\n    wait(500)\n}'),
+                  'ifImage("template.jpg") {\n    click()\n    wait(500)\n}'),
             ),
             _InstructionChip(
               label: 'back',
@@ -221,6 +249,11 @@ print("完成")
               label: 'recents',
               icon: Icons.layers_outlined,
               onTap: () => _insert('recents()'),
+            ),
+            _InstructionChip(
+              label: 'launch',
+              icon: Icons.launch_rounded,
+              onTap: () => _insert('launch("com.example.app", timeout=3000) {\n    \n}'),
             ),
           ],
         ),
@@ -322,7 +355,7 @@ print("完成")
         itemBuilder: (context, index) {
           final name = _assets[index];
           return GestureDetector(
-            onTap: () => _insert('find(image="$name") {\n    click()\n}'),
+            onTap: () => _insert('findImage("$name") {\n    click()\n}'),
             onLongPress: () => _deleteAsset(name),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -561,13 +594,11 @@ print("完成")
     final name =
         nameController.text.trim().isEmpty ? '未命名宏' : nameController.text.trim();
     final description = descController.text.trim();
-    const settings = MacroSettings();
 
     final success = await provider.saveMacroPlugin(
       name: name,
       description: description,
       steps: steps,
-      settings: settings,
       pluginId: widget.pluginId,
     );
 
