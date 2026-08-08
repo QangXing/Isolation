@@ -59,4 +59,33 @@ launch("com.example.app", timeout=3000) {
     final serialized = MacroProgramParser.serialize(parsed).trim();
     expect(serialized, code);
   });
+
+  test('launch assignment round-trip', () {
+    const code = 'ok = launch("com.example.app", timeout=3000)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'launch');
+    expect(parsed.first['assignTo'], 'ok');
+    expect(parsed.first['packageName'], 'com.example.app');
+    expect(parsed.first['timeout'], 3000);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('if with launch condition round-trip', () {
+    const code = '''
+if (launch("com.example.app", timeout=3000)) {
+    click(500, 800)
+}
+'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'if');
+    final condition = parsed.first['condition'] as Map<String, dynamic>;
+    expect(condition['type'], 'launch');
+    expect(condition['packageName'], 'com.example.app');
+    expect(condition['timeout'], 3000);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
 }

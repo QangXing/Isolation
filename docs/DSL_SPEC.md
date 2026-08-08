@@ -171,23 +171,54 @@ if (findImage("popup.png")) { click() }
 
 ## 6. 变量与赋值
 
-使用 `let` 声明变量，类型由右侧表达式自动决定。
+### 6.1 表达式变量（`let`）
+
+`let` 用于接收表达式计算结果。
 
 ```dsl
-let p = findImage("btn.png")      // point
-let c = colorAt(100, 200)         // int 颜色
-let ok = findText("原神")          // bool（命中为 1，未命中为 0）
+let count = 0
+let ok = score > 5
+let message = "Hello"
+```
 
-click(p.x, p.y)
+### 6.2 类型化变量声明（`int` / `double` / `point` / `color`）
+
+```dsl
+int score = 0
+point btn = point(100, 200)
+color target = color(0xFF5000)
+```
+
+### 6.3 命令结果赋值
+
+查找、等待、颜色读取、`launch` 等命令的结果通过 `name = command(...)` 赋值。
+
+```dsl
+p = findImage("btn.png")            // point（未命中不赋值）
+p = waitForImage("start.png")       // point（未命中不赋值）
+p = findText("原神")                // point（未命中不赋值）
+c = colorAt(100, 200)               // int 颜色
+ok = launch("com.example.app", timeout=3000)  // 1 或 0
+
+// 直接使用查找块内的 click()，无需手动解包 point
+findImage("btn.png") { click() }
 print(c)
-if (ok) { click() }
+if (launch("com.example.app", timeout=3000)) { click() }
+```
+
+### 6.4 重新赋值
+
+```dsl
+score = score + 1
+btn = point(300, 400)
 ```
 
 ### 支持的变量类型
 
-- `point`：坐标，可通过 `.x`、`.y` 访问。
+- `point`：坐标。
 - `int` / `double`：数值。
-- `bool`：由条件或查找结果转换得到。
+- `color`：颜色整数。
+- `1` / `0`：`launch` 结果或条件判断结果。
 
 ---
 
@@ -228,8 +259,7 @@ ifColorAt(500, 800, 0xFFFA40, tolerance=30) {
 }
 
 // 按图片查找并点击
-let p = findImage("start.png", featureCount=12)
-click(p.x, p.y)
+findImage("start.png", featureCount=12) { click() }
 
 // 无限轮询签到
 loop {
@@ -240,7 +270,7 @@ loop {
 
 ---
 
-## 10. 启动应用
+## 9. 启动应用
 
 使用 `launch` 命令启动指定包名的应用。
 
@@ -261,9 +291,16 @@ launch("com.example.app") {
 }
 ```
 
+获取启动结果：
+
+```dsl
+ok = launch("com.example.app", timeout=3000)
+if (ok) { click(500, 800) }
+```
+
 ---
 
-## 9. 参数速查表
+## 10. 参数速查表
 
 | 参数 | 适用命令 | 默认值 | 说明 |
 |---|---|---|---|

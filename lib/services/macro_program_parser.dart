@@ -380,13 +380,18 @@ class MacroProgramParser {
       case 'launch':
         final packageName = step['packageName'];
         final timeout = step['timeout'];
+        final assignTo = step['assignTo'] as String?;
         final args = <String>[
           _serializeArgValue(packageName),
           if (timeout != null) 'timeout=$timeout',
         ];
-        buffer.writeln('$indent launch(${args.join(', ')}) {');
-        _serializeChildren(step['children'], indent, buffer);
-        buffer.writeln('$indent }');
+        if (assignTo != null) {
+          buffer.writeln('$indent$assignTo = launch(${args.join(', ')})');
+        } else {
+          buffer.writeln('$indent launch(${args.join(', ')}) {');
+          _serializeChildren(step['children'], indent, buffer);
+          buffer.writeln('$indent }');
+        }
         break;
       case 'for':
         if (step['condition'] != null) {
@@ -632,6 +637,14 @@ class MacroProgramParser {
         return 'findImage(${_quoteValue(step['image'])})';
       case 'colorAt':
         return 'colorAt(${_serializeExprValue(step['x'])}, ${_serializeExprValue(step['y'])})';
+      case 'launch':
+        final packageName = step['packageName'];
+        final timeout = step['timeout'];
+        final args = <String>[
+          _quoteValue(packageName),
+          if (timeout != null) 'timeout=$timeout',
+        ];
+        return 'launch(${args.join(', ')})';
     }
     return '';
   }
@@ -769,7 +782,7 @@ class _BlockParser {
     // if / ifText / ifColor / ifImage / ifColorAt 统一处理 condition/else
     if (name == 'if') {
       final conditionCallMatch = RegExp(
-              r'^(findText|findColor|findImage|colorAt)\s*\(.*\)\s*$')
+              r'^(findText|findColor|findImage|colorAt|launch)\s*\(.*\)\s*$')
           .firstMatch(argsStr);
       if (conditionCallMatch == null) {
         step['expression'] = ExpressionParser.parse(argsStr).toJson();
@@ -826,6 +839,7 @@ class _BlockParser {
     'waitForColor',
     'waitForImage',
     'colorAt',
+    'launch',
   };
 
   Map<String, dynamic>? _tryParseCallAssignment(String valueSource) {

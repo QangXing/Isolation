@@ -327,38 +327,41 @@ class MacroExecutor(
         val packageName = step["packageName"] as? String
         if (packageName.isNullOrEmpty()) return false
         val timeout = evaluateNumber(step["timeout"])?.toLong() ?: 0L
+        val assignTo = step["assignTo"] as? String
 
         val intent = service.packageManager.getLaunchIntentForPackage(packageName)
         if (intent == null) {
             postStatus("launch: 无法启动 $packageName")
+            if (assignTo != null) variables[assignTo] = Variable.Number(0.0)
             return false
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         service.startActivity(intent)
 
-        if (timeout <= 0) return true
+        if (timeout <= 0) {
+            if (assignTo != null) variables[assignTo] = Variable.Number(1.0)
+            return true
+        }
 
         val start = SystemClock.elapsedRealtime()
+        var success = false
         while (!stopRequested) {
             if (service.rootInActiveWindow?.packageName?.toString() == packageName) {
-                return true
+                success = true
+                break
             }
             Thread.sleep(200)
             if (SystemClock.elapsedRealtime() - start >= timeout) {
-                return false
+                break
             }
         }
-        return false
+        if (assignTo != null) variables[assignTo] = Variable.Number(if (success) 1.0 else 0.0)
+        return success
     }
 
     private fun executeLetStep(step: Map<String, Any>) {
         val name = step["name"] as? String ?: return
         val value = step["value"] as? Map<String, Any> ?: return
-        if (value["type"] == "launch") {
-            val success = executeLaunchStep(value)
-            variables[name] = Variable.Number(if (success) 1.0 else 0.0)
-            return
-        }
         val result = ExpressionEvaluator.evaluate(value, variables) ?: return
         variables[name] = result
     }
