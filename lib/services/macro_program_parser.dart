@@ -70,6 +70,9 @@ class MacroProgramParser {
           assign(['dx', 'dy', 'duration']);
         }
         break;
+      case 'swipeRel':
+        assign(['fromX', 'fromY', 'dx', 'dy', 'duration']);
+        break;
       case 'input':
         if (positional.isNotEmpty) step['text'] = positional[0];
         break;
@@ -81,6 +84,12 @@ class MacroProgramParser {
         break;
       case 'wait':
         if (positional.isNotEmpty) step['duration'] = positional[0];
+        break;
+      case 'loop':
+        if (positional.isNotEmpty) step['name'] = positional[0];
+        break;
+      case 'breakLoop':
+        if (positional.isNotEmpty) step['name'] = positional[0];
         break;
       case 'for':
         if (positional.isNotEmpty) {
@@ -368,6 +377,9 @@ class MacroProgramParser {
       case 'swipe':
         _serializeSwipe(step, indent, buffer);
         break;
+      case 'swipeRel':
+        _serializeSwipeRel(step, indent, buffer);
+        break;
       case 'input':
         buffer.writeln('$indent input(${_serializeArgValue(step['text'])})');
         break;
@@ -406,18 +418,19 @@ class MacroProgramParser {
       case 'findText':
       case 'waitForText':
       case 'ifText':
-        _serializeFindLike(step, indent, buffer, type, ['text']);
+        _serializeFindLike(step, indent, buffer, type, ['text', 'timeout']);
         break;
       case 'findColor':
       case 'waitForColor':
       case 'ifColor':
-        _serializeFindLike(step, indent, buffer, type, ['color', 'tolerance', 'step', 'region']);
+        _serializeFindLike(step, indent, buffer, type,
+            ['color', 'tolerance', 'step', 'region', 'timeout']);
         break;
       case 'findImage':
       case 'waitForImage':
       case 'ifImage':
         _serializeFindLike(step, indent, buffer, type,
-            ['image', 'featureCount', 'featurePointThreshold', 'colorTolerance', 'region']);
+            ['image', 'featureCount', 'featurePointThreshold', 'colorTolerance', 'region', 'timeout']);
         break;
       case 'colorAt':
         buffer.writeln(
@@ -446,9 +459,22 @@ class MacroProgramParser {
         buffer.writeln('$indent }');
         break;
       case 'loop':
-        buffer.writeln('$indent loop {');
+        final name = step['name'];
+        if (name != null) {
+          buffer.writeln('$indent loop(${_serializeArgValue(name)}) {');
+        } else {
+          buffer.writeln('$indent loop {');
+        }
         _serializeChildren(step['children'], indent, buffer);
         buffer.writeln('$indent }');
+        break;
+      case 'breakLoop':
+        final name = step['name'];
+        if (name != null) {
+          buffer.writeln('$indent breakLoop(${_serializeArgValue(name)})');
+        } else {
+          buffer.writeln('$indent breakLoop()');
+        }
         break;
       case 'let':
         buffer.writeln(
@@ -577,6 +603,16 @@ class MacroProgramParser {
         buffer.writeln('$indent swipe($dx, $dy, $dur)');
       }
     }
+  }
+
+  static void _serializeSwipeRel(
+      Map<String, dynamic> step, String indent, StringBuffer buffer) {
+    final fromX = _serializeExprValue(step['fromX']);
+    final fromY = _serializeExprValue(step['fromY']);
+    final dx = _serializeExprValue(step['dx']);
+    final dy = _serializeExprValue(step['dy']);
+    final dur = _serializeExprValue(step['duration']);
+    buffer.writeln('$indent swipeRel($fromX, $fromY, $dx, $dy, $dur)');
   }
 
   /// 把 var / assign 步骤 JSON 紧凑序列化为 for 头部子句。

@@ -22,8 +22,8 @@
 | `click(x, y)` | 点击指定坐标 | `click(500, 800)` |
 | `click()` | 点击最近一次查询/查找得到的坐标，只能出现在查找块内 | `findText("签到") { click() }` |
 | `swipe(dx, dy, duration)` | 从屏幕中心按相对偏移滑动 | `swipe(0, 300, 400)` |
-| `swipe(fromX, fromY, dx, dy, duration)` | 从指定起点按相对偏移滑动 | `swipe(500, 800, 0, -300, 400)` |
 | `swipe(x1, y1, x2, y2, duration)` | 从起点滑动到终点 | `swipe(500, 180, 100, 180, 300)` |
+| `swipeRel(fromX, fromY, dx, dy, duration)` | 从指定起点按相对偏移滑动 | `swipeRel(500, 800, 0, -300, 400)` |
 | `input("文字")` | 在已聚焦输入框输入文字 | `input("Hello")` |
 | `wait(ms)` | 暂停指定毫秒 | `wait(1000)` |
 | `print("文字")` | 输出调试日志 | `print("开始任务")` |
@@ -100,6 +100,13 @@ waitForImage("ok.png") { click() }
 
 - 循环查找，直到命中后执行一次块内指令。
 - 比旧写法 `find(text="...", loop)` 更直观。
+- 支持 `timeout=毫秒` 参数，超时后退出等待：
+
+```dsl
+waitForText("加载完成", timeout=5000) { click() }
+waitForColor(0xFFFA40, timeout=3000) { click() }
+waitForImage("ok.png", timeout=10000) { click() }
+```
 
 ### 3.5 无限循环
 
@@ -113,6 +120,19 @@ loop {
 ```
 
 - 无限循环执行块内指令，直到手动停止。
+- 可使用 `loop("name")` 为循环命名，并用 `breakLoop("name")` 终止指定循环：
+
+```dsl
+loop("poll") {
+  findText("签到") {
+    click()
+    breakLoop("poll")
+  }
+  wait(2000)
+}
+```
+
+- `breakLoop()` 不带参数时，终止当前所有活跃循环。
 
 ---
 

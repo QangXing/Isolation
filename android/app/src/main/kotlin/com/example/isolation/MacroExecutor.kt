@@ -116,6 +116,13 @@ class MacroExecutor(
      */
     private val variables = mutableMapOf<String, Variable>()
 
+    /**
+     * 循环栈，用于支持 breakLoop(name) / breakLoop() 终止指定或全部循环。
+     */
+    private val loopStack = ArrayDeque<LoopFrame>()
+
+    private data class LoopFrame(val name: String?, var breakRequested: Boolean = false)
+
     fun execute(settings: Map<String, Any>, steps: List<Map<String, Any>>) {
         if (running) return
         running = true
@@ -150,6 +157,7 @@ class MacroExecutor(
                 defaultFeaturePointCount = 8
                 defaultFeaturePointThreshold = 0.80
                 variables.clear()
+                loopStack.clear()
             }
         }.start()
     }
@@ -184,7 +192,7 @@ class MacroExecutor(
         when (type) {
             // 动作
             "click" -> executeClickStep(step)
-            "swipe" -> executeSwipeStep(step)
+            "swipe", "swipeRel" -> executeSwipeStep(step)
             "input" -> executeInputStep(step)
             "print" -> executePrintStep(step)
             "wait" -> executeWaitStep(step)
@@ -205,6 +213,7 @@ class MacroExecutor(
             "for" -> executeForStep(step)
             "if" -> executeIfStep(step)
             "ifText", "ifColor", "ifImage", "ifColorAt" -> executeIfLikeStep(step)
+            "breakLoop" -> executeBreakLoopStep(step)
 
             // 变量
             "let" -> executeLetStep(step)
@@ -481,7 +490,13 @@ class MacroExecutor(
     private fun executeWaitForStep(step: Map<String, Any>) {
         val type = step["type"] as? String ?: return
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
+        val timeout = evaluateNumber(step["timeout"])?.toLong() ?: 0L
+        val start = SystemClock.elapsedRealtime()
         while (!stopRequested) {
+            if (timeout > 0 && SystemClock.elapsedRealtime() - start >= timeout) {
+                postStatus("$type: 等待超时")
+                break
+            }
             val coord = findTargetCoordinate(step)
             if (coord != null) {
                 foundCoordinates.addFirst(coord)
@@ -498,10 +513,38 @@ class MacroExecutor(
     }
 
     private fun executeLoopStep(step: Map<String, Any>) {
+        val name = step["name"] as? String
         val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return
-        while (!stopRequested) {
-            executeSteps(children)
-            Thread.sleep(50)
+        val frame = LoopFrame(name)
+        loopStack.addLast(frame)
+        try {
+            while (!stopRequested && !frame.breakRequested) {
+                executeSteps(children)
+                Thread.sleep(50)
+            }
+        } finally {
+            loopStack.removeLastOrNull()
+        }
+    }
+
+    private fun executeBreakLoopStep(step: Map<String, Any>) {
+        val name = step["name"] as? String
+        if (name == null) {
+            // 无参数：终止当前所有活跃循环
+            for (frame in loopStack) {
+                frame.breakRequested = true
+            }
+        } else {
+            // 终止指定名称的循环以及嵌套在内的所有内层循环
+            var found = false
+            for (frame in loopStack) {
+                if (frame.name == name) {
+                    found = true
+                }
+                if (found) {
+                    frame.breakRequested = true
+                }
+            }
         }
     }
 
