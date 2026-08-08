@@ -31,6 +31,7 @@ class MacroSyntaxHighlighter {
     'back',
     'home',
     'recents',
+    'launch',
     'true',
     'false',
     'let',

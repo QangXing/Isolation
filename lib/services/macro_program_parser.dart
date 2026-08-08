@@ -6,7 +6,7 @@
 /// - 颜色：colorAt / ifColorAt
 /// - 条件：ifText / ifColor / ifImage / if
 /// - 循环：for / loop
-/// - 动作：click / swipe / input / wait / print / back / home / recents
+/// - 动作：click / swipe / input / wait / print / back / home / recents / launch
 /// - 变量：let
 ///
 /// 录制产生的 clickNode / clickPoint / swipe 等旧 step 仍会在 convertLegacySteps
@@ -75,6 +75,9 @@ class MacroProgramParser {
         break;
       case 'print':
         if (positional.isNotEmpty) step['message'] = positional[0];
+        break;
+      case 'launch':
+        if (positional.isNotEmpty) step['packageName'] = positional[0];
         break;
       case 'wait':
         if (positional.isNotEmpty) step['duration'] = positional[0];
@@ -373,6 +376,17 @@ class MacroProgramParser {
         break;
       case 'wait':
         buffer.writeln('$indent wait(${_serializeArgValue(step['duration'])})');
+        break;
+      case 'launch':
+        final packageName = step['packageName'];
+        final timeout = step['timeout'];
+        final args = <String>[
+          _serializeArgValue(packageName),
+          if (timeout != null) 'timeout=$timeout',
+        ];
+        buffer.writeln('$indent launch(${args.join(', ')}) {');
+        _serializeChildren(step['children'], indent, buffer);
+        buffer.writeln('$indent }');
         break;
       case 'for':
         if (step['condition'] != null) {

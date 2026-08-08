@@ -28,6 +28,7 @@
 | `wait(ms)` | 暂停指定毫秒 | `wait(1000)` |
 | `print("文字")` | 输出调试日志 | `print("开始任务")` |
 | `back()` / `home()` / `recents()` | 系统按键 | `back()` |
+| `launch("包名", timeout=3000)` | 启动指定包名的应用 | `launch("com.example.app", timeout=3000)` |
 
 > 坐标、颜色、时间等数值都支持纯数字、变量或表达式，例如 `click(x + 10, y - 20)`。
 
@@ -239,6 +240,29 @@ loop {
 
 ---
 
+## 10. 启动应用
+
+使用 `launch` 命令启动指定包名的应用。
+
+```dsl
+launch("com.example.app", timeout=3000) {
+  click(500, 800)
+}
+```
+
+参数：
+- `timeout`：最长等待时间（毫秒），可选。
+
+也可以省略 `timeout`：
+
+```dsl
+launch("com.example.app") {
+  wait(1000)
+}
+```
+
+---
+
 ## 9. 参数速查表
 
 | 参数 | 适用命令 | 默认值 | 说明 |
@@ -249,4 +273,4 @@ loop {
 | `featureCount` | `findImage`、`waitForImage` | 8 | 特征点数量 |
 | `featurePointThreshold` | `findImage`、`waitForImage` | 0.8 | 特征点匹配比例 |
 | `colorTolerance` | `findImage`、`waitForImage` | 20 | 特征点颜色容差 |
-| `timeout` | `waitForText` 等 | 无 | 最长等待时间（毫秒） |
+| `timeout` | `waitForText` 等、`launch` | 无 | 最长等待时间（毫秒） |

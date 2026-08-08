@@ -43,4 +43,20 @@ for (int i = 0; i < 3; i = i + 1) {
     final serialized = MacroProgramParser.serialize(parsed).trim();
     expect(serialized, code);
   });
+
+  test('launch command round-trip', () {
+    const code = '''
+launch("com.example.app", timeout=3000) {
+    click(500, 800)
+}
+'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'launch');
+    expect(parsed.first['packageName'], 'com.example.app');
+    expect(parsed.first['timeout'], 3000);
+    expect(parsed.first['children'], isA<List>());
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
 }

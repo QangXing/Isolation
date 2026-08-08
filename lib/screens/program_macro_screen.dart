@@ -250,6 +250,11 @@ if (score > 0) {
               icon: Icons.layers_outlined,
               onTap: () => _insert('recents()'),
             ),
+            _InstructionChip(
+              label: 'launch',
+              icon: Icons.launch_rounded,
+              onTap: () => _insert('launch("com.example.app", timeout=3000) {\n    \n}'),
+            ),
           ],
         ),
       ),

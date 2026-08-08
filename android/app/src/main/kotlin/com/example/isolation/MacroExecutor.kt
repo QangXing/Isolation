@@ -3,6 +3,7 @@ package com.example.isolation
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
+import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
@@ -192,6 +193,7 @@ class MacroExecutor(
             "back" -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
             "home" -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
             "recents" -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
+            "launch" -> executeLaunchStep(step)
 
             // 查找与等待
             "findText", "findColor", "findImage" -> executeFindLikeStep(step)
@@ -321,9 +323,42 @@ class MacroExecutor(
         if (duration > 0) Thread.sleep(duration)
     }
 
+    private fun executeLaunchStep(step: Map<String, Any>): Boolean {
+        val packageName = step["packageName"] as? String
+        if (packageName.isNullOrEmpty()) return false
+        val timeout = evaluateNumber(step["timeout"])?.toLong() ?: 0L
+
+        val intent = service.packageManager.getLaunchIntentForPackage(packageName)
+        if (intent == null) {
+            postStatus("launch: 无法启动 $packageName")
+            return false
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        service.startActivity(intent)
+
+        if (timeout <= 0) return true
+
+        val start = SystemClock.elapsedRealtime()
+        while (!stopRequested) {
+            if (service.rootInActiveWindow?.packageName?.toString() == packageName) {
+                return true
+            }
+            Thread.sleep(200)
+            if (SystemClock.elapsedRealtime() - start >= timeout) {
+                return false
+            }
+        }
+        return false
+    }
+
     private fun executeLetStep(step: Map<String, Any>) {
         val name = step["name"] as? String ?: return
         val value = step["value"] as? Map<String, Any> ?: return
+        if (value["type"] == "launch") {
+            val success = executeLaunchStep(value)
+            variables[name] = Variable.Number(if (success) 1 else 0)
+            return
+        }
         val result = ExpressionEvaluator.evaluate(value, variables) ?: return
         variables[name] = result
     }
@@ -529,6 +564,7 @@ class MacroExecutor(
                 val y = evaluateCoordinate(condition["y"]) ?: return executeSteps(elseBranch)
                 if (evaluateColorAt(condition)) Pair(x, y) else null
             }
+            "launch" -> if (executeLaunchStep(condition)) Pair(0, 0) else null
             else -> null
         }
         if (matchedCoord != null) {
