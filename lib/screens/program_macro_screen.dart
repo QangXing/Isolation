@@ -244,6 +244,16 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
               icon: Icons.launch_rounded,
               onTap: () => _insert('launch("com.example.app", timeout=3000) {\n    \n}'),
             ),
+            _InstructionChip(
+              label: '#include',
+              icon: Icons.link_rounded,
+              onTap: () => _insert('#include <名称>'),
+            ),
+            _InstructionChip(
+              label: 'floater',
+              icon: Icons.circle_notifications_rounded,
+              onTap: () => _insert('floater("click") {\n    image("click.png")\n    audio("click.mp3")\n    print(clickX)\n} else {\n    print("失败")\n}'),
+            ),
           ],
         ),
       ),
