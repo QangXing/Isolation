@@ -23,54 +23,42 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
   bool _loading = true;
   String _initialName = '';
   List<String> _assets = [];
+  List<String> _suggestions = [];
+  bool _showSuggestions = false;
 
-  static const String _template = '''// 编程宏示例
-print("开始")
+  static const String _template = '';
 
-// 按文字查找并点击
-findText("签到") {
-    click()
-    wait(500)
-}
-
-// 无限循环查找（常用于轮询签到按钮）
-loop {
-    waitForText("签到") {
-        click()
-        wait(1000)
-    }
-}
-
-// 按颜色查找并点击
-findColor(0xFF5000, tolerance=20) {
-    click()
-    wait(500)
-}
-
-// 条件判断
-ifColorAt(500, 800, 0x00FF00, tolerance=20) {
-    click()
-} else {
-    print("今日无奖励")
-}
-
-print("完成")
-
-// 变量与表达式
-int score = 0
-score = score + 1
-
-point btn = point(100, 200)
-click(btn.x, btn.y)
-
-for (int i = 0; i < 3; i = i + 1) {
-    swipe(0, 300, 500)
-}
-
-if (score > 0) {
-    print("得分大于 0")
-}
-''';
+  static const List<String> _commands = [
+    'click',
+    'swipe',
+    'swipeRel',
+    'input',
+    'print',
+    'wait',
+    'back',
+    'home',
+    'recents',
+    'launch',
+    'findText',
+    'findColor',
+    'findImage',
+    'waitForText',
+    'waitForColor',
+    'waitForImage',
+    'ifText',
+    'ifColor',
+    'ifImage',
+    'ifColorAt',
+    'if',
+    'else',
+    'for',
+    'loop',
+    'breakLoop',
+    'colorAt',
+    'let',
+    'var',
+    'assign',
+  ];
 
   @override
   void initState() {
@@ -150,6 +138,7 @@ if (score > 0) {
                 _buildInstructionBar(),
                 if (_assets.isNotEmpty) _buildAssetsBar(),
                 Expanded(child: _buildCodeEditor()),
+                if (_showSuggestions) _buildSuggestionBar(),
                 _buildBottomBar(context),
               ],
             ),
@@ -269,6 +258,58 @@ if (score > 0) {
     _codeController.text = text.substring(0, pos) + snippet + text.substring(pos);
     _codeController.selection = TextSelection.collapsed(offset: newPos);
     setState(() {});
+  }
+
+  String _currentWord() {
+    final text = _codeController.text;
+    final pos = _codeController.selection.baseOffset.clamp(0, text.length);
+    if (pos == 0) return '';
+    final before = text.substring(0, pos);
+    final match = RegExp(r'[a-zA-Z_][a-zA-Z0-9_]*$').firstMatch(before);
+    return match?.group(0) ?? '';
+  }
+
+  List<String> _extractVariables(String code) {
+    final vars = <String>{};
+    final reg = RegExp(
+        r'(?:^|\s)(?:int|double|point|let)\s+([a-zA-Z_][a-zA-Z0-9_]*)');
+    for (final m in reg.allMatches(code)) {
+      vars.add(m.group(1)!);
+    }
+    return vars.toList();
+  }
+
+  void _updateSuggestions() {
+    final word = _currentWord();
+    if (word.length < 2) {
+      setState(() => _showSuggestions = false);
+      return;
+    }
+    final vars = _extractVariables(_codeController.text);
+    final all = [..._commands, ...vars];
+    final filtered = all
+        .where((s) => s.startsWith(word) && s != word)
+        .toSet()
+        .toList()
+      ..sort();
+    setState(() {
+      _suggestions = filtered;
+      _showSuggestions = filtered.isNotEmpty;
+    });
+  }
+
+  void _applySuggestion(String suggestion) {
+    final text = _codeController.text;
+    final pos = _codeController.selection.baseOffset.clamp(0, text.length);
+    final before = text.substring(0, pos);
+    final match = RegExp(r'[a-zA-Z_][a-zA-Z0-9_]*$').firstMatch(before);
+    if (match == null) return;
+    final start = match.start;
+    final newText = text.substring(0, start) + suggestion + text.substring(pos);
+    _codeController.text = newText;
+    _codeController.selection =
+        TextSelection.collapsed(offset: start + suggestion.length);
+    setState(() => _showSuggestions = false);
   }
 
   Future<void> _importImage() async {
@@ -392,6 +433,19 @@ if (score > 0) {
       ),
       child: Stack(
         children: [
+          // 缩进对齐参考线
+          Positioned.fill(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: 16,
+            child: CustomPaint(
+              painter: _IndentGuidePainter(
+                indentWidth: 18,
+                color: const Color(0xFFE0E0E0).withValues(alpha: 0.15),
+              ),
+            ),
+          ),
           TextField(
             controller: _codeController,
             maxLines: null,
@@ -408,7 +462,10 @@ if (score > 0) {
               hintText: '在此输入宏代码…',
               hintStyle: TextStyle(color: Color(0xFF757575)),
             ),
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) {
+              setState(() {});
+              _updateSuggestions();
+            },
           ),
           Positioned(
             top: 8,
@@ -450,6 +507,63 @@ if (score > 0) {
     }
   }
 
+  Widget _buildSuggestionBar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 6),
+            child: Text(
+              '指令 / 变量提示',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 34,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _suggestions.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final suggestion = _suggestions[index];
+                return GestureDetector(
+                  onTap: () => _applySuggestion(suggestion),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      suggestion,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBottomBar(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 6, 20, 24),
@@ -459,8 +573,8 @@ if (score > 0) {
           children: [
             Expanded(
               child: _ActionButton(
-                label: '校验',
-                onTap: _validate,
+                label: '校验并格式化',
+                onTap: _validateAndFormat,
               ),
             ),
             const SizedBox(width: 12),
@@ -477,12 +591,15 @@ if (score > 0) {
     );
   }
 
-  void _validate() {
+  void _validateAndFormat() {
     try {
       final steps = MacroProgramParser.parse(_codeController.text);
+      final formatted = MacroProgramParser.serialize(steps).trim();
+      _codeController.text = formatted;
+      _codeController.selection = TextSelection.collapsed(offset: formatted.length);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('校验通过：${steps.length} 个顶层指令'),
+          content: Text('校验通过：${steps.length} 个顶层指令，已对齐格式'),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.black87,
         ),
@@ -658,6 +775,28 @@ class _InstructionChip extends StatelessWidget {
       ),
     );
   }
+}
+
+class _IndentGuidePainter extends CustomPainter {
+  final double indentWidth;
+  final Color color;
+
+  _IndentGuidePainter({required this.indentWidth, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    final maxLevels = (size.width / indentWidth).ceil();
+    for (int i = 1; i < maxLevels; i++) {
+      final x = i * indentWidth;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _ActionButton extends StatelessWidget {
