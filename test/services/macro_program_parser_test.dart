@@ -3,7 +3,7 @@ import 'package:isolation/services/macro_program_parser.dart';
 
 void main() {
   test('variable declaration and assignment round-trip', () {
-    const code = '''
+    final code = '''
 int score = 0
 score = score + 1
 point btn = point(100, 200)
@@ -19,7 +19,7 @@ point btn = point(100, 200)
   });
 
   test('if with expression condition round-trip', () {
-    const code = '''
+    final code = '''
 if (score > 5) {
     click()
 }
@@ -32,7 +32,7 @@ if (score > 5) {
   });
 
   test('c-style for round-trip', () {
-    const code = '''
+    final code = '''
 for (int i = 0; i < 3; i = i + 1) {
     swipe(0, 300, 400)
 }
@@ -45,7 +45,7 @@ for (int i = 0; i < 3; i = i + 1) {
   });
 
   test('swipeRel round-trip', () {
-    const code = 'swipeRel(500, 800, 0, -300, 400)';
+    final code = 'swipeRel(500, 800, 0, -300, 400)';
     final parsed = MacroProgramParser.parse(code);
     expect(parsed.length, 1);
     expect(parsed.first['type'], 'swipeRel');
@@ -59,7 +59,7 @@ for (int i = 0; i < 3; i = i + 1) {
   });
 
   test('launch command round-trip', () {
-    const code = '''
+    final code = '''
 launch("com.example.app", timeout=3000) {
     click(500, 800)
 }
@@ -75,7 +75,7 @@ launch("com.example.app", timeout=3000) {
   });
 
   test('launch assignment round-trip', () {
-    const code = 'ok = launch("com.example.app", timeout=3000)';
+    final code = 'ok = launch("com.example.app", timeout=3000)';
     final parsed = MacroProgramParser.parse(code);
     expect(parsed.length, 1);
     expect(parsed.first['type'], 'launch');
@@ -87,7 +87,7 @@ launch("com.example.app", timeout=3000) {
   });
 
   test('if with launch condition round-trip', () {
-    const code = '''
+    final code = '''
 if (launch("com.example.app", timeout=3000)) {
     click(500, 800)
 }
@@ -104,7 +104,7 @@ if (launch("com.example.app", timeout=3000)) {
   });
 
   test('waitForText round-trip', () {
-    const code = '''
+    final code = '''
 waitForText("加载完成") {
     click()
 }
@@ -118,7 +118,7 @@ waitForText("加载完成") {
   });
 
   test('waitForColor round-trip', () {
-    const code = '''
+    final code = '''
 waitForColor(0xFFFA40, tolerance=30, step=1) {
     click()
 }
@@ -134,7 +134,7 @@ waitForColor(0xFFFA40, tolerance=30, step=1) {
   });
 
   test('waitForImage round-trip', () {
-    const code = '''
+    final code = '''
 waitForImage("ok.png", featureCount=12, featurePointThreshold=0.9) {
     click()
 }
@@ -150,7 +150,7 @@ waitForImage("ok.png", featureCount=12, featurePointThreshold=0.9) {
   });
 
   test('waitForText assignment round-trip', () {
-    const code = 'p = waitForText("加载完成")';
+    final code = 'p = waitForText("加载完成")';
     final parsed = MacroProgramParser.parse(code);
     expect(parsed.length, 1);
     expect(parsed.first['type'], 'waitForText');
@@ -161,7 +161,7 @@ waitForImage("ok.png", featureCount=12, featurePointThreshold=0.9) {
   });
 
   test('waitForText with timeout round-trip', () {
-    const code = '''
+    final code = '''
 waitForText("加载完成", timeout=5000) {
     click()
 }
@@ -176,7 +176,7 @@ waitForText("加载完成", timeout=5000) {
   });
 
   test('loop with name round-trip', () {
-    const code = '''
+    final code = '''
 loop("poll") {
     waitForText("签到") {
         click()
@@ -193,7 +193,7 @@ loop("poll") {
   });
 
   test('breakLoop with name round-trip', () {
-    const code = 'breakLoop("poll")';
+    final code = 'breakLoop("poll")';
     final parsed = MacroProgramParser.parse(code);
     expect(parsed.length, 1);
     expect(parsed.first['type'], 'breakLoop');
@@ -203,7 +203,7 @@ loop("poll") {
   });
 
   test('breakLoop without name round-trip', () {
-    const code = 'breakLoop()';
+    final code = 'breakLoop()';
     final parsed = MacroProgramParser.parse(code);
     expect(parsed.length, 1);
     expect(parsed.first['type'], 'breakLoop');
@@ -213,21 +213,61 @@ loop("poll") {
   });
 
   test('comments are preserved round-trip', () {
-    const code = '''
+    final code = '''
 // 初始化
 print("开始")
-
 // 循环查找
 loop {
     // 等待签到按钮
     waitForText("签到") {
-        click() // 点击按钮
+        // 点击按钮
+        click()
     }
 }
 // 结束
 '''.trim();
     final parsed = MacroProgramParser.parse(code);
-    expect(parsed.where((s) => s['type'] == 'comment').length, 4);
+    expect(parsed.where((s) => s['type'] == 'comment').length, 3);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('include directive round-trip', () {
+    final code = '#include <开心球>';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'include');
+    expect(parsed.first['displayName'], '开心球');
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('floater directive with else round-trip', () {
+    final code = '''floater("click") {
+    image("click.png")
+    audio("click.mp3")
+} else {
+    print("失败")
+}'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.first['type'], 'floater');
+    expect(parsed.first['event'], 'click');
+    expect(parsed.first['else'], isA<List>());
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('cornerRadius, size, image, audio round-trip', () {
+    final code = '''cornerRadius(16)
+size(56)
+image("default.png")
+audio("ding.mp3")'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 4);
+    expect(parsed[0]['type'], 'cornerRadius');
+    expect(parsed[1]['type'], 'size');
+    expect(parsed[2]['type'], 'image');
+    expect(parsed[3]['type'], 'audio');
     final serialized = MacroProgramParser.serialize(parsed).trim();
     expect(serialized, code);
   });

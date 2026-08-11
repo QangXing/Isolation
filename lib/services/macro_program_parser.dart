@@ -127,6 +127,18 @@ class MacroProgramParser {
       case 'ifColorAt':
         assign(['x', 'y', 'color', 'tolerance']);
         break;
+      case 'cornerRadius':
+      case 'size':
+        assign(['value']);
+        break;
+      case 'image':
+      case 'audio':
+      case 'include':
+        assign(['path']);
+        break;
+      case 'floater':
+        assign(['event']);
+        break;
     }
 
     if (step['children'] is List) {
@@ -339,6 +351,10 @@ class MacroProgramParser {
     final rawLines = source.split('\n');
     for (int idx = 0; idx < rawLines.length; idx++) {
       var line = rawLines[idx];
+      if (line.trim().startsWith('#include')) {
+        result.add(_Line(idx + 1, line.trim()));
+        continue;
+      }
       final commentIdx = _findCommentStart(line);
       if (commentIdx >= 0) {
         final commentText = line.substring(commentIdx).trim();
@@ -384,13 +400,13 @@ class MacroProgramParser {
         _serializeSwipeRel(step, indent, buffer);
         break;
       case 'input':
-        buffer.writeln('$indent input(${_serializeArgValue(step['text'])})');
+        buffer.writeln('${indent}input(${_serializeArgValue(step['text'])})');
         break;
       case 'print':
-        buffer.writeln('$indent print(${_serializeArgValue(step['message'])})');
+        buffer.writeln('${indent}print(${_serializeArgValue(step['message'])})');
         break;
       case 'wait':
-        buffer.writeln('$indent wait(${_serializeArgValue(step['duration'])})');
+        buffer.writeln('${indent}wait(${_serializeArgValue(step['duration'])})');
         break;
       case 'launch':
         final packageName = step['packageName'];
@@ -401,22 +417,22 @@ class MacroProgramParser {
           if (timeout != null) 'timeout=$timeout',
         ];
         if (assignTo != null) {
-          buffer.writeln('$indent$assignTo = launch(${args.join(', ')})');
+          buffer.writeln('${indent}$assignTo = launch(${args.join(', ')})');
         } else {
-          buffer.writeln('$indent launch(${args.join(', ')}) {');
+          buffer.writeln('${indent}launch(${args.join(', ')}) {');
           _serializeChildren(step['children'], indent, buffer);
-          buffer.writeln('$indent }');
+          buffer.writeln('${indent}}');
         }
         break;
       case 'for':
         if (step['condition'] != null) {
           buffer.writeln(
-              '$indent for (${_serializeExprStep(step['init'])}; ${_serializeExprValue(step['condition'])}; ${_serializeExprStep(step['update'])}) {');
+              '${indent}for (${_serializeExprStep(step['init'])}; ${_serializeExprValue(step['condition'])}; ${_serializeExprStep(step['update'])}) {');
         } else {
-          buffer.writeln('$indent for(${step['count']}) {');
+          buffer.writeln('${indent}for(${step['count']}) {');
         }
         _serializeChildren(step['children'], indent, buffer);
-        buffer.writeln('$indent }');
+        buffer.writeln('${indent}}');
         break;
       case 'findText':
       case 'waitForText':
@@ -437,7 +453,7 @@ class MacroProgramParser {
         break;
       case 'colorAt':
         buffer.writeln(
-            '$indent colorAt(${_serializeExprValue(step['x'])}, ${_serializeExprValue(step['y'])})');
+            '${indent}colorAt(${_serializeExprValue(step['x'])}, ${_serializeExprValue(step['y'])})');
         break;
       case 'ifColorAt':
         _serializeIfColorAt(step, indent, buffer);
@@ -445,62 +461,82 @@ class MacroProgramParser {
       case 'if':
         if (step['expression'] != null) {
           buffer.writeln(
-              '$indent if (${_serializeExprValue(step['expression'])}) {');
+              '${indent}if (${_serializeExprValue(step['expression'])}) {');
         } else {
           final condition = step['condition'] is Map
               ? Map<String, dynamic>.from(step['condition'] as Map)
               : <String, dynamic>{};
           final condCode = _stepToInlineCode(condition);
-          buffer.writeln('$indent if ($condCode) {');
+          buffer.writeln('${indent}if ($condCode) {');
         }
         _serializeChildren(step['then'], indent, buffer);
         final elseBranch = step['else'];
         if (elseBranch is List && elseBranch.isNotEmpty) {
-          buffer.writeln('$indent } else {');
+          buffer.writeln('${indent}} else {');
           _serializeChildren(elseBranch, indent, buffer);
         }
-        buffer.writeln('$indent }');
+        buffer.writeln('${indent}}');
         break;
       case 'loop':
         final name = step['name'];
         if (name != null) {
-          buffer.writeln('$indent loop(${_serializeArgValue(name)}) {');
+          buffer.writeln('${indent}loop(${_serializeArgValue(name)}) {');
         } else {
-          buffer.writeln('$indent loop {');
+          buffer.writeln('${indent}loop {');
         }
         _serializeChildren(step['children'], indent, buffer);
-        buffer.writeln('$indent }');
+        buffer.writeln('${indent}}');
         break;
       case 'breakLoop':
         final name = step['name'];
         if (name != null) {
-          buffer.writeln('$indent breakLoop(${_serializeArgValue(name)})');
+          buffer.writeln('${indent}breakLoop(${_serializeArgValue(name)})');
         } else {
-          buffer.writeln('$indent breakLoop()');
+          buffer.writeln('${indent}breakLoop()');
         }
         break;
       case 'comment':
-        buffer.writeln('$indent// ${step['text']}');
+        buffer.writeln('${indent}// ${step['text']}');
         break;
       case 'let':
         buffer.writeln(
-            '$indent let ${step['name']} = ${_serializeExprValue(step['value'])}');
+            '${indent}let ${step['name']} = ${_serializeExprValue(step['value'])}');
         break;
       case 'var':
         buffer.writeln(
-            '$indent${step['varType']} ${step['name']} = ${_serializeExprValue(step['value'])}');
+            '${indent}${step['varType']} ${step['name']} = ${_serializeExprValue(step['value'])}');
         break;
       case 'assign':
         buffer.writeln(
-            '$indent${step['name']} = ${_serializeExprValue(step['value'])}');
+            '${indent}${step['name']} = ${_serializeExprValue(step['value'])}');
         break;
       case 'back':
       case 'home':
       case 'recents':
-        buffer.writeln('$indent $type()');
+        buffer.writeln('${indent}$type()');
+        break;
+      case 'cornerRadius':
+      case 'size':
+        buffer.writeln('${indent}$type(${_serializeArgValue(step['value'])})');
+        break;
+      case 'image':
+      case 'audio':
+        buffer.writeln('${indent}$type(${_serializeArgValue(step['path'])})');
+        break;
+      case 'include':
+        buffer.writeln('${indent}#include <${step['displayName']}>');
+        break;
+      case 'floater':
+        buffer.writeln('${indent}$type(${_serializeArgValue(step['event'])}) {');
+        _serializeChildren(step['children'], indent, buffer);
+        if (step['else'] is List) {
+          buffer.writeln('${indent}} else {');
+          _serializeChildren(step['else'], indent, buffer);
+        }
+        buffer.writeln('${indent}}');
         break;
       default:
-        buffer.writeln('$indent // 未知指令: $type');
+        buffer.writeln('${indent}// 未知指令: $type');
     }
   }
 
@@ -510,21 +546,31 @@ class MacroProgramParser {
       StringBuffer buffer,
       String type,
       List<String> argNames) {
-    final pairs = <String>[];
-    for (final name in argNames) {
-      final value = step[name];
-      if (value == null) continue;
+    String serializeArg(String name, dynamic value) {
       if (name == 'color') {
         final c = (value as num).toInt();
-        pairs.add('color=0x${c.toRadixString(16).padLeft(6, '0').toUpperCase()}');
-      } else if (name == 'region' && value is List) {
-        pairs.add('region=[${value.join(', ')}]');
-      } else if (value is String) {
-        pairs.add('$name=${_quoteString(value)}');
-      } else {
-        pairs.add('$name=$value');
+        return '0x${c.toRadixString(16).padLeft(6, '0').toUpperCase()}';
       }
+      if (name == 'region' && value is List) {
+        return 'region=[${value.join(', ')}]';
+      }
+      if (value is String) return _quoteString(value);
+      return value.toString();
     }
+
+    final primaryName = argNames.isNotEmpty ? argNames.first : null;
+    final primaryValue = primaryName != null ? step[primaryName] : null;
+    final pairs = <String>[];
+    for (final name in argNames.skip(primaryName != null ? 1 : 0)) {
+      final value = step[name];
+      if (value == null) continue;
+      pairs.add('$name=${serializeArg(name, value)}');
+    }
+
+    final args = <String>[
+      if (primaryValue != null) serializeArg(primaryName!, primaryValue),
+      ...pairs,
+    ];
 
     final assignTo = step['assignTo'] as String?;
     final children = step['children'] as List?;
@@ -532,25 +578,25 @@ class MacroProgramParser {
     final elseBranch = step['else'] as List?;
 
     if (assignTo != null) {
-      buffer.writeln('$indent$assignTo = $type(${pairs.join(', ')})');
+      buffer.writeln('${indent}$assignTo = $type(${args.join(', ')})');
       return;
     }
 
     if (then != null || elseBranch != null) {
       // ifText / ifColor / ifImage
-      buffer.writeln('$indent $type(${pairs.join(', ')}) {');
+      buffer.writeln('${indent}$type(${args.join(', ')}) {');
       _serializeChildren(then, indent, buffer);
       if (elseBranch is List && elseBranch.isNotEmpty) {
-        buffer.writeln('$indent } else {');
+        buffer.writeln('${indent}} else {');
         _serializeChildren(elseBranch, indent, buffer);
       }
-      buffer.writeln('$indent }');
+      buffer.writeln('${indent}}');
       return;
     }
 
-    buffer.writeln('$indent $type(${pairs.join(', ')}) {');
+    buffer.writeln('${indent}$type(${args.join(', ')}) {');
     _serializeChildren(children, indent, buffer);
-    buffer.writeln('$indent }');
+    buffer.writeln('${indent}}');
   }
 
   static void _serializeIfColorAt(
@@ -562,14 +608,14 @@ class MacroProgramParser {
     final tolerance = step['tolerance'];
     final args = <String>[x, y, colorStr];
     if (tolerance != null) args.add('tolerance=$tolerance');
-    buffer.writeln('$indent ifColorAt(${args.join(', ')}) {');
+    buffer.writeln('${indent}ifColorAt(${args.join(', ')}) {');
     _serializeChildren(step['then'], indent, buffer);
     final elseBranch = step['else'];
     if (elseBranch is List && elseBranch.isNotEmpty) {
-      buffer.writeln('$indent } else {');
+      buffer.writeln('${indent}} else {');
       _serializeChildren(elseBranch, indent, buffer);
     }
-    buffer.writeln('$indent }');
+    buffer.writeln('${indent}}');
   }
 
   static void _serializeClick(
@@ -579,9 +625,9 @@ class MacroProgramParser {
     if (x != null && y != null) {
       final sx = _serializeExprValue(x);
       final sy = _serializeExprValue(y);
-      buffer.writeln('$indent click($sx, $sy)');
+      buffer.writeln('${indent}click($sx, $sy)');
     } else {
-      buffer.writeln('$indent click()');
+      buffer.writeln('${indent}click()');
     }
   }
 
@@ -591,7 +637,7 @@ class MacroProgramParser {
     final fromY = step['fromY'];
     if (fromX != null && fromY != null) {
       buffer.writeln(
-          '$indent swipe(fromX=${_serializeExprValue(fromX)}, fromY=${_serializeExprValue(fromY)}, dx=${_serializeExprValue(step['dx'])}, dy=${_serializeExprValue(step['dy'])}, duration=${_serializeExprValue(step['duration'])})');
+          '${indent}swipe(fromX=${_serializeExprValue(fromX)}, fromY=${_serializeExprValue(fromY)}, dx=${_serializeExprValue(step['dx'])}, dy=${_serializeExprValue(step['dy'])}, duration=${_serializeExprValue(step['duration'])})');
     } else {
       final start = step['start'] as Map?;
       final end = step['end'] as Map?;
@@ -601,12 +647,12 @@ class MacroProgramParser {
         final ex = _serializeExprValue(end['x']);
         final ey = _serializeExprValue(end['y']);
         final dur = _serializeExprValue(step['duration']);
-        buffer.writeln('$indent swipe($sx, $sy, $ex, $ey, $dur)');
+        buffer.writeln('${indent}swipe($sx, $sy, $ex, $ey, $dur)');
       } else {
         final dx = _serializeExprValue(step['dx']);
         final dy = _serializeExprValue(step['dy']);
         final dur = _serializeExprValue(step['duration']);
-        buffer.writeln('$indent swipe($dx, $dy, $dur)');
+        buffer.writeln('${indent}swipe($dx, $dy, $dur)');
       }
     }
   }
@@ -618,7 +664,7 @@ class MacroProgramParser {
     final dx = _serializeExprValue(step['dx']);
     final dy = _serializeExprValue(step['dy']);
     final dur = _serializeExprValue(step['duration']);
-    buffer.writeln('$indent swipeRel($fromX, $fromY, $dx, $dy, $dur)');
+    buffer.writeln('${indent}swipeRel($fromX, $fromY, $dx, $dy, $dur)');
   }
 
   /// 把 var / assign 步骤 JSON 紧凑序列化为 for 头部子句。
@@ -696,7 +742,7 @@ class MacroProgramParser {
     if (children == null) return;
     final list = (children as List).cast<Map<String, dynamic>>();
     for (final child in list) {
-      _serializeStep(child, '$indent    ', buffer);
+      _serializeStep(child, '${indent}    ', buffer);
     }
   }
 
@@ -734,6 +780,15 @@ class _BlockParser {
       }
       if (line.text == '{') {
         cursor++;
+        continue;
+      }
+      if (line.text.startsWith('#include')) {
+        final match = RegExp(r'^#include\s*<([^>]+)>$').firstMatch(line.text);
+        cursor++;
+        result.add({
+          'type': 'include',
+          'displayName': match?.group(1)?.trim() ?? '',
+        });
         continue;
       }
       // 保留注释行
@@ -814,13 +869,13 @@ class _BlockParser {
       };
     }
 
-    final match = RegExp(r'^(\w+)\s*\((.*)\)\s*(\{)?\s*$')
+    final match = RegExp(r'^(\w+)(?:\s*\((.*)\))?\s*(\{)?\s*$')
         .firstMatch(line.text);
     if (match == null) {
       throw MacroParseError('无法解析语句: ${line.text}', line.lineNumber);
     }
     final name = match.group(1)!;
-    final argsStr = match.group(2)!.trim();
+    final argsStr = (match.group(2) ?? '').trim();
     final hasBraceInline = match.group(3) == '{';
     cursor++;
 
@@ -836,6 +891,33 @@ class _BlockParser {
         step['expression'] = ExpressionParser.parse(argsStr).toJson();
         step.remove('condition');
       }
+    }
+
+    if (name == 'floater') {
+      if (hasBraceInline) {
+        step['children'] = parseBlock(stopOnCloseBrace: true);
+      } else if (cursor < lines.length && lines[cursor].text == '{') {
+        cursor++;
+        step['children'] = parseBlock(stopOnCloseBrace: true);
+      }
+      final closeLineIndex = cursor - 1;
+      if (closeLineIndex >= 0) {
+        final closeLineText = lines[closeLineIndex].text;
+        if (closeLineText.startsWith('}') && closeLineText.contains('else')) {
+          step['else'] = parseBlock(stopOnCloseBrace: true);
+        }
+      }
+      if (!step.containsKey('else') && cursor < lines.length) {
+        final nextLine = lines[cursor];
+        if (nextLine.text.startsWith('else')) {
+          cursor++;
+          if (cursor < lines.length && lines[cursor].text == '{') {
+            cursor++;
+          }
+          step['else'] = parseBlock(stopOnCloseBrace: true);
+        }
+      }
+      return MacroProgramParser._normalizeStep(step);
     }
 
     if (hasBraceInline) {
