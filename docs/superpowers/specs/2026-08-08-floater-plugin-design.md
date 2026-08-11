@@ -89,18 +89,26 @@ image("default.png")
 floater("click") {
     image("click.png")
     audio("click.mp3")
-    print("点击触发")
+    print("点击于 " + clickX + ", " + clickY)
+} else {
+    print("点击执行失败")
 }
 
 floater("swipe") {
     image("swipe.png")
+}
+
+floater("findText") {
+    print("找到文字：" + foundText)
+} else {
+    print("未找到文字")
 }
 ```
 
 ### 3.5 创建流程
 
 1. 主界面“编程球”区域点击“新建编程球”。
-2. 进入简化版编辑器，顶部固定模板：
+2. 进入简化版编辑器，默认填充完整模板（覆盖常见事件，并预置调试 `print` 以便查看可用变量）：
    ```dsl
    cornerRadius(16)
    size(56)
@@ -109,17 +117,33 @@ floater("swipe") {
    floater("click") {
        image("click.png")
        audio("click.mp3")
-       print("clicked")
+       print("点击于 " + clickX + ", " + clickY)
+   } else {
+       print("点击执行失败")
+   }
+
+   floater("swipe") {
+       print("从 " + swipeFromX + "," + swipeFromY + " 滑到 " + swipeToX + "," + swipeToY)
+   }
+
+   floater("findText") {
+       print("找到文字：" + foundText)
+   } else {
+       print("未找到文字")
    }
    ```
-3. 保存时只校验 floaterPlugin 相关指令，生成 manifest + floater.dsl + assets。
+3. 用户只需修改数值（圆角、大小、图片名、音频名、print 内容）。
+4. 保存时只校验 floaterPlugin 相关指令，生成 manifest + floater.dsl + assets。
 
-### 3.6 设置页
+### 3.6 设置页与资源导入
 
-floaterPlugin 的设置页只包含：
+floaterPlugin 的设置页包含：
 
 - 名称
 - 简介
+- **资源管理按钮**：进入资源导入页，可导入 jpg/png/gif 图片和 mp3 音频到插件 `assets/` 目录。
+
+资源导入页与现有编程宏的“导入图片”功能复用同一套文件选择与裁剪逻辑。
 
 不提供宏设置中的循环次数、特征点等参数。
 
@@ -166,24 +190,31 @@ floater("click") {
     image("click.png")
     audio("click.mp3")
     print("点击于 " + clickX + ", " + clickY)
+} else {
+    print("点击执行失败")
 }
 ```
 
+`else` 分支可选。当对应指令执行失败时执行 `else` 块。
+
 ### 5.2 支持的事件
 
-| 事件 | 触发时机 | 注入变量 |
-|---|---|---|
-| `click` | 执行 `click` 指令时 | `clickX`, `clickY` |
-| `swipe` | 执行 `swipe` / `swipeRel` 时 | `swipeFromX`, `swipeFromY`, `swipeToX`, `swipeToY` |
-| `input` | 执行 `input` 时 | `inputText` |
-| `findText` | `findText` 命中时 | `foundText` |
-| `findColor` | `findColor` 命中时 | `foundX`, `foundY` |
-| `findImage` | `findImage` 命中时 | `foundX`, `foundY` |
-| `launch` | `launch` 成功时 | `packageName` |
+| 事件 | 触发时机 | 注入变量 | 失败条件 |
+|---|---|---|---|
+| `click` | 执行 `click` 指令时 | `clickX`, `clickY` | 无有效坐标且不在 find 块内 |
+| `swipe` | 执行 `swipe` / `swipeRel` 时 | `swipeFromX`, `swipeFromY`, `swipeToX`, `swipeToY` | 参数无效导致无法滑动 |
+| `input` | 执行 `input` 时 | `inputText` | 未找到输入焦点 |
+| `findText` | `findText` 命中时 | `foundText` | 未找到文字 |
+| `findColor` | `findColor` 命中时 | `foundX`, `foundY` | 未找到颜色 |
+| `findImage` | `findImage` 命中时 | `foundX`, `foundY` | 未找到图片 |
+| `launch` | `launch` 执行后 | `packageName` | 启动失败 |
+| `waitForText` | `waitForText` 命中时 | `foundText` | 超时未命中 |
+| `waitForColor` | `waitForColor` 命中时 | `foundX`, `foundY` | 超时未命中 |
+| `waitForImage` | `waitForImage` 命中时 | `foundX`, `foundY` | 超时未命中 |
 
 ### 5.3 执行时机
 
-事件监听块在对应指令执行**之后**运行。
+事件监听块在对应指令执行**之后**运行。若指令执行失败且存在 `else` 分支，则执行 `else` 块。
 
 ### 5.4 块内特殊语义
 
@@ -268,7 +299,8 @@ audio("click.mp3")
 | `lib/providers/plugin_provider.dart` | 新增保存/加载 floaterPlugin 方法；区分 macro 与 floater 的保存逻辑。 |
 | `lib/screens/home_screen.dart` 或主列表 | “编程宏”下方新增“编程球”分隔区。 |
 | `lib/screens/floater_editor_screen.dart` | 新建简化编辑器，用于创建/编辑 floaterPlugin。 |
-| `lib/screens/floater_settings_screen.dart` | 仅名称和简介的设置页。 |
+| `lib/screens/floater_settings_screen.dart` | 名称、简介和资源管理入口。 |
+| `lib/screens/floater_assets_screen.dart` | 编程球资源导入页（图片+音频）。 |
 | `lib/screens/program_macro_screen.dart` | 指令提示条增加 `#include` 和 `floater`。 |
 | `lib/services/macro_program_parser.dart` | 解析 `#include`、`cornerRadius`、`size`、`image`、`audio`、`floater`。 |
 | `lib/services/macro_syntax_highlighter.dart` | 高亮新关键字。 |
