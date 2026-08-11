@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
 import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
@@ -17,61 +18,25 @@ class HomeScreen extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         final plugins = provider.plugins;
+        final macros = plugins.where((p) => !p.isFloater).toList();
+        final floaters = plugins.where((p) => p.isFloater).toList();
         return CustomScrollView(
           slivers: [
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'isolation',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w300,
-                        color: Colors.black.withValues(alpha: 0.85),
-                        letterSpacing: 1,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const FloaterEditorScreen(),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add_circle_outline_rounded,
-                                size: 16, color: Colors.white),
-                            SizedBox(width: 6),
-                            Text(
-                              '新建编程球',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'isolation',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w300,
+                    color: Colors.black.withValues(alpha: 0.85),
+                    letterSpacing: 1,
+                  ),
                 ),
               ),
             ),
-            if (plugins.isEmpty)
+            if (macros.isEmpty && floaters.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(
@@ -85,41 +50,79 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
               )
-            else
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final plugin = plugins[index];
-                      final isMacro = plugin.actions.any((a) => a.type == 'macro');
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: PluginCard(
-                          plugin: plugin,
-                          onEnabledChanged: (value) {
-                            provider.setEnabled(plugin.id, value);
-                          },
-                          trailing: isMacro && plugin.enabled
-                              ? _RunButton(
-                                  running: provider.runningMacroId == plugin.id,
-                                  onTap: () => _runMacro(context, provider, plugin.id),
-                                )
-                              : null,
-                          onTap: () {
-                            if (isMacro) {
-                              _runMacro(context, provider, plugin.id);
-                            } else if (plugin.actions.isNotEmpty) {
-                              _showActions(context, plugin);
-                            }
-                          },
+            else ...[
+              if (macros.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: _SectionHeader(
+                      title: '编程宏',
+                      icon: Icons.code_rounded,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                _buildPluginList(context, provider, macros),
+              ],
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: _SectionHeader(
+                    title: '编程球',
+                    icon: Icons.circle_notifications_rounded,
+                    color: Colors.deepPurple,
+                    trailing: GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const FloaterEditorScreen(),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple,
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                      );
-                    },
-                    childCount: plugins.length,
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.add_circle_outline_rounded,
+                                size: 14, color: Colors.white),
+                            SizedBox(width: 4),
+                            Text(
+                              '新建编程球',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
+              if (floaters.isNotEmpty)
+                _buildPluginList(context, provider, floaters)
+              else
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      '暂无编程球，点击上方按钮创建',
+                      style: TextStyle(
+                        color: Colors.grey.withValues(alpha: 0.6),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
             const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
           ],
         );
@@ -212,6 +215,83 @@ class HomeScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildPluginList(
+      BuildContext context, PluginProvider provider, List<Plugin> plugins) {
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final plugin = plugins[index];
+            final isMacro = plugin.actions.any((a) => a.type == 'macro');
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: PluginCard(
+                plugin: plugin,
+                onEnabledChanged: (value) {
+                  provider.setEnabled(plugin.id, value);
+                },
+                trailing: isMacro && plugin.enabled
+                    ? _RunButton(
+                        running: provider.runningMacroId == plugin.id,
+                        onTap: () => _runMacro(context, provider, plugin.id),
+                      )
+                    : null,
+                onTap: () {
+                  if (isMacro) {
+                    _runMacro(context, provider, plugin.id);
+                  } else if (plugin.actions.isNotEmpty) {
+                    _showActions(context, plugin);
+                  }
+                },
+              ),
+            );
+          },
+          childCount: plugins.length,
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final Widget? trailing;
+
+  const _SectionHeader({
+    required this.title,
+    required this.icon,
+    required this.color,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        ?trailing,
+      ],
     );
   }
 }
