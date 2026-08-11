@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/floater_config.dart';
 import '../models/macro.dart';
 import '../models/plugin.dart';
+import '../services/macro_program_parser.dart';
 import '../services/native_channel.dart';
 import '../services/plugin_manager.dart';
 
@@ -479,6 +480,68 @@ class PluginProvider extends ChangeNotifier {
     await _manager.savePlugins();
     notifyListeners();
     return true;
+  }
+
+  // Floater plugin save / load
+
+  Future<bool> saveFloaterPlugin({
+    required String name,
+    required String description,
+    required String source,
+    String? pluginId,
+  }) async {
+    final id = pluginId ?? 'com.example.isolation.floater.${DateTime.now().millisecondsSinceEpoch}';
+    final pluginDir = await _pluginDirectory();
+    final targetDir = Directory('${pluginDir.path}/$id');
+
+    if (await targetDir.exists()) {
+      await targetDir.delete(recursive: true);
+    }
+    await targetDir.create(recursive: true);
+
+    final steps = MacroProgramParser.parse(source);
+
+    final manifest = {
+      'id': id,
+      'type': 'floaterPlugin',
+      'name': name,
+      'version': '1.0.0',
+      'description': description,
+      'author': 'user',
+      'iconName': 'favorite',
+    };
+
+    await File('${targetDir.path}/manifest.json').writeAsString(jsonEncode(manifest));
+    await File('${targetDir.path}/floater.dsl').writeAsString(source);
+    await File('${targetDir.path}/floater.json').writeAsString(jsonEncode(steps));
+    await Directory('${targetDir.path}/assets').create();
+
+    _plugins.removeWhere((p) => p.id == id);
+    final plugin = Plugin.fromManifest(manifest);
+    _plugins.add(plugin);
+    _manager.replacePlugins(_plugins);
+    await _manager.savePlugins();
+    notifyListeners();
+    return true;
+  }
+
+  Future<String?> loadFloaterSource(String pluginId) async {
+    final pluginDir = await _pluginDirectory();
+    final file = File('${pluginDir.path}/$pluginId/floater.dsl');
+    if (await file.exists()) return file.readAsString();
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>?> loadFloaterSteps(String pluginId) async {
+    final pluginDir = await _pluginDirectory();
+    final file = File('${pluginDir.path}/$pluginId/floater.json');
+    if (!await file.exists()) return null;
+    final content = await file.readAsString();
+    final decoded = jsonDecode(content);
+    if (decoded is List) {
+      return decoded.cast<Map<String, dynamic>>();
+    }
+    return null;
   }
 
   // Macro assets

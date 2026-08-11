@@ -31,6 +31,7 @@ class Plugin {
   final String? iconName;
   final bool builtIn;
   final List<PluginAction> actions;
+  final String type;
   bool enabled;
 
   Plugin({
@@ -44,7 +45,11 @@ class Plugin {
     this.builtIn = false,
     this.actions = const [],
     this.enabled = false,
+    this.type = 'macro',
   });
+
+  String get pluginType => type;
+  bool get isFloater => type == 'floaterPlugin';
 
   factory Plugin.fromManifest(
     Map<String, dynamic> json, {
@@ -65,6 +70,7 @@ class Plugin {
       iconName: iconName ?? json['iconName'] as String?,
       builtIn: builtIn,
       actions: actions,
+      type: json['type'] as String? ?? 'macro',
     );
   }
 
@@ -78,6 +84,7 @@ class Plugin {
       'iconPath': iconPath,
       'iconName': iconName,
       'builtIn': builtIn,
+      'type': type,
       'actions': actions
           .map((a) => {
                 'type': a.type,
