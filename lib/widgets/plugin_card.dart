@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/plugin.dart';
+import '../screens/floater_settings_screen.dart';
+import '../screens/macro_settings_screen.dart';
 import 'glass_card.dart';
 
 class PluginCard extends StatelessWidget {
@@ -21,7 +23,7 @@ class PluginCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassCard(
       animate: true,
-      onTap: onTap,
+      onTap: () => _handleTap(context),
       child: Row(
         children: [
           _buildIcon(plugin),
@@ -103,6 +105,26 @@ class PluginCard extends StatelessWidget {
         presetIcon ?? (plugin.builtIn ? Icons.touch_app_rounded : Icons.extension_rounded),
         color: Colors.black54,
         size: 24,
+      ),
+    );
+  }
+
+  void _handleTap(BuildContext context) {
+    if (plugin.isFloater) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => FloaterSettingsScreen(pluginId: plugin.id),
+        ),
+      );
+      return;
+    }
+    if (onTap != null) {
+      onTap!();
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MacroSettingsScreen(pluginId: plugin.id),
       ),
     );
   }
