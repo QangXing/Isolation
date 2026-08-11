@@ -42,6 +42,12 @@ class MacroSyntaxHighlighter {
     'point',
     'color',
     'var',
+    'include',
+    'floater',
+    'cornerRadius',
+    'size',
+    'image',
+    'audio',
   ];
 
   static const Color _keywordColor = Color(0xFFBB86FC); // 紫色
@@ -67,6 +73,7 @@ class MacroSyntaxHighlighter {
     final regex = RegExp(
       r'("(?:[^"\\]|\\.)*")' // 字符串
       r'|(\/\/.*$)' // 单行注释
+      r'|(#include)' // include 指令
       r'|(\b(?:' +
           _keywords.join('|') +
           r')\b)' // 关键字
@@ -93,6 +100,8 @@ class MacroSyntaxHighlighter {
       } else if (match.group(3) != null) {
         style = keywordStyle;
       } else if (match.group(4) != null) {
+        style = keywordStyle;
+      } else if (match.group(5) != null) {
         style = numberStyle;
       } else {
         style = punctStyle;
