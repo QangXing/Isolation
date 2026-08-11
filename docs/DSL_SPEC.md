@@ -330,4 +330,171 @@ if (ok) { click(500, 800) }
 | `featureCount` | `findImage`、`waitForImage` | 8 | 特征点数量 |
 | `featurePointThreshold` | `findImage`、`waitForImage` | 0.8 | 特征点匹配比例 |
 | `colorTolerance` | `findImage`、`waitForImage` | 20 | 特征点颜色容差 |
-| `timeout` | `waitForText` 等、`launch` | 无 | 最长等待时间（毫秒） |
+| timeout | `waitForText` 等、`launch` | 无 | 最长等待时间（毫秒） |
+
+---
+
+## 11. 悬浮球配置
+
+悬浮球配置指令用于修改当前脚本或 `#include` 引用的 `floaterPlugin` 插件中悬浮球的外观与音效。
+
+### 11.1 cornerRadius
+
+```dsl
+cornerRadius(16)
+```
+
+设置悬浮球的圆角半径，参数为 dp 单位的整数。
+
+### 11.2 size
+
+```dsl
+size(56)
+```
+
+设置悬浮球的宽高尺寸，参数为 dp 单位的整数。
+
+### 11.3 image
+
+```dsl
+image("default.png")
+```
+
+设置悬浮球显示的图片。图片文件应位于 `floaterPlugin` 包目录下的 `assets/` 文件夹中，宏脚本通过文件名引用。
+
+### 11.4 audio
+
+```dsl
+audio("ding.mp3")
+```
+
+播放指定音效。音频文件同样应位于 `assets/` 文件夹中，仅在事件触发时播放。
+
+---
+
+## 12. 插件引用
+
+### 12.1 #include
+
+```dsl
+#include <插件显示名称>
+```
+
+引用一个 `floaterPlugin` 插件。被引用插件的 `floater.dsl` 中的悬浮球配置和事件处理器会进入当前宏脚本的执行上下文。
+
+- `<...>` 内填写插件的显示名称，即 `manifest.json` 中的 `name` 字段。
+- 一个宏脚本中可以包含多条 `#include` 指令。
+- 插件自身独立管理图片、音频等资源。
+
+---
+
+## 13. 事件监听
+
+### 13.1 floater
+
+```dsl
+floater("click") {
+    image("click.png")
+    audio("click.mp3")
+    print("点击于 " + clickX + ", " + clickY)
+} else {
+    print("点击执行失败")
+}
+```
+
+`floater("事件名") { ... }` 用于监听某个宏指令的执行结果：
+
+- 当对应事件成功执行后，运行主块内的指令。
+- 可选的 `else { ... }` 块在对应事件执行失败时运行。
+- 块内会自动注入与该事件相关的变量，可用于 `print`、条件判断或其他指令参数。
+
+### 13.2 事件注入变量
+
+| 事件 | 注入变量 | 说明 |
+|---|---|---|
+| `click` | `clickX`、`clickY` | 点击发生时的屏幕坐标 |
+| `swipe` / `swipeRel` | `swipeFromX`、`swipeFromY`、`swipeToX`、`swipeToY` | 滑动的起点与终点坐标 |
+| `findText` / `waitForText` | `foundText` | 命中目标的文字内容 |
+| `findColor` / `waitForColor` / `findImage` / `waitForImage` | `foundX`、`foundY` | 命中目标在屏幕上的坐标 |
+| `input` | `inputText` | 本次输入的文字内容 |
+| `launch` | `packageName` | 启动的应用包名 |
+
+这些变量仅在当前 `floater` 块内有效，离开块后不再保证其值。
+
+---
+
+## 14. floaterPlugin 包格式
+
+`floaterPlugin` 是一种特殊的插件包，用于封装悬浮球外观与事件处理逻辑。一个完整的包目录结构如下：
+
+```
+my_floater/
+├── manifest.json
+├── floater.dsl
+└── assets/
+    ├── default.png
+    ├── click.png
+    └── click.mp3
+```
+
+### 14.1 manifest.json
+
+插件元数据文件，字段说明如下：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | 字符串 | 插件唯一标识 |
+| `type` | 字符串 | 固定为 `"floaterPlugin"` |
+| `name` | 字符串 | 插件显示名称，供 `#include` 引用 |
+| `version` | 字符串 | 插件版本号 |
+| `description` | 字符串 | 插件描述 |
+| `author` | 字符串 | 作者 |
+| `iconName` | 字符串 | 图标名称 |
+
+示例：
+
+```json
+{
+  "id": "com.example.isolation.floater.my",
+  "type": "floaterPlugin",
+  "name": "我的悬浮球",
+  "version": "1.0.0",
+  "description": "示例悬浮球插件",
+  "author": "user",
+  "iconName": "favorite"
+}
+```
+
+### 14.2 floater.dsl
+
+插件核心脚本，包含悬浮球配置与事件监听逻辑。
+
+示例：
+
+```dsl
+cornerRadius(16)
+size(56)
+image("default.png")
+
+floater("click") {
+    image("click.png")
+    audio("click.mp3")
+    print("点击于 " + clickX + ", " + clickY)
+} else {
+    print("点击执行失败")
+}
+
+floater("swipe") {
+    print("从 " + swipeFromX + "," + swipeFromY + " 滑到 " + swipeToX + "," + swipeToY)
+}
+
+floater("findText") {
+    print("找到文字：" + foundText)
+} else {
+    print("未找到文字")
+}
+```
+
+### 14.3 assets 目录
+
+存放 `image(...)` 与 `audio(...)` 指令引用的图片、音频文件。脚本中通过文件名直接引用，不需要带 `assets/` 前缀。
