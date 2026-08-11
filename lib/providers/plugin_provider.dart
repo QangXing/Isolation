@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/floater_config.dart';
 import '../models/macro.dart';
 import '../models/plugin.dart';
 import '../services/native_channel.dart';
@@ -26,6 +27,24 @@ class PluginProvider extends ChangeNotifier {
   bool get isRunningMacro => _runningMacroId != null;
   String? get runningMacroId => _runningMacroId;
   bool get floatingBallVisible => _floatingBallVisible;
+
+  static const _defaultFloaterConfigKey = 'default_floater_config';
+
+  Future<FloaterConfig> loadDefaultFloaterConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_defaultFloaterConfigKey);
+    if (raw == null) return const FloaterConfig();
+    try {
+      return FloaterConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return const FloaterConfig();
+    }
+  }
+
+  Future<void> saveDefaultFloaterConfig(FloaterConfig config) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_defaultFloaterConfigKey, jsonEncode(config.toJson()));
+  }
 
   Future<void> load() async {
     await _manager.loadPlugins();
