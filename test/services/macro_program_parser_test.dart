@@ -211,4 +211,24 @@ loop("poll") {
     final serialized = MacroProgramParser.serialize(parsed).trim();
     expect(serialized, code);
   });
+
+  test('comments are preserved round-trip', () {
+    const code = '''
+// 初始化
+print("开始")
+
+// 循环查找
+loop {
+    // 等待签到按钮
+    waitForText("签到") {
+        click() // 点击按钮
+    }
+}
+// 结束
+'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.where((s) => s['type'] == 'comment').length, 4);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
 }

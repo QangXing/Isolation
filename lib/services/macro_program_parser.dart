@@ -341,6 +341,9 @@ class MacroProgramParser {
       var line = rawLines[idx];
       final commentIdx = _findCommentStart(line);
       if (commentIdx >= 0) {
+        final commentText = line.substring(commentIdx).trim();
+        // 保留注释，作为独立行以便反编译时恢复
+        result.add(_Line(idx + 1, commentText));
         line = line.substring(0, commentIdx);
       }
       line = line.trim();
@@ -475,6 +478,9 @@ class MacroProgramParser {
         } else {
           buffer.writeln('$indent breakLoop()');
         }
+        break;
+      case 'comment':
+        buffer.writeln('$indent// ${step['text']}');
         break;
       case 'let':
         buffer.writeln(
@@ -728,6 +734,12 @@ class _BlockParser {
       }
       if (line.text == '{') {
         cursor++;
+        continue;
+      }
+      // 保留注释行
+      if (line.text.startsWith('//')) {
+        cursor++;
+        result.add({'type': 'comment', 'text': line.text.substring(2).trim()});
         continue;
       }
       final step = _parseStatement();
