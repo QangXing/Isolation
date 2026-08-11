@@ -9,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Point
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.util.TypedValue
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -65,6 +67,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
         private const val PREF_NAME = "isolation_floating_ball"
         private const val KEY_CUSTOM_ICON = "custom_icon_path"
 
+        private const val DEFAULT_FLOATER_CONFIG_KEY = "default_floater_config"
+        private const val FLUTTER_SHARED_PREFS_NAME = "FlutterSharedPreferences"
+
         @Volatile
         private var instance: FloatingBallService? = null
 
@@ -107,6 +112,30 @@ class FloatingBallService : Service(), MacroExecutorListener {
         fun getCustomIcon(context: Context): String? {
             return prefs(context).getString(KEY_CUSTOM_ICON, null)
         }
+
+        private fun flutterPrefs(context: Context): SharedPreferences {
+            return context.getSharedPreferences(FLUTTER_SHARED_PREFS_NAME, Context.MODE_PRIVATE)
+        }
+
+        /** 应用完整的悬浮球配置（圆角、大小、图片）。 */
+        fun applyFloaterConfig(cornerRadiusDp: Int, sizeDp: Int, imagePath: String?) {
+            instance?.applyFloaterConfigInternal(cornerRadiusDp, sizeDp, imagePath)
+        }
+
+        /** 仅更新悬浮球圆角半径（dp）。 */
+        fun applyCornerRadius(value: Int) {
+            instance?.applyCornerRadiusInternal(value)
+        }
+
+        /** 仅更新悬浮球大小（dp）。 */
+        fun applySize(value: Int) {
+            instance?.applySizeInternal(value)
+        }
+
+        /** 仅更新悬浮球图片。 */
+        fun applyImage(path: String?) {
+            instance?.applyImageInternal(path)
+        }
     }
 
     private var windowManager: WindowManager? = null
@@ -137,9 +166,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
-    private val ballSizePx: Int by lazy {
-        val density = resources.displayMetrics.density
-        (BALL_SIZE_DP * density).toInt()
+    private var ballSizePx: Int = dpToPx(BALL_SIZE_DP)
+        private set
+
+    private fun dpToPx(dp: Int): Int {
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics).toInt()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -289,7 +320,15 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_ball, null)
         val ball = floatingView!!.findViewById<ImageView>(R.id.floating_ball_image)
-        applyCustomIconOrDefault()
+
+        // 读取并应用默认悬浮球配置
+        val config = loadDefaultFloaterConfig()
+        applyFloaterConfigInternal(
+            config.cornerRadius,
+            config.size,
+            config.imagePath ?: getCustomIcon(this)
+        )
+
         ball.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -422,9 +461,80 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun applyDefaultIcon() {
         val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
-        // 清除 src，让外层 FrameLayout 的 oval 背景显示为默认圆形悬浮球
+        // 清除 src，让外层 FrameLayout 的背景按当前圆角显示为默认悬浮球
         ball.setImageDrawable(null)
     }
+
+    private fun applyFloaterConfigInternal(cornerRadiusDp: Int, sizeDp: Int, imagePath: String?) {
+        applySizeInternal(sizeDp)
+        applyCornerRadiusInternal(cornerRadiusDp)
+        applyImageInternal(imagePath)
+    }
+
+    private fun applySizeInternal(sizeDp: Int) {
+        val sizePx = dpToPx(sizeDp)
+        ballSizePx = sizePx
+        val params = floatingParams ?: return
+        params.width = sizePx
+        params.height = sizePx
+        if (floatingView?.parent != null) {
+            try {
+                windowManager?.updateViewLayout(floatingView, params)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun applyCornerRadiusInternal(cornerRadiusDp: Int) {
+        val view = floatingView ?: return
+        val background = view.background as? GradientDrawable ?: return
+        background.setCornerRadius(
+            TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, cornerRadiusDp.toFloat(), resources.displayMetrics
+            )
+        )
+        view.invalidate()
+    }
+
+    private fun applyImageInternal(imagePath: String?) {
+        val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
+        if (imagePath != null && File(imagePath).exists()) {
+            try {
+                val bitmap = BitmapFactory.decodeFile(imagePath)
+                if (bitmap != null) {
+                    ball.setImageBitmap(bitmap)
+                } else {
+                    ball.setImageDrawable(null)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                ball.setImageDrawable(null)
+            }
+        } else {
+            ball.setImageDrawable(null)
+        }
+    }
+
+    private fun loadDefaultFloaterConfig(): FloaterConfig {
+        val raw = flutterPrefs(this).getString(DEFAULT_FLOATER_CONFIG_KEY, null) ?: return FloaterConfig()
+        return try {
+            val json = JSONObject(raw)
+            FloaterConfig(
+                cornerRadius = json.optInt("cornerRadius", 28),
+                size = json.optInt("size", 56),
+                imagePath = if (json.has("imagePath")) json.getString("imagePath") else null
+            )
+        } catch (e: Exception) {
+            FloaterConfig()
+        }
+    }
+
+    private data class FloaterConfig(
+        val cornerRadius: Int = 28,
+        val size: Int = 56,
+        val imagePath: String? = null
+    )
 
     internal fun postTouchEffect(effect: TouchEffect) {
         mainHandler.post {
