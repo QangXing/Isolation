@@ -166,8 +166,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
-    private var ballSizePx: Int = dpToPx(BALL_SIZE_DP)
-        private set
+    private var ballSizePx: Int = 0
 
     private fun dpToPx(dp: Int): Int {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics).toInt()
@@ -178,6 +177,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        ballSizePx = dpToPx(BALL_SIZE_DP)
         createNotificationChannel()
         MacroExecutor.addListener(this)
     }
@@ -321,13 +321,18 @@ class FloatingBallService : Service(), MacroExecutorListener {
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_ball, null)
         val ball = floatingView!!.findViewById<ImageView>(R.id.floating_ball_image)
 
-        // 读取并应用默认悬浮球配置
-        val config = loadDefaultFloaterConfig()
-        applyFloaterConfigInternal(
-            config.cornerRadius,
-            config.size,
-            config.imagePath ?: getCustomIcon(this)
-        )
+        // 读取并应用默认悬浮球配置（兜底：出错时仍使用旧逻辑，避免闪退）
+        try {
+            val config = loadDefaultFloaterConfig()
+            applyFloaterConfigInternal(
+                config.cornerRadius,
+                config.size,
+                config.imagePath ?: getCustomIcon(this)
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "应用默认悬浮球配置失败", e)
+            applyCustomIconOrDefault()
+        }
 
         ball.setOnTouchListener { _, event ->
             when (event.action) {
