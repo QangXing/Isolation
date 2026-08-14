@@ -132,6 +132,13 @@ class MainActivity : FlutterActivity() {
                 "getFloatingBallIcon" -> {
                     result.success(FloatingBallService.getCustomIcon(this))
                 }
+                "applyDefaultFloaterConfig" -> {
+                    val cornerRadius = call.argument<Int>("cornerRadius") ?: 28
+                    val size = call.argument<Int>("size") ?: 56
+                    val imagePath = call.argument<String>("imagePath")
+                    FloatingBallService.applyFloaterConfig(cornerRadius, size, imagePath)
+                    result.success(true)
+                }
                 "checkAccessibilityPermission" -> {
                     result.success(InputAccessibilityService.isEnabled(this))
                 }

@@ -351,8 +351,14 @@ class _FloatingBallToggleState extends State<_FloatingBallToggle> {
   }
 
   Future<void> _loadIconPath() async {
-    final path = await NativeChannel.getFloatingBallIcon();
-    if (mounted) setState(() => _iconPath = path);
+    // 优先读取默认悬浮球配置中的图片路径，保持与默认悬浮球设置一致；
+    // 若未设置，再回退到旧版独立图标存储，兼容历史数据。
+    final config = await context.read<PluginProvider>().loadDefaultFloaterConfig();
+    String? iconPath = config.imagePath;
+    if (iconPath == null || !File(iconPath).existsSync()) {
+      iconPath = await NativeChannel.getFloatingBallIcon();
+    }
+    if (mounted) setState(() => _iconPath = iconPath);
   }
 
   @override
@@ -689,6 +695,8 @@ class _DefaultFloaterSettingsState extends State<_DefaultFloaterSettings> {
     final target = File('${appDir.path}/default_floater_image${path.extension(result!.files.single.path!)}');
     await File(result.files.single.path!).copy(target.path);
     await _update(_config.copyWith(imagePath: target.path));
+    // 同步到旧版独立图标存储，保证管理页图标预览与悬浮球显示一致
+    await NativeChannel.setFloatingBallIcon(target.path);
   }
 }
 

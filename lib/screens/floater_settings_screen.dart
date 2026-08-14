@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
@@ -55,10 +53,13 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
     final name = _nameController.text.trim();
     final description = _descriptionController.text.trim();
 
-    final success = await _updateManifest(name, description);
-    if (success) {
-      await provider.load();
-    }
+    // 通过 Provider 统一更新：同时写 manifest.json 与 SharedPreferences 插件列表，
+    // 解决直接写 manifest 后资料卡不刷新/保存失效的问题。
+    final success = await provider.updateFloaterMetadata(
+      widget.pluginId,
+      name: name,
+      description: description,
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -71,23 +72,6 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
       if (success) {
         Navigator.of(context).pop();
       }
-    }
-  }
-
-  Future<bool> _updateManifest(String name, String description) async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final manifestFile = File('${appDir.path}/plugins/${widget.pluginId}/manifest.json');
-    if (!await manifestFile.exists()) return false;
-    try {
-      final content = await manifestFile.readAsString();
-      final manifest = jsonDecode(content) as Map<String, dynamic>;
-      manifest['name'] = name;
-      manifest['description'] = description;
-      await manifestFile.writeAsString(jsonEncode(manifest));
-      return true;
-    } catch (e) {
-      debugPrint('更新 manifest 失败: $e');
-      return false;
     }
   }
 

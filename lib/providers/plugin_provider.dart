@@ -45,6 +45,12 @@ class PluginProvider extends ChangeNotifier {
   Future<void> saveDefaultFloaterConfig(FloaterConfig config) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_defaultFloaterConfigKey, jsonEncode(config.toJson()));
+    // 同步到正在运行的悬浮球服务，确保修改实时生效（包括开机自启场景）
+    await NativeChannel.applyDefaultFloaterConfig(
+      cornerRadius: config.cornerRadius,
+      size: config.size,
+      imagePath: config.imagePath,
+    );
   }
 
   Future<void> load() async {
@@ -61,6 +67,14 @@ class PluginProvider extends ChangeNotifier {
         // 启动失败时清除持久化状态，避免应用启动即崩溃
         _floatingBallVisible = false;
         await prefs.setBool('floating_ball_visible', false);
+      } else {
+        // 启动成功后立即应用默认悬浮球配置，确保开机自启/恢复显示时参数与设置一致
+        final config = await loadDefaultFloaterConfig();
+        await NativeChannel.applyDefaultFloaterConfig(
+          cornerRadius: config.cornerRadius,
+          size: config.size,
+          imagePath: config.imagePath,
+        );
       }
     }
 
@@ -383,6 +397,51 @@ class PluginProvider extends ChangeNotifier {
     if (updatedPlugin.enabled) {
       await _writeEnabledMacro(updatedPlugin);
     }
+
+    notifyListeners();
+    return true;
+  }
+
+  /// 更新编程球（floaterPlugin）的元数据（名称、简介）。
+  /// 与宏插件不同：同时更新 manifest.json 与 SharedPreferences 中的插件列表，
+  /// 避免直接写 manifest 后调用 load() 仍读回旧数据。
+  Future<bool> updateFloaterMetadata(
+    String pluginId, {
+    required String name,
+    required String description,
+  }) async {
+    final pluginIndex = _plugins.indexWhere((p) => p.id == pluginId);
+    if (pluginIndex < 0) return false;
+
+    final plugin = _plugins[pluginIndex];
+    final pluginDir = await _pluginDirectory();
+
+    // 更新 manifest.json
+    final manifestFile = File('${pluginDir.path}/$pluginId/manifest.json');
+    if (await manifestFile.exists()) {
+      final manifestContent = await manifestFile.readAsString();
+      final manifest = jsonDecode(manifestContent) as Map<String, dynamic>;
+      manifest['name'] = name;
+      manifest['description'] = description;
+      await manifestFile.writeAsString(jsonEncode(manifest));
+    }
+
+    // 更新内存模型并持久化插件列表
+    final updatedPlugin = Plugin(
+      id: plugin.id,
+      name: name,
+      version: plugin.version,
+      description: description,
+      author: plugin.author,
+      iconPath: plugin.iconPath,
+      iconName: plugin.iconName,
+      builtIn: plugin.builtIn,
+      actions: plugin.actions,
+      enabled: plugin.enabled,
+      type: plugin.type,
+    );
+    _plugins[pluginIndex] = updatedPlugin;
+    await _manager.savePlugins();
 
     notifyListeners();
     return true;

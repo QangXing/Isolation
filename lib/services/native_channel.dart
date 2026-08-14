@@ -41,6 +41,23 @@ class NativeChannel {
     }
   }
 
+  static Future<bool> applyDefaultFloaterConfig({
+    required int cornerRadius,
+    required int size,
+    String? imagePath,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('applyDefaultFloaterConfig', {
+        'cornerRadius': cornerRadius,
+        'size': size,
+        'imagePath': imagePath,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<bool> setFloatingBallIcon(String? imagePath) async {
     try {
       final result = await _channel.invokeMethod<bool>('setFloatingBallIcon', {
