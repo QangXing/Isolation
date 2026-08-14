@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import '../services/macro_syntax_highlighter.dart';
+import '../widgets/code_editor.dart';
 
-/// 专业编程区。
+/// 专业编程区（全屏编辑器）。
 ///
-/// 全屏代码编辑器,无顶栏,左侧显示行号,底部显示快捷符号条。
+/// 支持双指缩放、横向滚动、文本延伸至屏幕外，并带有行号与缩进对齐线。
 class ProfessionalEditorScreen extends StatefulWidget {
   final String initialText;
 
@@ -19,9 +20,6 @@ class ProfessionalEditorScreen extends StatefulWidget {
 
 class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
   late final CodeEditingController _controller;
-  final ScrollController _editorScrollController = ScrollController();
-  final ScrollController _lineNumberScrollController = ScrollController();
-  late final Widget _editorField;
 
   static const List<String> _quickSymbolsRow1 = [
     '{', '}', '(', ')', ';', ',', '%', '=', '"', "'", '[', ']', '#', '->',
@@ -30,45 +28,16 @@ class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
     '+', '-', '*', '/', '<', '>', '\\', '|', '&', '!', '~', ':', '_', '<-',
   ];
 
-  static const double _gutterWidth = 42;
-  static const double _fontSize = 14;
-  static const double _lineHeightFactor = 1.5;
-  static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(8, 12, 12, 12);
-
-  static const TextStyle _textStyle = TextStyle(
-    fontFamily: 'monospace',
-    fontSize: _fontSize,
-    color: Color(0xFFE0E0E0),
-    height: _lineHeightFactor,
-  );
-
-  static final TextStyle _lineNumberStyle = _textStyle.copyWith(
-    color: const Color(0xFF6E6E6E),
-  );
-
-  double get _singleLineHeight => _fontSize * _lineHeightFactor;
-
   @override
   void initState() {
     super.initState();
     _controller = CodeEditingController(text: widget.initialText);
-    _editorField = _buildEditor();
-    _editorScrollController.addListener(_syncLineNumbers);
   }
 
   @override
   void dispose() {
-    _editorScrollController.removeListener(_syncLineNumbers);
-    _editorScrollController.dispose();
-    _lineNumberScrollController.dispose();
     _controller.dispose();
     super.dispose();
-  }
-
-  void _syncLineNumbers() {
-    if (_lineNumberScrollController.hasClients) {
-      _lineNumberScrollController.jumpTo(_editorScrollController.offset);
-    }
   }
 
   void _insertSymbol(String symbol) {
@@ -87,99 +56,24 @@ class _ProfessionalEditorScreenState extends State<ProfessionalEditorScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            Expanded(child: _buildEditorArea()),
+            Expanded(
+              child: CodeEditor(
+                controller: _controller,
+                showLineNumbers: true,
+                showIndentGuides: true,
+                enableHorizontalScroll: true,
+                enableZoom: true,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: '在此输入宏代码…',
+                  hintStyle: TextStyle(color: Color(0xFF757575)),
+                ),
+              ),
+            ),
             _buildQuickSymbolBar(),
             _buildBottomActionBar(),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildEditorArea() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final editorWidth = constraints.maxWidth - _gutterWidth;
-        final textWidth = (editorWidth - _contentPadding.horizontal).clamp(
-          0.0,
-          double.infinity,
-        );
-        return ValueListenableBuilder<TextEditingValue>(
-          valueListenable: _controller,
-          builder: (context, value, child) {
-            final lineHeights = _computeLineHeights(textWidth);
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildLineNumberGutter(lineHeights),
-                Expanded(child: child!),
-              ],
-            );
-          },
-          child: _editorField,
-        );
-      },
-    );
-  }
-
-  List<double> _computeLineHeights(double maxWidth) {
-    final painter = TextPainter(
-      textDirection: TextDirection.ltr,
-      text: const TextSpan(),
-    );
-    return _controller.text.split('\n').map((line) {
-      painter.text = TextSpan(text: line, style: _textStyle);
-      painter.layout(minWidth: 0, maxWidth: maxWidth);
-      final visualLines = painter.computeLineMetrics().length;
-      return visualLines * _singleLineHeight;
-    }).toList();
-  }
-
-  Widget _buildLineNumberGutter(List<double> lineHeights) {
-    return Container(
-      width: _gutterWidth,
-      color: const Color(0xFF1A1A1A),
-      child: SingleChildScrollView(
-        controller: _lineNumberScrollController,
-        physics: const NeverScrollableScrollPhysics(),
-        child: Padding(
-          padding: EdgeInsets.only(
-            top: _contentPadding.top,
-            bottom: _contentPadding.bottom,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: List.generate(lineHeights.length, (index) {
-              return Container(
-                height: lineHeights[index],
-                alignment: Alignment.topRight,
-                padding: const EdgeInsets.only(right: 8),
-                child: Text(
-                  '${index + 1}',
-                  style: _lineNumberStyle,
-                ),
-              );
-            }),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEditor() {
-    return TextField(
-      controller: _controller,
-      scrollController: _editorScrollController,
-      maxLines: null,
-      expands: true,
-      keyboardType: TextInputType.multiline,
-      textInputAction: TextInputAction.newline,
-      style: _textStyle,
-      decoration: const InputDecoration(
-        contentPadding: _contentPadding,
-        border: InputBorder.none,
-        hintText: '在此输入宏代码…',
-        hintStyle: TextStyle(color: Color(0xFF757575)),
       ),
     );
   }

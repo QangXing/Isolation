@@ -5,6 +5,7 @@ import '../models/macro.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
+import '../widgets/code_editor.dart';
 import 'image_crop_screen.dart';
 import 'professional_editor_screen.dart';
 
@@ -441,33 +442,14 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
         color: const Color(0xFF1E1E1E),
         borderRadius: BorderRadius.circular(16),
       ),
+      clipBehavior: Clip.hardEdge,
       child: Stack(
         children: [
-          // 缩进对齐参考线
-          Positioned.fill(
-            left: 16,
-            right: 16,
-            top: 16,
-            bottom: 16,
-            child: CustomPaint(
-              painter: _IndentGuidePainter(
-                indentWidth: 18,
-                color: const Color(0xFFE0E0E0).withValues(alpha: 0.15),
-              ),
-            ),
-          ),
-          TextField(
+          CodeEditor(
             controller: _codeController,
-            maxLines: null,
-            expands: true,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 14,
-              color: Color(0xFFE0E0E0),
-              height: 1.5,
-            ),
+            showLineNumbers: true,
+            showIndentGuides: true,
             decoration: const InputDecoration(
-              contentPadding: EdgeInsets.all(16),
               border: InputBorder.none,
               hintText: '在此输入宏代码…',
               hintStyle: TextStyle(color: Color(0xFF757575)),

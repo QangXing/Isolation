@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
+import '../widgets/code_editor.dart';
 
 class FloaterEditorScreen extends StatefulWidget {
   /// 编辑现有 floaterPlugin 时传入 pluginId；新建时不传。
@@ -119,39 +120,17 @@ floater("findText") {
         color: const Color(0xFF1E1E1E),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            left: 16,
-            right: 16,
-            top: 16,
-            bottom: 16,
-            child: CustomPaint(
-              painter: _IndentGuidePainter(
-                indentWidth: 18,
-                color: const Color(0xFFE0E0E0).withValues(alpha: 0.15),
-              ),
-            ),
-          ),
-          TextField(
-            controller: _codeController,
-            maxLines: null,
-            expands: true,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 14,
-              color: Color(0xFFE0E0E0),
-              height: 1.5,
-            ),
-            decoration: const InputDecoration(
-              contentPadding: EdgeInsets.all(16),
-              border: InputBorder.none,
-              hintText: '在此输入悬浮球 DSL…',
-              hintStyle: TextStyle(color: Color(0xFF757575)),
-            ),
-            onChanged: (_) => setState(() {}),
-          ),
-        ],
+      clipBehavior: Clip.hardEdge,
+      child: CodeEditor(
+        controller: _codeController,
+        showLineNumbers: true,
+        showIndentGuides: true,
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          hintText: '在此输入悬浮球 DSL…',
+          hintStyle: TextStyle(color: Color(0xFF757575)),
+        ),
+        onChanged: (_) => setState(() {}),
       ),
     );
   }
