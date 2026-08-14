@@ -1,11 +1,9 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
-import '../models/floater_config.dart';
 import '../providers/plugin_provider.dart';
 import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
@@ -82,9 +80,6 @@ class ManageScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     // 悬浮球总开关
                     _FloatingBallToggle(),
-                    const SizedBox(height: 12),
-                    // 默认悬浮球设置
-                    _DefaultFloaterSettings(),
                   ],
                 ),
               ),
@@ -351,14 +346,8 @@ class _FloatingBallToggleState extends State<_FloatingBallToggle> {
   }
 
   Future<void> _loadIconPath() async {
-    // 优先读取默认悬浮球配置中的图片路径，保持与默认悬浮球设置一致；
-    // 若未设置，再回退到旧版独立图标存储，兼容历史数据。
-    final config = await context.read<PluginProvider>().loadDefaultFloaterConfig();
-    String? iconPath = config.imagePath;
-    if (iconPath == null || !File(iconPath).existsSync()) {
-      iconPath = await NativeChannel.getFloatingBallIcon();
-    }
-    if (mounted) setState(() => _iconPath = iconPath);
+    final path = await NativeChannel.getFloatingBallIcon();
+    if (mounted) setState(() => _iconPath = path);
   }
 
   @override
@@ -624,113 +613,5 @@ class _FloatingBallToggleState extends State<_FloatingBallToggle> {
         );
       }
     }
-  }
-}
-
-/// 默认悬浮球外观设置面板。
-class _DefaultFloaterSettings extends StatefulWidget {
-  const _DefaultFloaterSettings();
-
-  @override
-  State<_DefaultFloaterSettings> createState() => _DefaultFloaterSettingsState();
-}
-
-class _DefaultFloaterSettingsState extends State<_DefaultFloaterSettings> {
-  FloaterConfig _config = const FloaterConfig();
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final config = await context.read<PluginProvider>().loadDefaultFloaterConfig();
-    if (mounted) setState(() => _config = config);
-  }
-
-  Future<void> _update(FloaterConfig config) async {
-    await context.read<PluginProvider>().saveDefaultFloaterConfig(config);
-    setState(() => _config = config);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('默认悬浮球', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87)),
-          const SizedBox(height: 12),
-          Text('圆角: ${_config.cornerRadius}dp', style: TextStyle(fontSize: 13, color: Colors.black54)),
-          Slider(
-            value: _config.cornerRadius.toDouble(),
-            min: 0,
-            max: 28,
-            divisions: 28,
-            onChanged: (v) => _update(_config.copyWith(cornerRadius: v.round())),
-          ),
-          Text('大小: ${_config.size}dp', style: TextStyle(fontSize: 13, color: Colors.black54)),
-          Slider(
-            value: _config.size.toDouble(),
-            min: 40,
-            max: 80,
-            divisions: 40,
-            onChanged: (v) => _update(_config.copyWith(size: v.round())),
-          ),
-          const SizedBox(height: 8),
-          _ActionButton(
-            label: _config.imagePath == null ? '选择图片' : '更换图片',
-            onTap: _pickImage,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result?.files.single.path == null) return;
-    final appDir = await getApplicationDocumentsDirectory();
-    final target = File('${appDir.path}/default_floater_image${path.extension(result!.files.single.path!)}');
-    await File(result.files.single.path!).copy(target.path);
-    await _update(_config.copyWith(imagePath: target.path));
-    // 同步到旧版独立图标存储，保证管理页图标预览与悬浮球显示一致
-    await NativeChannel.setFloatingBallIcon(target.path);
-  }
-}
-
-/// 管理页默认悬浮球设置中的动作按钮。
-class _ActionButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _ActionButton({
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
