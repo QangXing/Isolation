@@ -1,17 +1,21 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/floater_config.dart';
+import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
 import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 import 'coordinate_debug_screen.dart';
+import 'default_floater_settings_screen.dart';
+import 'floater_editor_screen.dart';
+import 'floater_settings_screen.dart';
 import 'image_crop_screen.dart';
 import 'macro_settings_screen.dart';
+import 'program_hub_screen.dart';
 import 'program_macro_screen.dart';
 import 'recording_screen.dart';
 
@@ -57,8 +61,8 @@ class ManageScreen extends StatelessWidget {
                         Expanded(
                           child: _ActionTile(
                             icon: Icons.code_rounded,
-                            label: '编程宏',
-                            onTap: () => _createProgramMacro(context),
+                            label: '编程',
+                            onTap: () => _showProgrammingOptions(context),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -83,8 +87,8 @@ class ManageScreen extends StatelessWidget {
                     // 悬浮球总开关
                     _FloatingBallToggle(),
                     const SizedBox(height: 12),
-                    // 默认悬浮球设置
-                    _DefaultFloaterSettings(),
+                    // 默认悬浮球入口
+                    _DefaultFloaterCard(),
                   ],
                 ),
               ),
@@ -136,29 +140,9 @@ class ManageScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              if (isMacro)
-                                _IconAction(
-                                  icon: Icons.code_rounded,
-                                  tooltip: '编辑代码',
-                                  onTap: () => _editAsProgramMacro(context, plugin.id),
-                                ),
-                              if (isMacro)
-                                _IconAction(
-                                  icon: Icons.settings_rounded,
-                                  tooltip: '设置',
-                                  onTap: () => _openMacroSettings(context, plugin.id),
-                                ),
-                              if (isMacro)
-                                _IconAction(
-                                  icon: Icons.share_rounded,
-                                  tooltip: '导出',
-                                  onTap: () => _exportPlugin(context, provider, plugin.id),
-                                ),
-                              _IconAction(
-                                icon: Icons.delete_outline_rounded,
-                                tooltip: '删除',
-                                danger: true,
-                                onTap: () => provider.deletePlugin(plugin.id),
+                              _PluginActions(
+                                plugin: plugin,
+                                provider: provider,
                               ),
                             ],
                           ),
@@ -182,9 +166,78 @@ class ManageScreen extends StatelessWidget {
     );
   }
 
-  void _createProgramMacro(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ProgramMacroScreen()),
+  void _showProgrammingOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                '编程',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black.withValues(alpha: 0.85),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: _ProgrammingOption(
+                      icon: Icons.code_rounded,
+                      label: '编程宏',
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const ProgramHubScreen(initialFloaterTab: false),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _ProgrammingOption(
+                      icon: Icons.gamepad_rounded,
+                      label: '球',
+                      dark: true,
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const ProgramHubScreen(initialFloaterTab: true),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -192,6 +245,14 @@ class ManageScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ProgramMacroScreen(pluginId: pluginId),
+      ),
+    );
+  }
+
+  void _openFloaterEditor(BuildContext context, String pluginId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FloaterEditorScreen(pluginId: pluginId),
       ),
     );
   }
@@ -205,6 +266,12 @@ class ManageScreen extends StatelessWidget {
   void _openMacroSettings(BuildContext context, String pluginId) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => MacroSettingsScreen(pluginId: pluginId)),
+    );
+  }
+
+  void _openFloaterSettings(BuildContext context, String pluginId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => FloaterSettingsScreen(pluginId: pluginId)),
     );
   }
 
@@ -232,7 +299,7 @@ class ManageScreen extends StatelessWidget {
   }
 
   Future<void> _exportPlugin(BuildContext context, PluginProvider provider, String pluginId) async {
-    final path = await provider.exportMacroPlugin(pluginId);
+    final path = await provider.exportPlugin(pluginId);
     if (path == null) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -615,15 +682,15 @@ class _FloatingBallToggleState extends State<_FloatingBallToggle> {
   }
 }
 
-/// 默认悬浮球外观设置面板。
-class _DefaultFloaterSettings extends StatefulWidget {
-  const _DefaultFloaterSettings();
+/// 管理页默认悬浮球入口卡片，点击进入独立设置页。
+class _DefaultFloaterCard extends StatefulWidget {
+  const _DefaultFloaterCard();
 
   @override
-  State<_DefaultFloaterSettings> createState() => _DefaultFloaterSettingsState();
+  State<_DefaultFloaterCard> createState() => _DefaultFloaterCardState();
 }
 
-class _DefaultFloaterSettingsState extends State<_DefaultFloaterSettings> {
+class _DefaultFloaterCardState extends State<_DefaultFloaterCard> {
   FloaterConfig _config = const FloaterConfig();
 
   @override
@@ -637,62 +704,164 @@ class _DefaultFloaterSettingsState extends State<_DefaultFloaterSettings> {
     if (mounted) setState(() => _config = config);
   }
 
-  Future<void> _update(FloaterConfig config) async {
-    await context.read<PluginProvider>().saveDefaultFloaterConfig(config);
-    setState(() => _config = config);
-  }
-
   @override
   Widget build(BuildContext context) {
+    final hasImage = _config.imagePath != null && File(_config.imagePath!).existsSync();
     return GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      onTap: () {
+        Navigator.of(context)
+            .push(
+              MaterialPageRoute(builder: (_) => const DefaultFloaterSettingsScreen()),
+            )
+            .then((_) => _load());
+      },
+      child: Row(
         children: [
-          Text('默认悬浮球', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87)),
-          const SizedBox(height: 12),
-          Text('圆角: ${_config.cornerRadius}dp', style: TextStyle(fontSize: 13, color: Colors.black54)),
-          Slider(
-            value: _config.cornerRadius.toDouble(),
-            min: 0,
-            max: 28,
-            divisions: 28,
-            onChanged: (v) => _update(_config.copyWith(cornerRadius: v.round())),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: hasImage
+                ? Image.file(
+                    File(_config.imagePath!),
+                    fit: BoxFit.cover,
+                  )
+                : Icon(
+                    Icons.touch_app_rounded,
+                    color: Colors.black.withValues(alpha: 0.5),
+                    size: 24,
+                  ),
           ),
-          Text('大小: ${_config.size}dp', style: TextStyle(fontSize: 13, color: Colors.black54)),
-          Slider(
-            value: _config.size.toDouble(),
-            min: 40,
-            max: 80,
-            divisions: 40,
-            onChanged: (v) => _update(_config.copyWith(size: v.round())),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '默认悬浮球',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black.withValues(alpha: 0.85),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '圆角 ${_config.cornerRadius}dp · 大小 ${_config.size}dp · ${hasImage ? '自定义图' : '默认图'}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.withValues(alpha: 0.6),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          _ActionButton(
-            label: _config.imagePath == null ? '选择图片' : '更换图片',
-            onTap: _pickImage,
+          Icon(
+            Icons.chevron_right_rounded,
+            color: Colors.black.withValues(alpha: 0.3),
           ),
         ],
       ),
     );
   }
+}
 
-  Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result?.files.single.path == null) return;
-    final appDir = await getApplicationDocumentsDirectory();
-    final target = File('${appDir.path}/default_floater_image${path.extension(result!.files.single.path!)}');
-    await File(result.files.single.path!).copy(target.path);
-    await _update(_config.copyWith(imagePath: target.path));
+/// 插件卡片右侧的操作按钮组：编辑代码、设置、分享、删除。
+class _PluginActions extends StatelessWidget {
+  final Plugin plugin;
+  final PluginProvider provider;
+
+  const _PluginActions({required this.plugin, required this.provider});
+
+  bool get _isFloater => plugin.isFloater;
+
+  void _edit(BuildContext context) {
+    if (_isFloater) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => FloaterEditorScreen(pluginId: plugin.id)),
+      );
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ProgramMacroScreen(pluginId: plugin.id)),
+      );
+    }
+  }
+
+  void _openSettings(BuildContext context) {
+    if (_isFloater) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => FloaterSettingsScreen(pluginId: plugin.id)),
+      );
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => MacroSettingsScreen(pluginId: plugin.id)),
+      );
+    }
+  }
+
+  Future<void> _share(BuildContext context) async {
+    final path = await provider.exportPlugin(plugin.id);
+    if (path == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('导出失败'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+    await Share.shareXFiles([XFile(path)]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _IconAction(
+          icon: Icons.code_rounded,
+          tooltip: '编辑代码',
+          onTap: () => _edit(context),
+        ),
+        _IconAction(
+          icon: Icons.settings_rounded,
+          tooltip: '设置',
+          onTap: () => _openSettings(context),
+        ),
+        _IconAction(
+          icon: Icons.share_rounded,
+          tooltip: '导出',
+          onTap: () => _share(context),
+        ),
+        _IconAction(
+          icon: Icons.delete_outline_rounded,
+          tooltip: '删除',
+          danger: true,
+          onTap: () => provider.deletePlugin(plugin.id),
+        ),
+      ],
+    );
   }
 }
 
-/// 管理页默认悬浮球设置中的动作按钮。
-class _ActionButton extends StatelessWidget {
+/// 编程选择底部弹窗中的选项卡片。
+class _ProgrammingOption extends StatelessWidget {
+  final IconData icon;
   final String label;
+  final bool dark;
   final VoidCallback onTap;
 
-  const _ActionButton({
+  const _ProgrammingOption({
+    required this.icon,
     required this.label,
+    this.dark = false,
     required this.onTap,
   });
 
@@ -700,21 +869,31 @@ class _ActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 28),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(16),
+          color: dark ? Colors.black87 : Colors.black.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(20),
         ),
-        child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 32,
+              color: dark ? Colors.white : Colors.black.withValues(alpha: 0.8),
             ),
-          ),
+            const SizedBox(height: 12),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: dark ? Colors.white : Colors.black.withValues(alpha: 0.85),
+              ),
+            ),
+          ],
         ),
       ),
     );

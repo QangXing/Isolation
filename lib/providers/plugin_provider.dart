@@ -585,6 +585,10 @@ class PluginProvider extends ChangeNotifier {
   }
 
   Future<String?> exportMacroPlugin(String pluginId) async {
+    return exportPlugin(pluginId);
+  }
+
+  Future<String?> exportPlugin(String pluginId) async {
     final plugin = _plugins.firstWhere(
       (p) => p.id == pluginId,
       orElse: () => Plugin(id: '', name: '', version: '', description: '', author: ''),

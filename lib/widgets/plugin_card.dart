@@ -110,16 +110,16 @@ class PluginCard extends StatelessWidget {
   }
 
   void _handleTap(BuildContext context) {
+    if (onTap != null) {
+      onTap!();
+      return;
+    }
     if (plugin.isFloater) {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => FloaterSettingsScreen(pluginId: plugin.id),
         ),
       );
-      return;
-    }
-    if (onTap != null) {
-      onTap!();
       return;
     }
     Navigator.of(context).push(
