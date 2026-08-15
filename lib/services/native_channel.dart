@@ -12,26 +12,6 @@ class NativeChannel {
     }
   }
 
-  /// 检查 Android 13 (API 33)+ 的通知运行时权限。
-  /// 低版本始终返回 true（通知权限不需要运行时请求）。
-  static Future<bool> checkNotificationPermission() async {
-    try {
-      final result = await _channel.invokeMethod<bool>('checkNotificationPermission');
-      return result ?? true;
-    } catch (e) {
-      return true;
-    }
-  }
-
-  /// 请求通知权限（Android 13+ 生效）。用于确保前台服务的通知能正常显示。
-  static Future<void> requestNotificationPermission() async {
-    try {
-      await _channel.invokeMethod('requestNotificationPermission');
-    } catch (e) {
-      // Ignore
-    }
-  }
-
   static Future<bool> requestOverlayPermission() async {
     try {
       final result = await _channel.invokeMethod<bool>('requestOverlayPermission');

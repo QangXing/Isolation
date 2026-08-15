@@ -495,7 +495,6 @@ class _FloatingBallToggleState extends State<_FloatingBallToggle> {
   Future<void> _onToggle(BuildContext context, bool value) async {
     final provider = context.read<PluginProvider>();
     final hasOverlay = await NativeChannel.checkOverlayPermission();
-    final hasNotification = await NativeChannel.checkNotificationPermission();
 
     if (value && !hasOverlay) {
       // 缺少悬浮窗权限时弹出提示并引导授权
@@ -522,11 +521,6 @@ class _FloatingBallToggleState extends State<_FloatingBallToggle> {
       await NativeChannel.requestOverlayPermission();
       // 授权页返回后，仍由用户再次点击开关触发；避免自动判断时序问题
       return;
-    }
-
-    // Android 13+：开启悬浮球时如果没有通知权限，先请求一次，避免前台服务通知不显示
-    if (value && !hasNotification) {
-      await NativeChannel.requestNotificationPermission();
     }
 
     await provider.setFloatingBallVisible(value);

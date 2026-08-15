@@ -179,26 +179,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
         instance = this
         ballSizePx = dpToPx(BALL_SIZE_DP)
         createNotificationChannel()
-        // Android 14 (API 34) + 要求 startForegroundService 后 10 秒内必须调用 startForeground，
-        // 否则会抛出 ForegroundServiceDidNotStartInTimeException。
-        // 把 startForeground 前置到 onCreate，保证在任何 onStartCommand 逻辑前完成。
-        try {
-            startForegroundNotification(NORMAL_FGS_TYPES)
-        } catch (e: Exception) {
-            Log.e(TAG, "onCreate 启动前台通知失败", e)
-            // 即使启动通知失败也不立刻 stopSelf，防止 startForegroundService 抛异常后状态不一致；
-            // 后续 onStartCommand 仍会再次尝试。
-        }
         MacroExecutor.addListener(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 兜底：Android 12+ 部分厂商在 onCreate 之后仍要求通过 onStartCommand 再调用一次 startForeground，
-        // 这里再次尝试，失败不影响业务逻辑
+        // Android 14+ 要求前台服务尽快调用 startForeground，避免 ANR
         try {
+            // 仅使用 specialUse 类型启动，mediaProjection 类型在没有活跃投影时会导致 SecurityException
             startForegroundNotification(NORMAL_FGS_TYPES)
         } catch (e: Exception) {
-            Log.e(TAG, "onStartCommand 前台通知再次调用失败，继续运行", e)
+            Log.e(TAG, "启动前台通知失败", e)
+            Toast.makeText(this, "悬浮球服务启动失败: ${e.message}", Toast.LENGTH_LONG).show()
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         try {
@@ -276,49 +269,26 @@ class FloatingBallService : Service(), MacroExecutorListener {
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        // Android 13 (API 33) POST_NOTIFICATIONS 运行时权限：未授权时 NotificationManager 可能拒绝显示通知，
-        // 但 startForeground 本身仍必须调用（否则 Android 14 会抛 FGS 未启动异常）。
-        // 通过 NotificationCompat 设置 foregroundServiceBehavior 为 IMMEDIATE，
-        // 并使用 FOREGROUND_SERVICE_IMMEDIATE 避免 Android 12+ 延迟显示。
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("isolation")
             .setContentText("悬浮球宏正在运行")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            // Android 12+ (API 31) 前台服务延迟启动豁免，确保调用 startForeground 后立即生效
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                // Android 14+：严格检查前台服务类型必须与 Manifest 中声明的子集一致
-                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, serviceTypes)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-        } catch (e: Exception) {
-            // 部分厂商 ROM（如华为、小米、OPPO）在无通知权限时会抛 SecurityException 或其他 RuntimeException，
-            // 这里兜底降级：若 ServiceCompat 失败，重试使用基础 startForeground（不带类型）
-            Log.w(TAG, "startForeground 首次调用失败(${e.javaClass.simpleName}: ${e.message})，尝试降级启动", e)
-            try {
-                startForeground(NOTIFICATION_ID, notification)
-            } catch (e2: Exception) {
-                Log.e(TAG, "startForeground 降级启动也失败，服务将继续运行但可能被系统杀死", e2)
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, serviceTypes)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
         }
     }
 
     private fun stopForegroundService() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "stopForeground 调用失败，忽略", e)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
         }
     }
 
