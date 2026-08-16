@@ -1,6 +1,6 @@
 # Isolation 多球 DSL 总设计
 
-> 本文档确定 `floaterPlugin`（编程球）的下一代 DSL 总结构：一个球文件可声明多个悬浮球（1 个主球 + N 个副球），支持独立形态、位置、显隐控制与坐标获取。
+> 本文档确定 `floaterPlugin`（编程球）的下一代 DSL 总结构：一个球文件可声明多个悬浮球（1 个主球 + N 个副球），每个球独立声明形态、位置、显隐状态，并支持运行时坐标获取。
 >
 > 本设计替代 [BALL_SPEC.md](./BALL_SPEC.md) 中“单球全局配置”的旧写法，后续实现与解析器均以此为准。
 
@@ -9,9 +9,9 @@
 ## 1. 设计目标
 
 1. **多球共存**：一个 `floater.dsl` 可以声明一个主球和多个副球，分别对应不同功能入口。
-2. **形态可缺省**：每个球可以只声明自己关心的形态参数，未声明项继承全局默认值；全局默认值也未声明时，继承系统默认悬浮球参数。
-3. **位置与显隐可控**：支持设置球起始位置、运行时显示/隐藏，并能读取球的当前坐标。
-4. **与旧指令兼容**：事件监听 `floater("...") { ... }`、变量、表达式等机制保持不变。
+2. **每个球独立配置**：大小、圆角、图片、位置、显隐等形态参数都在各自的 `ball(...)` 块内声明，互不干扰。
+3. **缺省回退**：球内未显式声明的形态参数，统一沿用 **系统默认悬浮球参数**。
+4. **运行时可控**：支持动态显示/隐藏、移动位置，并能读取球的当前坐标。
 5. **不再依赖 `#include`**：球文件启用后即可独立生效。
 
 ---
@@ -19,12 +19,7 @@
 ## 2. 文件总体结构
 
 ```dsl
-// ── 1. 全局默认形态声明（可选） ──
-size(56)
-cornerRadius(28)
-image("default.png")
-
-// ── 2. 主球声明（必须且唯一） ──
+// ── 1. 主球声明（必须且唯一） ──
 ball(main, "mainBall") {
     size(64)
     cornerRadius(16)
@@ -39,14 +34,16 @@ ball(main, "mainBall") {
     }
 }
 
-// ── 3. 副球声明（可选，可多个） ──
+// ── 2. 副球声明（可选，可多个） ──
 ball(deputy, "helper") {
     size(48)
+    cornerRadius(24)
+    image("helper.png")
     location("helper", x, y)
     status(hide, "helper")
 }
 
-// ── 4. 全局流程 / 变量 ──
+// ── 3. 全局流程 / 变量 ──
 x = found("mainBall", x) + 50
 y = found("mainBall", y)
 status(show, "helper")
@@ -57,27 +54,13 @@ location("helper", x, y)
 
 | 区域 | 说明 |
 |---|---|
-| 全局默认形态声明 | 位于文件最前，仅含 `size` / `cornerRadius` / `image`，作为所有球的 fallback。 |
-| 球声明块 | 以 `ball(role, "name") { ... }` 形式组织，一个文件必须有且只有一个 `main`，可以有零个或多个 `deputy`。 |
+| 主球声明 | `ball(main, "name") { ... }`，一个文件必须有且只有一个。 |
+| 副球声明 | `ball(deputy, "name") { ... }`，可选，可多个。 |
 | 全局流程 | 在球块之外，可以使用 `status`、`location`、`found` 等指令编排多球交互。 |
 
 ---
 
-## 3. 全局默认形态声明
-
-```dsl
-size(56)              // 默认大小，单位 dp
-cornerRadius(28)      // 默认圆角半径，单位 dp
-image("default.png")  // 默认显示图片
-```
-
-- 这三条指令必须出现在文件开头、任何 `ball(...)` 之前。
-- 全部为可选。
-- 若某条未声明，或某个球未覆盖，则使用 **系统默认悬浮球参数**（当前默认：`size = 56`，`cornerRadius = 28`，`image = null`）。
-
----
-
-## 4. 球声明 `ball(role, "name")`
+## 3. 球声明 `ball(role, "name")`
 
 ### 语法
 
@@ -97,29 +80,48 @@ ball(deputy, "helper") { ... }
 
 - 一个 `floater.dsl` 必须且只能有一个 `main`。
 - `deputy` 可以有零个或多个。
-- 所有球的声明顺序不限，但建议先 `main` 后 `deputy`。
+- 每个球的形态、位置、显隐均在自己的块内声明。
 
 ---
 
-## 5. 球内声明
+## 4. 球内形态声明
 
-在 `ball(...)` 块内可以声明该球的形态、初始位置、初始显隐状态以及事件监听。
+每个球块内部可以独立声明以下参数：
 
-### 5.1 形态参数
+### 4.1 大小 `size`
 
 ```dsl
 ball(main, "mainBall") {
     size(64)
+}
+```
+
+- 参数为 dp 单位的整数。
+- 未声明时使用系统默认悬浮球大小。
+
+### 4.2 圆角 `cornerRadius`
+
+```dsl
+ball(main, "mainBall") {
     cornerRadius(16)
+}
+```
+
+- 参数为 dp 单位的整数。
+- 未声明时使用系统默认悬浮球圆角。
+
+### 4.3 图片 `image`
+
+```dsl
+ball(main, "mainBall") {
     image("main.png")
 }
 ```
 
-- `size(dp)`：覆盖全局/系统默认大小。
-- `cornerRadius(dp)`：覆盖全局/系统默认圆角。
-- `image(path)`：覆盖全局/系统默认图片。图片仍放在插件包 `assets/` 目录下，脚本中直接用文件名引用。
+- 参数为图片文件名，图片放在插件包 `assets/` 目录下。
+- 未声明时使用系统默认悬浮球图标。
 
-### 5.2 初始位置 `location`
+### 4.4 位置 `location`
 
 ```dsl
 ball(deputy, "helper") {
@@ -127,11 +129,12 @@ ball(deputy, "helper") {
 }
 ```
 
-- 第一个参数为球的 `name`（与所在 `ball` 块的名称一致或指向其他球）。
+- 第一个参数为球的 `name`（通常与所在块名称一致，也可以指向其他球）。
 - 后两个参数为 x、y 坐标，支持纯数字、变量或表达式。
 - 坐标系为屏幕像素坐标，原点为屏幕左上角。
+- 未声明时，主球使用系统默认悬浮球位置，副球默认位置为 `(0, 0)`。
 
-### 5.3 显隐状态 `status`
+### 4.5 显隐状态 `status`
 
 ```dsl
 ball(deputy, "helper") {
@@ -141,12 +144,19 @@ ball(deputy, "helper") {
 
 - `status(show, "name")`：显示球。
 - `status(hide, "name")`：隐藏球。
-- 第一个参数为关键字 `show` 或 `hide`，第二个参数为目标球名称。
+- 未声明时，主球默认显示，副球默认隐藏。
 
-### 5.4 事件监听 `floater`
+---
+
+## 5. 球内事件监听
 
 ```dsl
 ball(main, "mainBall") {
+    size(64)
+    cornerRadius(16)
+    image("main.png")
+    location("mainBall", 100, 200)
+
     floater("click") {
         image("click.png")
         audio("click.mp3")
@@ -154,11 +164,15 @@ ball(main, "mainBall") {
     } else {
         print("点击执行失败")
     }
+
+    floater("findText") {
+        print("找到文字：" + foundText)
+    }
 }
 ```
 
-- 与旧规范完全一致。
-- 块内自动注入事件相关变量（如 `clickX`、`clickY` 等）。
+- `floater("事件名") { ... }` 用于监听宏指令或悬浮球交互事件的执行结果。
+- 块内自动注入事件相关变量（如 `clickX`、`clickY`、`foundText` 等）。
 - 事件变量作用域仍限定在当前 `floater` 块内。
 
 ---
@@ -233,9 +247,9 @@ location("helper", x + offset, y * 2 - 50)
 | 特性 | 主球 `main` | 副球 `deputy` |
 |---|---|---|
 | 数量 | 必须 1 个 | 0 个或多个 |
-| 默认显隐 | 默认显示 | 默认隐藏 |
+| 默认显隐 | 若未声明 `status`，默认显示 | 若未声明 `status`，默认隐藏 |
+| 默认位置 | 若未声明 `location`，使用系统默认悬浮球位置 | 若未声明 `location`，默认 `(0, 0)` |
 | 生命周期 | 与插件生命周期绑定 | 由 `status` 控制显隐 |
-| 位置默认值 | 系统默认悬浮球位置 | 必须在 `location` 中指定，或后续动态设置 |
 | 事件监听 | 推荐放置主要事件 | 可放置辅助事件或仅作为视觉辅助 |
 
 ---
@@ -243,11 +257,6 @@ location("helper", x + offset, y * 2 - 50)
 ## 9. 完整示例
 
 ```dsl
-// 全局默认形态
-size(56)
-cornerRadius(28)
-image("default.png")
-
 // 主球：主要交互入口
 ball(main, "primary") {
     size(64)
@@ -289,7 +298,7 @@ status(show, "secondary")
 
 | 旧写法 | 新写法 | 说明 |
 |---|---|---|
-| 全局 `size/cornerRadius/image` 直接生效 | 全局 `size/cornerRadius/image` 仅作为默认值 | 旧写法会被新写法覆盖 |
+| 全局 `size/cornerRadius/image` 直接生效 | 形态参数移到每个 `ball(...)` 块内 | 每个球独立配置 |
 | 单球，无名称 | `ball(main, "name")` / `ball(deputy, "name")` | 多球，按名称引用 |
 | `#include <球名称>` | 不需要 | 球文件启用后自动生效 |
 | 无 `location` / `status` / `found` | 新增 | 用于多球位置与显隐控制 |
@@ -297,11 +306,28 @@ status(show, "secondary")
 
 ---
 
-## 11. 后续实现要点
+## 11. 默认参数继承链
+
+每个球的最终形态按以下优先级确定：
+
+```
+球内声明 > 系统默认悬浮球参数
+```
+
+- 球内未声明 `size` → 使用系统默认悬浮球 `size`。
+- 球内未声明 `cornerRadius` → 使用系统默认悬浮球 `cornerRadius`。
+- 球内未声明 `image` → 使用系统默认悬浮球图标。
+- 球内未声明 `location` → 主球使用系统默认悬浮球位置，副球为 `(0, 0)`。
+- 球内未声明 `status` → 主球默认显示，副球默认隐藏。
+
+---
+
+## 12. 后续实现要点
 
 1. **解析器扩展**
    - 识别 `ball(role, "name") { ... }` 块。
-   - 支持在块内外解析 `size`、`cornerRadius`、`image`、`location`、`status`、`found`。
+   - 在块内解析 `size`、`cornerRadius`、`image`、`location`、`status`。
+   - 在块外解析 `location`、`status`、`found`。
    - `found("name", axis)` 需要 runtime 从悬浮球服务读取坐标。
 
 2. **运行时模型**
@@ -312,5 +338,6 @@ status(show, "secondary")
    - 增加按名称创建/更新/移动/显隐悬浮球的 API。
    - 增加按名称读取悬浮球当前坐标的 API。
 
-4. **默认参数回退链**
-   - 球内参数 > 全局默认参数 > 系统默认悬浮球参数。
+4. **包格式**
+   - `assets/` 目录仍用于存放图片与音频资源。
+   - 每个球通过文件名引用自己的资源。
