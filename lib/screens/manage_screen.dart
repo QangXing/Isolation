@@ -15,6 +15,7 @@ import 'image_crop_screen.dart';
 import 'floater_settings_screen.dart';
 import 'macro_settings_screen.dart';
 import 'program_macro_screen.dart';
+import 'floater_editor_screen.dart';
 import 'programming_screen.dart';
 import 'recording_screen.dart';
 

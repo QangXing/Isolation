@@ -198,16 +198,16 @@ class _DefaultFloaterSettingsScreenState extends State<DefaultFloaterSettingsScr
                                 overlayColor: Colors.black.withValues(alpha: 0.08),
                                 trackHeight: 5,
                               ),
-                            ),
-                            Slider(
-                              value: _config.cornerRadius.toDouble(),
-                              min: 0,
-                              max: 60,
-                              onChanged: (value) {
-                                setState(() {
-                                  _config = _config.copyWith(cornerRadius: value.round());
-                                });
-                              },
+                              child: Slider(
+                                value: _config.cornerRadius.toDouble(),
+                                min: 0,
+                                max: 60,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _config = _config.copyWith(cornerRadius: value.round());
+                                  });
+                                },
+                              ),
                             ),
                             const SizedBox(height: 16),
                             Row(
