@@ -443,20 +443,37 @@ class PluginProvider extends ChangeNotifier {
     String pluginId, {
     required String name,
     required String description,
+    String? iconName,
+    String? iconPath,
   }) async {
     final pluginIndex = _plugins.indexWhere((p) => p.id == pluginId);
     if (pluginIndex < 0) return false;
 
     final plugin = _plugins[pluginIndex];
     final pluginDir = await _pluginDirectory();
+    final targetDir = Directory('${pluginDir.path}/$pluginId');
 
     // 更新 manifest.json
-    final manifestFile = File('${pluginDir.path}/$pluginId/manifest.json');
+    final manifestFile = File('${targetDir.path}/manifest.json');
+    String? effectiveIconPath = plugin.iconPath;
     if (await manifestFile.exists()) {
       final manifestContent = await manifestFile.readAsString();
       final manifest = jsonDecode(manifestContent) as Map<String, dynamic>;
       manifest['name'] = name;
       manifest['description'] = description;
+      if (iconName != null) {
+        manifest['iconName'] = iconName;
+      }
+      if (iconPath != null && await File(iconPath).exists()) {
+        final destIcon = File('${targetDir.path}/icon.png');
+        await File(iconPath).copy(destIcon.path);
+        manifest['icon'] = 'icon.png';
+        effectiveIconPath = destIcon.path;
+      } else if (iconPath == null && iconName == null && plugin.iconName == null) {
+        // 显式恢复默认时不保留自定义图标
+        manifest.remove('icon');
+        effectiveIconPath = null;
+      }
       await manifestFile.writeAsString(jsonEncode(manifest));
     }
 
@@ -467,8 +484,8 @@ class PluginProvider extends ChangeNotifier {
       version: plugin.version,
       description: description,
       author: plugin.author,
-      iconPath: plugin.iconPath,
-      iconName: plugin.iconName,
+      iconPath: effectiveIconPath,
+      iconName: iconName ?? plugin.iconName,
       builtIn: plugin.builtIn,
       actions: plugin.actions,
       enabled: plugin.enabled,

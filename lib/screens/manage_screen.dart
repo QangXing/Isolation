@@ -120,7 +120,7 @@ class ManageScreen extends StatelessWidget {
                           isMacro: isMacro,
                           isFloater: isFloater,
                           onToggle: (value) => _setPluginEnabled(context, provider, plugin.id, value),
-                          onEditCode: isMacro ? () => _editAsProgramMacro(context, plugin.id) : null,
+                          onEditCode: () => _editCode(context, plugin.id, isFloater: isFloater),
                           onSettings: () => _openSettings(context, plugin.id, isFloater: isFloater),
                           onExport: () => _exportPlugin(context, provider, plugin.id),
                           onDelete: () => provider.deletePlugin(plugin.id),
@@ -168,6 +168,22 @@ class ManageScreen extends StatelessWidget {
         builder: (_) => ProgramMacroScreen(pluginId: pluginId),
       ),
     );
+  }
+
+  void _editAsFloater(BuildContext context, String pluginId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FloaterEditorScreen(pluginId: pluginId),
+      ),
+    );
+  }
+
+  void _editCode(BuildContext context, String pluginId, {required bool isFloater}) {
+    if (isFloater) {
+      _editAsFloater(context, pluginId);
+    } else {
+      _editAsProgramMacro(context, pluginId);
+    }
   }
 
   void _openCoordinateDebug(BuildContext context) {
