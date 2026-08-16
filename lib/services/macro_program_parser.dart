@@ -11,6 +11,7 @@
 ///
 /// 录制产生的 clickNode / clickPoint / swipe 等旧 step 仍会在 convertLegacySteps
 /// 中转换为新 DSL 写法，但用户编写的旧 `find(...)` 语法不再兼容。
+import '../models/floater_program.dart';
 import 'macro_expression_parser.dart';
 
 class MacroParseError implements Exception {
@@ -139,6 +140,18 @@ class MacroProgramParser {
       case 'floater':
         assign(['event']);
         break;
+      case 'ball':
+        assign(['role', 'name']);
+        break;
+      case 'location':
+        assign(['name', 'x', 'y']);
+        break;
+      case 'status':
+        assign(['state', 'name']);
+        break;
+      case 'found':
+        assign(['name', 'axis']);
+        break;
     }
 
     if (step['children'] is List) {
@@ -163,6 +176,83 @@ class MacroProgramParser {
       }
     }
     return step;
+  }
+
+  /// 解析多球 DSL 源码，返回结构化程序。
+  static FloaterProgram parseFloaterProgram(String source) {
+    try {
+      final steps = parse(source);
+      final balls = <FloaterBall>[];
+      final globalSteps = <Map<String, dynamic>>[];
+      for (final step in steps) {
+        if (step['type'] == 'ball') {
+          balls.add(_stepToBall(step));
+        } else {
+          globalSteps.add(step);
+        }
+      }
+      return FloaterProgram(balls: balls, steps: globalSteps);
+    } on MacroParseError {
+      rethrow;
+    } catch (e, s) {
+      throw MacroParseError('解析失败: $e', 0);
+    }
+  }
+
+  static FloaterBall _stepToBall(Map<String, dynamic> step) {
+    final role = step['role'] as String? ?? 'deputy';
+    final name = step['name'] as String? ?? '';
+    int? size;
+    int? cornerRadius;
+    String? image;
+    dynamic locationX;
+    dynamic locationY;
+    bool? visible;
+    final ballSteps = <Map<String, dynamic>>[];
+
+    final children = step['children'] as List<dynamic>? ?? [];
+    for (final child in children) {
+      final c = Map<String, dynamic>.from(child as Map);
+      final type = c['type'] as String?;
+      if (type == 'size') {
+        size = _extractIntValue(c['value']);
+      } else if (type == 'cornerRadius') {
+        cornerRadius = _extractIntValue(c['value']);
+      } else if (type == 'image') {
+        image = c['path'] as String?;
+      } else if (type == 'location') {
+        locationX = c['x'];
+        locationY = c['y'];
+      } else if (type == 'status') {
+        final state = c['state'] as String?;
+        if (state == 'show') visible = true;
+        if (state == 'hide') visible = false;
+      } else {
+        ballSteps.add(c);
+      }
+    }
+
+    return FloaterBall(
+      role: role,
+      name: name,
+      size: size,
+      cornerRadius: cornerRadius,
+      image: image,
+      locationX: locationX,
+      locationY: locationY,
+      visible: visible,
+      steps: ballSteps,
+    );
+  }
+
+  static int? _extractIntValue(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is Map && value['op'] == 'literal') {
+      final v = value['value'];
+      if (v is num) return v.toInt();
+    }
+    return null;
   }
 
   /// 把步骤列表序列化为 DSL 源码。
@@ -535,6 +625,20 @@ class MacroProgramParser {
         }
         buffer.writeln('${indent}}');
         break;
+      case 'ball':
+        buffer.writeln('${indent}ball(${_serializeArgValue(step['role'])}, ${_serializeArgValue(step['name'])}) {');
+        _serializeChildren(step['children'], indent, buffer);
+        buffer.writeln('${indent}}');
+        break;
+      case 'location':
+        buffer.writeln('${indent}location(${_serializeArgValue(step['name'])}, ${_serializeExprValue(step['x'])}, ${_serializeExprValue(step['y'])})');
+        break;
+      case 'status':
+        buffer.writeln('${indent}status(${_serializeArgValue(step['state'])}, ${_serializeArgValue(step['name'])})');
+        break;
+      case 'found':
+        buffer.writeln('${indent}found(${_serializeArgValue(step['name'])}, ${_serializeArgValue(step['axis'])})');
+        break;
       default:
         buffer.writeln('${indent}// 未知指令: $type');
     }
@@ -702,6 +806,12 @@ class MacroProgramParser {
           final left = _serializeExprValue(value['left']);
           final right = _serializeExprValue(value['right']);
           return '$left ${value['operator']} $right';
+        case 'call':
+          final name = value['name'] as String? ?? '';
+          final args = (value['args'] as List<dynamic>? ?? [])
+              .map(_serializeExprValue)
+              .join(', ');
+          return '$name($args)';
       }
       if (value.containsKey('x') && value.containsKey('y')) {
         final x = _serializeExprValue(value['x']);
@@ -970,6 +1080,7 @@ class _BlockParser {
     'waitForImage',
     'colorAt',
     'launch',
+    'found',
   };
 
   Map<String, dynamic>? _tryParseCallAssignment(String valueSource) {
@@ -1084,7 +1195,7 @@ class _BlockParser {
   }
 
   bool _looksLikeExpression(String s) {
-    if (RegExp(r'[\+\-\*/%<>=!&|]').hasMatch(s)) return true;
+    if (s.contains('(') || RegExp(r'[\+\-\*/%<>=!&|]').hasMatch(s)) return true;
     return !RegExp(r'^-?(\d+(\.\d+)?|[a-zA-Z_][a-zA-Z0-9_]*)$').hasMatch(s);
   }
 

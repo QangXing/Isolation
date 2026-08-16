@@ -2,6 +2,13 @@ package com.example.isolation
 
 object ExpressionEvaluator {
 
+    /**
+     * 外部函数调用处理器，用于解析如 found("name", x) 等自定义函数。
+     *
+     * 签名：(函数名, 参数表达式列表, 当前变量表) -> 返回值。
+     */
+    var callHandler: ((String, List<Map<String, Any>>, Map<String, Variable>) -> Variable?)? = null
+
     fun evaluate(expr: Map<String, Any>?, variables: Map<String, Variable>): Variable? {
         if (expr == null) return null
         return when (expr["op"]) {
@@ -26,6 +33,12 @@ object ExpressionEvaluator {
                 val left = evaluate(leftExpr, variables) ?: return null
                 val right = evaluate(rightExpr, variables) ?: return null
                 evaluateBinary(operator, left, right)
+            }
+            "call" -> {
+                val name = expr["name"] as? String ?: return null
+                @Suppress("UNCHECKED_CAST")
+                val args = expr["args"] as? List<Map<String, Any>> ?: return null
+                callHandler?.invoke(name, args, variables)
             }
             else -> null
         }

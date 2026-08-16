@@ -48,6 +48,14 @@ class MacroSyntaxHighlighter {
     'size',
     'image',
     'audio',
+    'ball',
+    'main',
+    'deputy',
+    'location',
+    'status',
+    'show',
+    'hide',
+    'found',
   ];
 
   static const Color _keywordColor = Color(0xFFBB86FC); // 紫色

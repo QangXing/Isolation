@@ -21,23 +21,41 @@ class _FloaterEditorScreenState extends State<FloaterEditorScreen> {
   String _initialName = '';
   String _initialDescription = '';
 
-  static const String _template = '''floater("click") {
-    image("click.png")
-    audio("click.mp3")
-    print("点击于 " + clickX + ", " + clickY)
-} else {
-    print("点击执行失败")
+  static const String _template = '''ball(main, "mainBall") {
+    size(64)
+    cornerRadius(16)
+    image("main.png")
+    location("mainBall", 100, 200)
+    status(show, "mainBall")
+
+    floater("click") {
+        image("click.png")
+        audio("click.mp3")
+        print("主球被点击：" + clickX + ", " + clickY)
+    } else {
+        print("点击执行失败")
+    }
+
+    floater("findText") {
+        print("找到文字：" + foundText)
+    } else {
+        print("未找到文字")
+    }
 }
 
-floater("swipe") {
-    print("从 " + swipeFromX + "," + swipeFromY + " 滑到 " + swipeToX + "," + swipeToY)
+ball(deputy, "helper") {
+    size(48)
+    cornerRadius(24)
+    image("helper.png")
+    location("helper", 0, 0)
+    status(hide, "helper")
 }
 
-floater("findText") {
-    print("找到文字：" + foundText)
-} else {
-    print("未找到文字")
-}
+// 副球显示在主球右侧
+mainX = found("mainBall", x)
+mainY = found("mainBall", y)
+location("helper", mainX + 80, mainY)
+status(show, "helper")
 ''';
 
   @override
@@ -160,10 +178,14 @@ floater("findText") {
 
   void _validate() {
     try {
-      final steps = MacroProgramParser.parse(_codeController.text);
+      final program = MacroProgramParser.parseFloaterProgram(_codeController.text);
+      final ballCount = program.balls.length;
+      final hasMain = program.mainBall != null;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('校验通过：${steps.length} 个顶层指令'),
+          content: Text(
+            '校验通过：$ballCount 个球（主球 ${hasMain ? "√" : "×"}）',
+          ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.black87,
         ),
@@ -192,7 +214,7 @@ floater("findText") {
     final descController = TextEditingController(text: _initialDescription);
 
     try {
-      MacroProgramParser.parse(_codeController.text);
+      MacroProgramParser.parseFloaterProgram(_codeController.text);
     } on MacroParseError catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

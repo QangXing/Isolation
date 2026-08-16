@@ -6,6 +6,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/floater_config.dart';
+import '../models/floater_program.dart';
 import '../models/macro.dart';
 import '../models/plugin.dart';
 import '../services/macro_program_parser.dart';
@@ -200,12 +201,15 @@ class PluginProvider extends ChangeNotifier {
         size: config.size,
         imagePath: config.imagePath,
       );
-      final steps = await loadFloaterSteps(plugin.id);
-      if (steps != null) {
-        await NativeChannel.executeAction('floater', {
-          'pluginId': plugin.id,
-          'steps': steps,
-        });
+      final program = await loadFloaterProgram(plugin.id);
+      if (program != null) {
+        final pluginDir = await _pluginDirectory();
+        final assetsDir = '${pluginDir.path}/${plugin.id}/assets';
+        await NativeChannel.registerFloaters(
+          program.toJson(),
+          plugin.id,
+          assetsDir: assetsDir,
+        );
       }
     }
     _plugins = List.from(_manager.plugins);
@@ -609,7 +613,14 @@ class PluginProvider extends ChangeNotifier {
     }
     await targetDir.create(recursive: true);
 
-    final steps = MacroProgramParser.parse(source);
+    // 优先按多球 DSL 解析；若解析失败则回退为旧步骤列表以兼容。
+    FloaterProgram? program;
+    List<Map<String, dynamic>> fallbackSteps = [];
+    try {
+      program = MacroProgramParser.parseFloaterProgram(source);
+    } catch (_) {
+      fallbackSteps = MacroProgramParser.parse(source);
+    }
 
     final manifest = {
       'id': id,
@@ -623,7 +634,9 @@ class PluginProvider extends ChangeNotifier {
 
     await File('${targetDir.path}/manifest.json').writeAsString(jsonEncode(manifest));
     await File('${targetDir.path}/floater.dsl').writeAsString(source);
-    await File('${targetDir.path}/floater.json').writeAsString(jsonEncode(steps));
+    await File('${targetDir.path}/floater.json').writeAsString(
+      jsonEncode(program?.toJson() ?? fallbackSteps),
+    );
     await Directory('${targetDir.path}/assets').create();
 
     _plugins.removeWhere((p) => p.id == id);
@@ -642,16 +655,56 @@ class PluginProvider extends ChangeNotifier {
     return null;
   }
 
-  Future<List<Map<String, dynamic>>?> loadFloaterSteps(String pluginId) async {
+  Future<FloaterProgram?> loadFloaterProgram(String pluginId) async {
     final pluginDir = await _pluginDirectory();
     final file = File('${pluginDir.path}/$pluginId/floater.json');
     if (!await file.exists()) return null;
     final content = await file.readAsString();
     final decoded = jsonDecode(content);
+    if (decoded is Map<String, dynamic>) {
+      try {
+        final program = FloaterProgram.fromJson(decoded);
+        // 兼容旧格式或未声明 ball 的文件：把全局步骤退化为默认主球
+        if (program.balls.isEmpty && program.steps.isNotEmpty) {
+          return FloaterProgram(
+            balls: [
+              FloaterBall(
+                role: 'main',
+                name: 'main',
+                steps: program.steps,
+              ),
+            ],
+            steps: [],
+          );
+        }
+        return program;
+      } catch (_) {
+        return null;
+      }
+    }
+    // 旧格式：floater.json 是纯步骤列表，包装成单个默认主球
     if (decoded is List) {
-      return decoded.cast<Map<String, dynamic>>();
+      return FloaterProgram(
+        balls: [
+          FloaterBall(
+            role: 'main',
+            name: 'main',
+            steps: decoded.cast<Map<String, dynamic>>(),
+          ),
+        ],
+        steps: [],
+      );
     }
     return null;
+  }
+
+  Future<List<Map<String, dynamic>>?> loadFloaterSteps(String pluginId) async {
+    final program = await loadFloaterProgram(pluginId);
+    if (program == null) return null;
+    return [
+      ...program.balls.expand((b) => b.steps),
+      ...program.steps,
+    ];
   }
 
   // Macro assets
