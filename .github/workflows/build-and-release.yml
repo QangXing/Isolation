@@ -80,7 +80,7 @@ jobs:
           cat "${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
 
       - name: Build APK
-        run: flutter build apk --release --verbose
+        run: flutter build apk --release
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
