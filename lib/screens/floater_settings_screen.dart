@@ -123,25 +123,27 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
                                   color: Colors.black.withValues(alpha: 0.3),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 12,
+                                  horizontal: 16,
+                                  vertical: 14,
                                 ),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide(
                                     color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide(
                                     color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: const BorderSide(color: Colors.black87),
                                 ),
+                                filled: true,
+                                fillColor: Colors.black.withValues(alpha: 0.03),
                               ),
                             ),
                           ],
@@ -169,25 +171,27 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
                                   color: Colors.black.withValues(alpha: 0.3),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 12,
+                                  horizontal: 16,
+                                  vertical: 14,
                                 ),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide(
                                     color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide(
                                     color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: const BorderSide(color: Colors.black87),
                                 ),
+                                filled: true,
+                                fillColor: Colors.black.withValues(alpha: 0.03),
                               ),
                             ),
                           ],
