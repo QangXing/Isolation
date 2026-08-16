@@ -606,16 +606,16 @@ class FloatingBallService : Service(), MacroExecutorListener {
             pluginVariables.clear()
 
             // 注册 found 函数，用于表达式中获取球坐标
-            ExpressionEvaluator.callHandler = { name, args, variables ->
+            val foundHandler: (String, List<Map<String, Any>>, Map<String, Variable>) -> Variable? = { name, args, variables ->
                 if (name == "found") {
-                    val ballName = extractStringFromArg(args.getOrNull(0), variables)
-                    val axis = extractStringFromArg(args.getOrNull(1), variables)
-                    val pos = getPluginBallPosition(ballName ?: return@ExpressionEvaluator.callHandler null)
-                        ?: return@ExpressionEvaluator.callHandler null
+                    val ballName = extractStringFromArg(args.getOrNull(0), variables) ?: return@foundHandler null
+                    val axis = extractStringFromArg(args.getOrNull(1), variables) ?: "x"
+                    val pos = getPluginBallPosition(ballName) ?: return@foundHandler null
                     val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
                     Variable.Number(value.toDouble())
                 } else null
             }
+            ExpressionEvaluator.callHandler = foundHandler
 
             @Suppress("UNCHECKED_CAST")
             val balls = program["balls"] as? List<Map<String, Any>> ?: emptyList()
@@ -868,8 +868,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     "literal" -> map["value"] as? String
                     "var" -> {
                         val varName = map["name"] as? String ?: return null
-                        (variables[varName] as? Variable.String)?.let { return null }
-                        null
+                        when (val v = variables[varName]) {
+                            is Variable.Number -> v.value.toString()
+                            else -> null
+                        }
                     }
                     else -> null
                 }
