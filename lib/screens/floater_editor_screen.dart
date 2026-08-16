@@ -21,11 +21,7 @@ class _FloaterEditorScreenState extends State<FloaterEditorScreen> {
   String _initialName = '';
   String _initialDescription = '';
 
-  static const String _template = '''cornerRadius(16)
-size(56)
-image("default.png")
-
-floater("click") {
+  static const String _template = '''floater("click") {
     image("click.png")
     audio("click.mp3")
     print("点击于 " + clickX + ", " + clickY)

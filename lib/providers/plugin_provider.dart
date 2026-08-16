@@ -140,6 +140,7 @@ class PluginProvider extends ChangeNotifier {
     await _manager.setEnabled(id, enabled);
     final plugin = _plugins.firstWhere((p) => p.id == id);
     final isMacro = plugin.actions.any((a) => a.type == 'macro');
+    final isFloater = plugin.isFloater;
     if (isMacro) {
       if (enabled) {
         final hasOverlay = await NativeChannel.checkOverlayPermission();
@@ -172,6 +173,39 @@ class PluginProvider extends ChangeNotifier {
       } else {
         await _clearEnabledMacro();
         // 关闭宏时不影响独立悬浮球开关；用户可在管理页手动关闭
+      }
+    } else if (isFloater && enabled) {
+      final hasOverlay = await NativeChannel.checkOverlayPermission();
+      if (!hasOverlay) {
+        await NativeChannel.requestOverlayPermission();
+      }
+      bool ballStarted;
+      if (!_floatingBallVisible) {
+        await setFloatingBallVisible(true);
+        ballStarted = _floatingBallVisible;
+      } else {
+        ballStarted = await NativeChannel.isFloatingBallRunning() ||
+            await _startFloatingBallIfReady();
+      }
+      if (!ballStarted) {
+        await _manager.setEnabled(id, false);
+        _plugins = List.from(_manager.plugins);
+        notifyListeners();
+        return;
+      }
+      // 球文件未声明外观参数时，以默认悬浮球参数为准
+      final config = await loadDefaultFloaterConfig();
+      await NativeChannel.applyDefaultFloaterConfig(
+        cornerRadius: config.cornerRadius,
+        size: config.size,
+        imagePath: config.imagePath,
+      );
+      final steps = await loadFloaterSteps(plugin.id);
+      if (steps != null) {
+        await NativeChannel.executeAction('floater', {
+          'pluginId': plugin.id,
+          'steps': steps,
+        });
       }
     }
     _plugins = List.from(_manager.plugins);

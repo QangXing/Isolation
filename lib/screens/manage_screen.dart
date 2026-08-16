@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
 import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
@@ -11,6 +12,7 @@ import '../widgets/programming_type_sheet.dart';
 import 'coordinate_debug_screen.dart';
 import 'default_floater_settings_screen.dart';
 import 'image_crop_screen.dart';
+import 'floater_settings_screen.dart';
 import 'macro_settings_screen.dart';
 import 'program_macro_screen.dart';
 import 'programming_screen.dart';
@@ -110,59 +112,18 @@ class ManageScreen extends StatelessWidget {
                     (context, index) {
                       final plugin = plugins[index];
                       final isMacro = plugin.actions.any((a) => a.type == 'macro');
+                      final isFloater = plugin.isFloater;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 12),
-                        child: GlassCard(
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      plugin.name,
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'v${plugin.version}${isMacro ? ' · 宏' : ''}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.withValues(alpha: 0.6),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (isMacro)
-                                _IconAction(
-                                  icon: Icons.code_rounded,
-                                  tooltip: '编辑代码',
-                                  onTap: () => _editAsProgramMacro(context, plugin.id),
-                                ),
-                              if (isMacro)
-                                _IconAction(
-                                  icon: Icons.settings_rounded,
-                                  tooltip: '设置',
-                                  onTap: () => _openMacroSettings(context, plugin.id),
-                                ),
-                              if (isMacro)
-                                _IconAction(
-                                  icon: Icons.share_rounded,
-                                  tooltip: '导出',
-                                  onTap: () => _exportPlugin(context, provider, plugin.id),
-                                ),
-                              _IconAction(
-                                icon: Icons.delete_outline_rounded,
-                                tooltip: '删除',
-                                danger: true,
-                                onTap: () => provider.deletePlugin(plugin.id),
-                              ),
-                            ],
-                          ),
+                        child: _PluginListItem(
+                          plugin: plugin,
+                          isMacro: isMacro,
+                          isFloater: isFloater,
+                          onToggle: (value) => _setPluginEnabled(context, provider, plugin.id, value),
+                          onEditCode: isMacro ? () => _editAsProgramMacro(context, plugin.id) : null,
+                          onSettings: () => _openSettings(context, plugin.id, isFloater: isFloater),
+                          onExport: () => _exportPlugin(context, provider, plugin.id),
+                          onDelete: () => provider.deletePlugin(plugin.id),
                         ),
                       );
                     },
@@ -219,6 +180,24 @@ class ManageScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => MacroSettingsScreen(pluginId: pluginId)),
     );
+  }
+
+  void _openFloaterSettings(BuildContext context, String pluginId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => FloaterSettingsScreen(pluginId: pluginId)),
+    );
+  }
+
+  void _openSettings(BuildContext context, String pluginId, {required bool isFloater}) {
+    if (isFloater) {
+      _openFloaterSettings(context, pluginId);
+    } else {
+      _openMacroSettings(context, pluginId);
+    }
+  }
+
+  Future<void> _setPluginEnabled(BuildContext context, PluginProvider provider, String pluginId, bool enabled) async {
+    await provider.setEnabled(pluginId, enabled);
   }
 
   Future<void> _importPlugin(BuildContext context, PluginProvider provider) async {
@@ -340,6 +319,156 @@ class _IconAction extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(icon, color: color, size: 18),
+        ),
+      ),
+    );
+  }
+}
+
+/// 插件列表项卡片：显示名称/类型、启用开关与操作按钮。
+class _PluginListItem extends StatelessWidget {
+  final Plugin plugin;
+  final bool isMacro;
+  final bool isFloater;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback? onEditCode;
+  final VoidCallback onSettings;
+  final VoidCallback onExport;
+  final VoidCallback onDelete;
+
+  const _PluginListItem({
+    required this.plugin,
+    required this.isMacro,
+    required this.isFloater,
+    required this.onToggle,
+    this.onEditCode,
+    required this.onSettings,
+    required this.onExport,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final typeLabel = isFloater ? ' · 球' : (isMacro ? ' · 宏' : '');
+    return GlassCard(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      plugin.name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'v${plugin.version}$typeLabel',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _CustomSwitch(value: plugin.enabled, onChanged: onToggle),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (onEditCode != null)
+                _IconAction(
+                  icon: Icons.code_rounded,
+                  tooltip: '编辑代码',
+                  onTap: onEditCode!,
+                ),
+              _IconAction(
+                icon: Icons.settings_rounded,
+                tooltip: '设置',
+                onTap: onSettings,
+              ),
+              _IconAction(
+                icon: Icons.share_rounded,
+                tooltip: '导出',
+                onTap: onExport,
+              ),
+              _IconAction(
+                icon: Icons.delete_outline_rounded,
+                tooltip: '删除',
+                danger: true,
+                onTap: onDelete,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomSwitch extends StatefulWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _CustomSwitch({required this.value, required this.onChanged});
+
+  @override
+  State<_CustomSwitch> createState() => _CustomSwitchState();
+}
+
+class _CustomSwitchState extends State<_CustomSwitch> {
+  late bool _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.value;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomSwitch oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      _value = widget.value;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() => _value = !_value);
+        widget.onChanged(_value);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 50,
+        height: 28,
+        decoration: BoxDecoration(
+          color: _value ? Colors.black87 : Colors.black.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: AnimatedAlign(
+          duration: const Duration(milliseconds: 200),
+          alignment: _value ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+          ),
         ),
       ),
     );
