@@ -607,13 +607,17 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
             // 注册 found 函数，用于表达式中获取球坐标
             val foundHandler: (String, List<Map<String, Any>>, Map<String, Variable>) -> Variable? = { name, args, variables ->
-                if (name == "found") {
-                    val ballName = extractStringFromArg(args.getOrNull(0), variables) ?: return@foundHandler null
+                if (name != "found") null
+                else {
+                    val ballName = extractStringFromArg(args.getOrNull(0), variables)
                     val axis = extractStringFromArg(args.getOrNull(1), variables) ?: "x"
-                    val pos = getPluginBallPosition(ballName) ?: return@foundHandler null
-                    val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
-                    Variable.Number(value.toDouble())
-                } else null
+                    val pos = ballName?.let { getPluginBallPosition(it) }
+                    if (pos == null) null
+                    else {
+                        val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
+                        Variable.Number(value.toDouble())
+                    }
+                }
             }
             ExpressionEvaluator.callHandler = foundHandler
 
