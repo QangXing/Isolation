@@ -107,4 +107,5 @@ jobs:
           files: ./release/app-release.apk
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 优先使用仓库 Secrets 中配置的 RELEASE_TOKEN，未配置时回退到 GITHUB_TOKEN
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
