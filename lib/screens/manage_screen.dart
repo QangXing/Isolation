@@ -7,10 +7,13 @@ import 'package:share_plus/share_plus.dart';
 import '../providers/plugin_provider.dart';
 import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/programming_type_sheet.dart';
 import 'coordinate_debug_screen.dart';
+import 'default_floater_settings_screen.dart';
 import 'image_crop_screen.dart';
 import 'macro_settings_screen.dart';
 import 'program_macro_screen.dart';
+import 'programming_screen.dart';
 import 'recording_screen.dart';
 
 class ManageScreen extends StatelessWidget {
@@ -55,8 +58,8 @@ class ManageScreen extends StatelessWidget {
                         Expanded(
                           child: _ActionTile(
                             icon: Icons.code_rounded,
-                            label: '编程宏',
-                            onTap: () => _createProgramMacro(context),
+                            label: '编程',
+                            onTap: () => _showProgrammingOptions(context),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -80,6 +83,9 @@ class ManageScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     // 悬浮球总开关
                     _FloatingBallToggle(),
+                    const SizedBox(height: 12),
+                    // 默认悬浮球外观配置入口
+                    _DefaultFloaterCard(),
                   ],
                 ),
               ),
@@ -177,10 +183,22 @@ class ManageScreen extends StatelessWidget {
     );
   }
 
-  void _createProgramMacro(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ProgramMacroScreen()),
+  Future<void> _showProgrammingOptions(BuildContext context) async {
+    final type = await showModalBottomSheet<ProgrammingType>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const ProgrammingTypeSheet(),
     );
+    if (type == null || !context.mounted) return;
+    if (type == ProgrammingType.macro) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProgramMacroScreen()),
+      );
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProgrammingScreen()),
+      );
+    }
   }
 
   void _editAsProgramMacro(BuildContext context, String pluginId) {
@@ -323,6 +341,68 @@ class _IconAction extends StatelessWidget {
           ),
           child: Icon(icon, color: color, size: 18),
         ),
+      ),
+    );
+  }
+}
+
+/// 默认悬浮球外观配置入口卡片。
+class _DefaultFloaterCard extends StatelessWidget {
+  const _DefaultFloaterCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const DefaultFloaterSettingsScreen()),
+        );
+      },
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Icon(
+              Icons.touch_app_rounded,
+              color: Colors.black.withValues(alpha: 0.6),
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '默认悬浮球',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '圆角 28dp · 大小 78dp · 自定义图',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: Colors.black.withValues(alpha: 0.3),
+          ),
+        ],
       ),
     );
   }
