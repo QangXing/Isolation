@@ -890,7 +890,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         for (handler in handlers) {
             // 在后台线程执行事件步骤，避免阻塞主线程
             Thread {
-                executeEventSteps(handler.children)
+                executeFloaterSteps(handler.children)
             }.start()
         }
     }
