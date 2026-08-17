@@ -92,7 +92,16 @@ class PluginProvider extends ChangeNotifier {
 
     if (visible) {
       final ok = await _startFloatingBallIfReady();
-      if (!ok) {
+      if (ok) {
+        // 开启后立即应用默认悬浮球配置（含当前自定义图标），确保与设置页一致
+        final config = await loadDefaultFloaterConfig();
+        final iconPath = await NativeChannel.getFloatingBallIcon();
+        await NativeChannel.applyDefaultFloaterConfig(
+          cornerRadius: config.cornerRadius,
+          size: config.size,
+          imagePath: iconPath,
+        );
+      } else {
         // 启动失败时回退状态，避免下次进入应用再次尝试启动导致闪退
         _floatingBallVisible = false;
         await prefs.setBool('floating_ball_visible', false);

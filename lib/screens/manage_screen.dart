@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../models/floater_config.dart';
 import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
 import '../services/native_channel.dart';
@@ -11,7 +11,6 @@ import '../widgets/glass_card.dart';
 import '../widgets/programming_type_sheet.dart';
 import 'coordinate_debug_screen.dart';
 import 'default_floater_settings_screen.dart';
-import 'image_crop_screen.dart';
 import 'floater_settings_screen.dart';
 import 'macro_settings_screen.dart';
 import 'program_macro_screen.dart';
@@ -84,11 +83,8 @@ class ManageScreen extends StatelessWidget {
                       full: true,
                     ),
                     const SizedBox(height: 12),
-                    // 悬浮球总开关
-                    _FloatingBallToggle(),
-                    const SizedBox(height: 12),
-                    // 默认悬浮球外观配置入口
-                    _DefaultFloaterCard(),
+                    // 默认悬浮球（含显示开关与外观配置入口）
+                    const _DefaultFloaterSection(),
                   ],
                 ),
               ),
@@ -492,213 +488,117 @@ class _CustomSwitchState extends State<_CustomSwitch> {
   }
 }
 
-/// 默认悬浮球外观配置入口卡片。
-class _DefaultFloaterCard extends StatelessWidget {
-  const _DefaultFloaterCard();
+/// 默认悬浮球入口：包含显示/隐藏开关、外观参数摘要和图标预览。
+class _DefaultFloaterSection extends StatefulWidget {
+  const _DefaultFloaterSection();
 
   @override
-  Widget build(BuildContext context) {
-    return GlassCard(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const DefaultFloaterSettingsScreen()),
-        );
-      },
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Icon(
-              Icons.touch_app_rounded,
-              color: Colors.black.withValues(alpha: 0.6),
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '默认悬浮球',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '圆角 28dp · 大小 78dp · 自定义图',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.withValues(alpha: 0.7),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            Icons.chevron_right_rounded,
-            color: Colors.black.withValues(alpha: 0.3),
-          ),
-        ],
-      ),
-    );
-  }
+  State<_DefaultFloaterSection> createState() => _DefaultFloaterSectionState();
 }
 
-/// 悬浮球显示/隐藏总开关，附带自定义图标入口。
-class _FloatingBallToggle extends StatefulWidget {
-  const _FloatingBallToggle();
-
-  @override
-  State<_FloatingBallToggle> createState() => _FloatingBallToggleState();
-}
-
-class _FloatingBallToggleState extends State<_FloatingBallToggle> {
+class _DefaultFloaterSectionState extends State<_DefaultFloaterSection> {
+  bool _loading = true;
+  FloaterConfig _config = const FloaterConfig();
   String? _iconPath;
 
   @override
   void initState() {
     super.initState();
-    _loadIconPath();
+    _load();
   }
 
-  Future<void> _loadIconPath() async {
-    final path = await NativeChannel.getFloatingBallIcon();
-    if (mounted) setState(() => _iconPath = path);
+  Future<void> _load() async {
+    final provider = context.read<PluginProvider>();
+    final config = await provider.loadDefaultFloaterConfig();
+    final icon = await NativeChannel.getFloatingBallIcon();
+    if (mounted) {
+      setState(() {
+        _config = config;
+        _iconPath = icon;
+        _loading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const GlassCard(
+        child: SizedBox(
+          height: 72,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
     return Selector<PluginProvider, bool>(
       selector: (_, provider) => provider.floatingBallVisible,
       builder: (context, visible, child) {
         return GlassCard(
-          child: Column(
+          onTap: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DefaultFloaterSettingsScreen()),
+            );
+            await _load();
+          },
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: visible
-                          ? Colors.black87
-                          : Colors.black.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Center(
-                      child: Icon(
-                        Icons.touch_app_rounded,
-                        color: visible ? Colors.white : Colors.black.withValues(alpha: 0.6),
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '显示悬浮球',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.black.withValues(alpha: 0.85),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          visible ? '悬浮球已显示在屏幕上' : '悬浮球已隐藏',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.withValues(alpha: 0.6),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Switch(
-                    value: visible,
-                    onChanged: (value) => _onToggle(context, value),
-                    activeColor: Colors.black87,
-                    inactiveThumbColor: Colors.white,
-                    inactiveTrackColor: Colors.black.withValues(alpha: 0.12),
-                  ),
-                ],
-              ),
-              const Divider(height: 24),
-              InkWell(
-                onTap: () => _showIconOptions(context),
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: _iconPath != null && File(_iconPath!).existsSync()
-                            ? Image.file(
-                                File(_iconPath!),
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => Icon(
-                                  Icons.touch_app_rounded,
-                                  color: Colors.black.withValues(alpha: 0.6),
-                                  size: 20,
-                                ),
-                              )
-                            : Icon(
-                                Icons.touch_app_rounded,
-                                color: Colors.black.withValues(alpha: 0.6),
-                                size: 20,
-                              ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '悬浮球图标',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black.withValues(alpha: 0.85),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _iconPath != null ? '已使用自定义图标' : '点击更换图标',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.withValues(alpha: 0.6),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: Colors.black.withValues(alpha: 0.3),
-                      ),
-                    ],
-                  ),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(_config.cornerRadius.toDouble()),
                 ),
+                clipBehavior: Clip.antiAlias,
+                child: _iconPath != null && File(_iconPath!).existsSync()
+                    ? Image.file(
+                        File(_iconPath!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Icon(
+                          Icons.touch_app_rounded,
+                          color: Colors.black.withValues(alpha: 0.6),
+                          size: 24,
+                        ),
+                      )
+                    : Icon(
+                        Icons.touch_app_rounded,
+                        color: Colors.black.withValues(alpha: 0.6),
+                        size: 24,
+                      ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '默认悬浮球',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      visible
+                          ? '悬浮球已显示在屏幕上'
+                          : '圆角 ${_config.cornerRadius}dp · 大小 ${_config.size}dp · ${_iconPath != null ? "自定义图标" : "默认图标"}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: visible,
+                onChanged: (value) => _onToggle(context, value),
+                activeColor: Colors.black87,
+                inactiveThumbColor: Colors.white,
+                inactiveTrackColor: Colors.black.withValues(alpha: 0.12),
               ),
             ],
           ),
@@ -713,7 +613,6 @@ class _FloatingBallToggleState extends State<_FloatingBallToggle> {
     final hasNotification = await NativeChannel.checkNotificationPermission();
 
     if (value && !hasOverlay) {
-      // 缺少悬浮窗权限时弹出提示并引导授权
       if (!context.mounted) return;
       final shouldGrant = await showDialog<bool>(
         context: context,
@@ -735,109 +634,13 @@ class _FloatingBallToggleState extends State<_FloatingBallToggle> {
       );
       if (shouldGrant != true) return;
       await NativeChannel.requestOverlayPermission();
-      // 授权页返回后，仍由用户再次点击开关触发；避免自动判断时序问题
       return;
     }
 
-    // Android 13+：开启悬浮球时如果没有通知权限，先请求一次，避免前台服务通知不显示
     if (value && !hasNotification) {
       await NativeChannel.requestNotificationPermission();
     }
 
     await provider.setFloatingBallVisible(value);
-  }
-
-  Future<void> _showIconOptions(BuildContext context) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_rounded),
-              title: const Text('从相册选择'),
-              onTap: () => Navigator.of(context).pop('pick'),
-            ),
-            if (_iconPath != null)
-              ListTile(
-                leading: const Icon(Icons.replay_rounded),
-                title: const Text('恢复默认'),
-                onTap: () => Navigator.of(context).pop('reset'),
-              ),
-            ListTile(
-              leading: const Icon(Icons.close_rounded),
-              title: const Text('取消'),
-              onTap: () => Navigator.of(context).pop(),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (action == 'pick') {
-      await _pickAndCropIcon(context);
-    } else if (action == 'reset') {
-      await _resetIcon(context);
-    }
-  }
-
-  Future<void> _pickAndCropIcon(BuildContext context) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-
-    final sourcePath = result.files.single.path;
-    if (sourcePath == null || !context.mounted) return;
-
-    final croppedPath = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => ImageCropScreen(
-          sourcePath: sourcePath,
-          maxOutputSize: 128,
-          aspectRatio: 1.0,
-        ),
-      ),
-    );
-    if (croppedPath == null || !context.mounted) return;
-
-    final appDir = await getApplicationDocumentsDirectory();
-    final iconFile = File('${appDir.path}/floating_ball_icon.png');
-    await File(croppedPath).copy(iconFile.path);
-
-    final saved = await NativeChannel.setFloatingBallIcon(iconFile.path);
-    if (saved) {
-      await _loadIconPath();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('悬浮球图标已更新'),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: Colors.black87,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _resetIcon(BuildContext context) async {
-    final saved = await NativeChannel.setFloatingBallIcon(null);
-    if (saved) {
-      await _loadIconPath();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('已恢复默认图标'),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: Colors.black87,
-          ),
-        );
-      }
-    }
   }
 }
