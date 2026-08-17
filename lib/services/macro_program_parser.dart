@@ -140,6 +140,12 @@ class MacroProgramParser {
       case 'floater':
         assign(['event']);
         break;
+      case 'singleClick':
+      case 'doubleClick':
+      case 'tripleClick':
+      case 'longPress':
+        assign(['action']);
+        break;
       case 'ball':
         assign(['role', 'name']);
         break;

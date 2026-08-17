@@ -15,6 +15,7 @@ import android.util.TypedValue
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
@@ -626,20 +627,24 @@ class FloatingBallService : Service(), MacroExecutorListener {
             @Suppress("UNCHECKED_CAST")
             val steps = program["steps"] as? List<Map<String, Any>> ?: emptyList()
 
-            // 注册每个球内的事件处理器
+            // 注册每个球内的事件处理器（支持 floater 旧写法以及 singleClick/doubleClick/tripleClick/longPress）
             for (ball in balls) {
                 val name = ball["name"] as? String ?: continue
                 @Suppress("UNCHECKED_CAST")
                 val ballSteps = ball["steps"] as? List<Map<String, Any>> ?: emptyList()
                 for (step in ballSteps) {
-                    if (step["type"] == "floater") {
-                        val event = step["event"] as? String ?: continue
-                        @Suppress("UNCHECKED_CAST")
-                        val children = step["children"] as? List<Map<String, Any>>
-                        @Suppress("UNCHECKED_CAST")
-                        val elseChildren = step["else"] as? List<Map<String, Any>>
-                        pluginFloaterRegistry.register(event, children ?: emptyList(), elseChildren)
-                    }
+                    val type = step["type"] as? String ?: continue
+                    val event = when (type) {
+                        "floater" -> step["event"] as? String
+                        "singleClick", "doubleClick", "tripleClick", "longPress" -> type
+                        else -> null
+                    } ?: continue
+                    @Suppress("UNCHECKED_CAST")
+                    val children = step["children"] as? List<Map<String, Any>>
+                    @Suppress("UNCHECKED_CAST")
+                    val elseChildren = step["else"] as? List<Map<String, Any>>
+                    val actionChildren = eventStepsForAction(step["action"] as? String)
+                    pluginFloaterRegistry.register(event, children ?: actionChildren ?: emptyList(), elseChildren)
                 }
             }
 
@@ -661,6 +666,14 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private fun getPluginBallPosition(name: String): Map<String, Int>? {
         val ball = pluginBalls[name] ?: return null
         return mapOf("x" to ball.params.x, "y" to ball.params.y)
+    }
+
+    private fun eventStepsForAction(action: String?): List<Map<String, Any>>? {
+        return when (action) {
+            "Launch_macro" -> listOf(mapOf("type" to "launch_macro"))
+            "Turn_off_macros" -> listOf(mapOf("type" to "turn_off_macros"))
+            else -> null
+        }
     }
 
     private fun createOrUpdatePluginBall(context: Context, ball: Map<String, Any>) {
@@ -764,13 +777,36 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun setupPluginBallTouch(ball: PluginBall) {
         val view = ball.view
+        val handler = Handler(Looper.getMainLooper())
         val touchState = object {
             var initialX = 0
             var initialY = 0
             var initialTouchX = 0f
             var initialTouchY = 0f
             var hasMoved = false
+            var longPressed = false
+            var clickCount = 0
+            var lastClickTime = 0L
+            var pendingClickRunnable: Runnable? = null
         }
+        val multiClickThresholdMs = 300L
+
+        fun resetClicks() {
+            touchState.clickCount = 0
+            touchState.pendingClickRunnable?.let { handler.removeCallbacks(it) }
+            touchState.pendingClickRunnable = null
+        }
+
+        fun dispatchClickEvent(clicks: Int) {
+            val event = when (clicks) {
+                1 -> "singleClick"
+                2 -> "doubleClick"
+                3 -> "tripleClick"
+                else -> null
+            }
+            if (event != null) dispatchPluginBallEvent(ball.name, event)
+        }
+
         view.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -779,7 +815,17 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     touchState.initialTouchX = event.rawX
                     touchState.initialTouchY = event.rawY
                     touchState.hasMoved = false
+                    touchState.longPressed = false
                     view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(100).start()
+
+                    handler.postDelayed({
+                        if (!touchState.hasMoved && !touchState.longPressed) {
+                            touchState.longPressed = true
+                            resetClicks()
+                            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                            dispatchPluginBallEvent(ball.name, "longPress")
+                        }
+                    }, LONG_CLICK_TIMEOUT_MS)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -800,13 +846,37 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 }
                 MotionEvent.ACTION_UP -> {
                     view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-                    if (!touchState.hasMoved) {
-                        onPluginBallClick(ball.name)
+                    handler.removeCallbacksAndMessages(null)
+                    if (touchState.longPressed || touchState.hasMoved) {
+                        resetClicks()
+                        return@setOnTouchListener true
+                    }
+
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - touchState.lastClickTime > multiClickThresholdMs) {
+                        touchState.clickCount = 0
+                    }
+                    touchState.clickCount++
+                    touchState.lastClickTime = now
+
+                    if (touchState.clickCount >= 3) {
+                        resetClicks()
+                        dispatchClickEvent(3)
+                    } else {
+                        val runnable = Runnable {
+                            val count = touchState.clickCount
+                            resetClicks()
+                            dispatchClickEvent(count)
+                        }
+                        touchState.pendingClickRunnable = runnable
+                        handler.postDelayed(runnable, multiClickThresholdMs)
                     }
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                    handler.removeCallbacksAndMessages(null)
+                    resetClicks()
                     true
                 }
                 else -> false
@@ -814,9 +884,15 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
-    private fun onPluginBallClick(name: String) {
-        // 插件球点击事件：暂不执行具体宏，仅打印提示
-        showBubble("点击球: $name")
+    private fun dispatchPluginBallEvent(name: String, event: String) {
+        val handlers = pluginFloaterRegistry.get(event)
+        if (handlers.isEmpty()) return
+        for (handler in handlers) {
+            // 在后台线程执行事件步骤，避免阻塞主线程
+            Thread {
+                executeEventSteps(handler.children)
+            }.start()
+        }
     }
 
     private fun updatePluginBallPosition(name: String, x: Int, y: Int) {
@@ -923,6 +999,18 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     val message = step["message"] as? String ?: continue
                     showBubble(message)
                 }
+                "launch" -> {
+                    val packageName = step["packageName"] as? String ?: continue
+                    val intent = packageManager.getLaunchIntentForPackage(packageName)
+                    if (intent != null) {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        startActivity(intent)
+                    } else {
+                        showBubble("launch: 无法启动 $packageName")
+                    }
+                }
+                "launch_macro" -> runEnabledMacro()
+                "turn_off_macros" -> MacroExecutor.stopActive()
             }
         }
     }

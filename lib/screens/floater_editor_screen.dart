@@ -28,18 +28,17 @@ class _FloaterEditorScreenState extends State<FloaterEditorScreen> {
     location("mainBall", 100, 200)
     status(show, "mainBall")
 
-    floater("click") {
-        image("click.png")
-        audio("click.mp3")
-        print("主球被点击：" + clickX + ", " + clickY)
-    } else {
-        print("点击执行失败")
+    singleClick(Launch_macro)
+
+    doubleClick {
+        launch("com.example.app", timeout=3000) {
+        }
     }
 
-    floater("findText") {
-        print("找到文字：" + foundText)
-    } else {
-        print("未找到文字")
+    tripleClick(Turn_off_macros)
+
+    longPress {
+        print("长按主球")
     }
 }
 
