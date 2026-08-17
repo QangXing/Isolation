@@ -55,6 +55,15 @@ class MacroProgramParser {
       }
     }
 
+    String? keyword(int index) {
+      final value = positional.length > index ? positional[index] : null;
+      if (value is String) return value;
+      if (value is Map && value['op'] == 'var') {
+        return value['name'] as String?;
+      }
+      return null;
+    }
+
     switch (type) {
       case 'click':
         if (positional.length >= 2) {
@@ -138,25 +147,28 @@ class MacroProgramParser {
         assign(['path']);
         break;
       case 'floater':
-        assign(['event']);
+        step['event'] = keyword(0);
         break;
       case 'singleClick':
       case 'doubleClick':
       case 'tripleClick':
       case 'longPress':
-        assign(['action']);
+        step['action'] = keyword(0);
         break;
       case 'ball':
-        assign(['role', 'name']);
+        step['role'] = keyword(0) ?? 'deputy';
+        step['name'] = (positional.length > 1 ? positional[1] : null) as String? ?? '';
         break;
       case 'location':
         assign(['name', 'x', 'y']);
         break;
       case 'status':
-        assign(['state', 'name']);
+        step['state'] = keyword(0) ?? '';
+        step['name'] = (positional.length > 1 ? positional[1] : null) as String? ?? '';
         break;
       case 'found':
-        assign(['name', 'axis']);
+        step['name'] = (positional.length > 0 ? positional[0] : null) as String? ?? '';
+        step['axis'] = keyword(1) ?? '';
         break;
     }
 
@@ -1102,15 +1114,6 @@ class _BlockParser {
   Map<String, dynamic> _parseArgs(String argsStr) {
     final result = <String, dynamic>{};
     if (argsStr.isEmpty) return result;
-
-    // 先尝试匹配嵌套函数调用（如 if(findText("领取"))）
-    final funcMatch = RegExp(r'^(\w+)\s*\((.*)\)$').firstMatch(argsStr);
-    if (funcMatch != null) {
-      final funcName = funcMatch.group(1)!;
-      final funcArgs = _parseArgs(funcMatch.group(2)!);
-      result['condition'] = {'type': funcName, ...funcArgs};
-      return result;
-    }
 
     final parts = _splitArgs(argsStr);
     int positionalIndex = 0;
