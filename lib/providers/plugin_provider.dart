@@ -756,6 +756,28 @@ class PluginProvider extends ChangeNotifier {
     return false;
   }
 
+  /// 重命名插件 assets 目录下的指定文件。
+  Future<String?> renameMacroAsset(String pluginId, String oldName, String newName) async {
+    final pluginDir = await _pluginDirectory();
+    final assetsDir = Directory('${pluginDir.path}/$pluginId/assets');
+    final oldFile = File('${assetsDir.path}/$oldName');
+    if (!await oldFile.exists()) return null;
+    final sanitized = newName.trim();
+    if (sanitized.isEmpty || sanitized == oldName) return null;
+    final newFile = File('${assetsDir.path}/$sanitized');
+    if (await newFile.exists()) return null;
+    await oldFile.rename(newFile.path);
+    return sanitized;
+  }
+
+  /// 获取插件 assets 目录下指定文件的绝对路径。
+  Future<String?> macroAssetPath(String pluginId, String fileName) async {
+    final pluginDir = await _pluginDirectory();
+    final file = File('${pluginDir.path}/$pluginId/assets/$fileName');
+    if (await file.exists()) return file.path;
+    return null;
+  }
+
   Future<String?> exportMacroPlugin(String pluginId) async {
     final plugin = _plugins.firstWhere(
       (p) => p.id == pluginId,
