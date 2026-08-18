@@ -683,7 +683,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val sizeDp = (ball["size"] as? Number)?.toInt() ?: defaultConfig.size
         val cornerRadiusDp = (ball["cornerRadius"] as? Number)?.toInt() ?: defaultConfig.cornerRadius
         val imageName = ball["image"] as? String
-        val imagePath = imageName?.let { resolveAssetPath(it) }
+        val imagePath = imageName?.let { resolveAssetPath(it) } ?: defaultConfig.imagePath
         val visible = ball["visible"] as? Boolean ?: (role == "main")
 
         val locationX = resolveIntValue(ball["locationX"], if (role == "main") 100 else 0)
