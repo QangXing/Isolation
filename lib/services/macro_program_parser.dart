@@ -34,7 +34,7 @@ class MacroProgramParser {
     } on MacroParseError {
       rethrow;
     } catch (e, s) {
-      throw MacroParseError('解析失败: $e', 0);
+      throw MacroParseError('解析失败: $e\n$s', 0);
     }
   }
 
@@ -213,7 +213,7 @@ class MacroProgramParser {
     } on MacroParseError {
       rethrow;
     } catch (e, s) {
-      throw MacroParseError('解析失败: $e', 0);
+      throw MacroParseError('解析失败: $e\n$s', 0);
     }
   }
 
