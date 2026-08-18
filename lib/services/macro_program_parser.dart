@@ -57,11 +57,7 @@ class MacroProgramParser {
 
     String? keyword(int index) {
       final value = positional.length > index ? positional[index] : null;
-      if (value is String) return value;
-      if (value is Map && value['op'] == 'var') {
-        return value['name'] as String?;
-      }
-      return null;
+      return _extractKeywordString(value);
     }
 
     switch (type) {
@@ -157,17 +153,17 @@ class MacroProgramParser {
         break;
       case 'ball':
         step['role'] = keyword(0) ?? 'deputy';
-        step['name'] = (positional.length > 1 ? positional[1] : null) as String? ?? '';
+        step['name'] = keyword(1) ?? '';
         break;
       case 'location':
         assign(['name', 'x', 'y']);
         break;
       case 'status':
         step['state'] = keyword(0) ?? '';
-        step['name'] = (positional.length > 1 ? positional[1] : null) as String? ?? '';
+        step['name'] = keyword(1) ?? '';
         break;
       case 'found':
-        step['name'] = (positional.length > 0 ? positional[0] : null) as String? ?? '';
+        step['name'] = keyword(0) ?? '';
         step['axis'] = keyword(1) ?? '';
         break;
     }
@@ -203,6 +199,7 @@ class MacroProgramParser {
       final balls = <FloaterBall>[];
       final globalSteps = <Map<String, dynamic>>[];
       for (final step in steps) {
+        if (step['type'] == 'comment') continue;
         if (step['type'] == 'ball') {
           balls.add(_stepToBall(step));
         } else {
@@ -218,8 +215,8 @@ class MacroProgramParser {
   }
 
   static FloaterBall _stepToBall(Map<String, dynamic> step) {
-    final role = step['role'] as String? ?? 'deputy';
-    final name = step['name'] as String? ?? '';
+    final role = _extractKeywordString(step['role']) ?? 'deputy';
+    final name = _extractKeywordString(step['name']) ?? '';
     int? size;
     int? cornerRadius;
     String? image;
@@ -237,12 +234,12 @@ class MacroProgramParser {
       } else if (type == 'cornerRadius') {
         cornerRadius = _extractIntValue(c['value']);
       } else if (type == 'image') {
-        image = c['path'] as String?;
+        image = _extractKeywordString(c['path']);
       } else if (type == 'location') {
         locationX = c['x'];
         locationY = c['y'];
       } else if (type == 'status') {
-        final state = c['state'] as String?;
+        final state = _extractKeywordString(c['state']);
         if (state == 'show') visible = true;
         if (state == 'hide') visible = false;
       } else {
@@ -261,6 +258,15 @@ class MacroProgramParser {
       visible: visible,
       steps: ballSteps,
     );
+  }
+
+  /// 从字符串字面量或 var 表达式中提取标识符名称。
+  static String? _extractKeywordString(dynamic value) {
+    if (value is String) return value;
+    if (value is Map && value['op'] == 'var') {
+      return value['name'] as String?;
+    }
+    return null;
   }
 
   static int? _extractIntValue(dynamic value) {
@@ -1209,8 +1215,13 @@ class _BlockParser {
   }
 
   dynamic _parseExpressionOrValue(String part) {
+    final trimmed = part.trim();
     final value = _parseValue(part);
-    if (value is String && _looksLikeExpression(part)) {
+    // 引号包裹的字符串应作为普通字符串返回，不要解析为表达式字面量
+    if (value is String &&
+        _looksLikeExpression(part) &&
+        !trimmed.startsWith('"') &&
+        !trimmed.startsWith("'")) {
       try {
         return ExpressionParser.parse(part).toJson();
       } catch (_) {}
