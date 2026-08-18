@@ -80,7 +80,10 @@ class _DefaultFloaterSettingsScreenState extends State<DefaultFloaterSettingsScr
 
     final saved = await NativeChannel.setFloatingBallIcon(iconFile.path);
     if (saved && mounted) {
-      setState(() => _iconPath = iconFile.path);
+      setState(() {
+        _iconPath = iconFile.path;
+        _config = _config.copyWith(imagePath: iconFile.path);
+      });
       await _save();
     }
   }

@@ -561,19 +561,23 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun applyImageInternal(imagePath: String?) {
         val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
+        Log.d(TAG, "应用默认悬浮球图片: $imagePath")
         if (imagePath != null && File(imagePath).exists()) {
             try {
                 val bitmap = BitmapFactory.decodeFile(imagePath)
                 if (bitmap != null) {
                     ball.setImageBitmap(bitmap)
+                    Log.d(TAG, "默认悬浮球图片加载成功")
                 } else {
+                    Log.w(TAG, "默认悬浮球图片解码失败: $imagePath")
                     ball.setImageDrawable(null)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.w(TAG, "默认悬浮球图片加载异常: $imagePath", e)
                 ball.setImageDrawable(null)
             }
         } else {
+            Log.d(TAG, "默认悬浮球图片路径为空或不存在: $imagePath")
             ball.setImageDrawable(null)
         }
     }
@@ -605,6 +609,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
             pluginAssetsDir = assetsDir
             pluginFloaterRegistry.clear()
             pluginVariables.clear()
+
+            // 每次启用球插件时刷新默认悬浮球状态，确保后续回退参数使用最新值
+            val config = loadDefaultFloaterConfig()
+            applyFloaterConfigInternal(config.cornerRadius, config.size, config.imagePath)
 
             // 注册 found 函数，用于表达式中获取球坐标
             val foundHandler: (String, List<Map<String, Any>>, Map<String, Variable>) -> Variable? = { name, args, variables ->
@@ -750,21 +758,27 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 TypedValue.COMPLEX_UNIT_DIP, ball.cornerRadiusDp.toFloat(), resources.displayMetrics
             )
         )
+        view.invalidate()
 
         val imageView = view.findViewById<ImageView>(R.id.floating_ball_image)
         val path = ball.imagePath
+        Log.d(TAG, "应用球配置: ${ball.name}, imagePath=$path")
         if (path != null && File(path).exists()) {
             try {
                 val bitmap = BitmapFactory.decodeFile(path)
                 if (bitmap != null) {
                     imageView.setImageBitmap(bitmap)
+                    Log.d(TAG, "球图片加载成功: ${ball.name}")
                 } else {
+                    Log.w(TAG, "球图片解码失败: $path")
                     imageView.setImageDrawable(null)
                 }
             } catch (e: Exception) {
+                Log.w(TAG, "球图片加载异常: $path", e)
                 imageView.setImageDrawable(null)
             }
         } else {
+            Log.d(TAG, "球图片路径为空或不存在: $path")
             imageView.setImageDrawable(null)
         }
 
@@ -963,57 +977,112 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun resolveAssetPath(fileName: String): String? {
-        val dir = pluginAssetsDir ?: return null
+        val dir = pluginAssetsDir ?: run {
+            Log.w(TAG, "插件资源目录未设置，无法解析: $fileName")
+            return null
+        }
         val file = File(dir, fileName)
+        Log.d(TAG, "解析资源路径: ${file.absolutePath}, 存在=${file.exists()}")
         return if (file.exists()) file.absolutePath else null
     }
 
     private fun executeFloaterSteps(steps: List<Map<String, Any>>) {
         for (step in steps) {
-            when (step["type"]) {
-                "assign", "let", "var" -> {
-                    val name = step["name"] as? String ?: continue
-                    @Suppress("UNCHECKED_CAST")
-                    val valueExpr = step["value"] as? Map<String, Any>
-                    val value = valueExpr?.let { ExpressionEvaluator.evaluate(it, pluginVariables) }
-                    if (value != null) pluginVariables[name] = value
-                }
-                "found" -> {
-                    val assignTo = step["assignTo"] as? String ?: continue
-                    val name = step["name"] as? String ?: continue
-                    val axis = step["axis"] as? String ?: continue
-                    val pos = getPluginBallPosition(name) ?: continue
-                    val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
-                    pluginVariables[assignTo] = Variable.Number(value.toDouble())
-                }
-                "location" -> {
-                    val name = step["name"] as? String ?: continue
-                    val x = resolveIntValue(step["x"], 0)
-                    val y = resolveIntValue(step["y"], 0)
-                    updatePluginBallPosition(name, x, y)
-                }
-                "status" -> {
-                    val name = step["name"] as? String ?: continue
-                    val state = step["state"] as? String ?: continue
-                    setPluginBallVisible(name, state == "show")
-                }
-                "print" -> {
-                    val message = step["message"] as? String ?: continue
-                    showBubble(message)
-                }
-                "launch" -> {
-                    val packageName = step["packageName"] as? String ?: continue
-                    val intent = packageManager.getLaunchIntentForPackage(packageName)
-                    if (intent != null) {
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        startActivity(intent)
-                    } else {
-                        showBubble("launch: 无法启动 $packageName")
-                    }
-                }
-                "launch_macro" -> runEnabledMacro()
-                "turn_off_macros" -> MacroExecutor.stopActive()
+            executeFloaterStep(step)
+        }
+    }
+
+    private fun executeFloaterStep(step: Map<String, Any>) {
+        when (step["type"]) {
+            "assign", "let", "var" -> {
+                val name = step["name"] as? String ?: return
+                @Suppress("UNCHECKED_CAST")
+                val valueExpr = step["value"] as? Map<String, Any>
+                val value = valueExpr?.let { ExpressionEvaluator.evaluate(it, pluginVariables) }
+                if (value != null) pluginVariables[name] = value
             }
+            "found" -> {
+                val assignTo = step["assignTo"] as? String ?: return
+                val name = step["name"] as? String ?: return
+                val axis = step["axis"] as? String ?: return
+                val pos = getPluginBallPosition(name) ?: return
+                val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
+                pluginVariables[assignTo] = Variable.Number(value.toDouble())
+            }
+            "location" -> {
+                val name = step["name"] as? String ?: return
+                val x = resolveIntValue(step["x"], 0)
+                val y = resolveIntValue(step["y"], 0)
+                updatePluginBallPosition(name, x, y)
+            }
+            "status" -> {
+                val name = step["name"] as? String ?: return
+                val state = step["state"] as? String ?: return
+                setPluginBallVisible(name, state == "show")
+            }
+            "print" -> {
+                val message = step["message"] as? String ?: return
+                showBubble(message)
+            }
+            "launch" -> {
+                val packageName = step["packageName"] as? String ?: return
+                val intent = packageManager.getLaunchIntentForPackage(packageName)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    startActivity(intent)
+                } else {
+                    showBubble("launch: 无法启动 $packageName")
+                }
+            }
+            "launch_macro" -> runEnabledMacro()
+            "turn_off_macros" -> MacroExecutor.stopActive()
+            "for" -> executeFloaterFor(step)
+            "if" -> executeFloaterIf(step)
+            else -> Log.w(TAG, "未支持的球步骤类型: ${step["type"]}")
+        }
+    }
+
+    private fun executeFloaterFor(step: Map<String, Any>) {
+        @Suppress("UNCHECKED_CAST")
+        val condition = step["condition"] as? Map<String, Any>
+        if (condition != null) {
+            @Suppress("UNCHECKED_CAST")
+            val init = step["init"] as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val update = step["update"] as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val children = (step["children"] as? List<Map<String, Any>>) ?: return
+            init?.let { executeFloaterStep(it) }
+            while (ExpressionEvaluator.toBoolean(ExpressionEvaluator.evaluate(condition, pluginVariables))) {
+                executeFloaterSteps(children)
+                update?.let { executeFloaterStep(it) }
+            }
+            return
+        }
+        val count = (step["count"] as? Number)?.toInt() ?: 1
+        @Suppress("UNCHECKED_CAST")
+        val children = (step["children"] as? List<Map<String, Any>>) ?: return
+        for (i in 1..count) {
+            executeFloaterSteps(children)
+        }
+    }
+
+    private fun executeFloaterIf(step: Map<String, Any>) {
+        @Suppress("UNCHECKED_CAST")
+        val condition = step["condition"] as? Map<String, Any>
+        @Suppress("UNCHECKED_CAST")
+        val expression = step["expression"] as? Map<String, Any>
+        val condExpr = condition ?: expression ?: return
+        val result = ExpressionEvaluator.evaluate(condExpr, pluginVariables)
+        val bool = ExpressionEvaluator.toBoolean(result)
+        @Suppress("UNCHECKED_CAST")
+        val thenChildren = (step["then"] as? List<Map<String, Any>>)
+        @Suppress("UNCHECKED_CAST")
+        val elseChildren = (step["else"] as? List<Map<String, Any>>)
+        if (bool) {
+            thenChildren?.let { executeFloaterSteps(it) }
+        } else {
+            elseChildren?.let { executeFloaterSteps(it) }
         }
     }
 

@@ -35,12 +35,24 @@ class PluginProvider extends ChangeNotifier {
   Future<FloaterConfig> loadDefaultFloaterConfig() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_defaultFloaterConfigKey);
-    if (raw == null) return const FloaterConfig();
-    try {
-      return FloaterConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-    } catch (_) {
-      return const FloaterConfig();
+    FloaterConfig config;
+    if (raw == null) {
+      config = const FloaterConfig();
+    } else {
+      try {
+        config = FloaterConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      } catch (_) {
+        config = const FloaterConfig();
+      }
     }
+    // 若 Flutter 侧未记录图标路径，尝试从 Native 侧获取已设置的自定义图标
+    if (config.imagePath == null || config.imagePath!.isEmpty) {
+      final nativeIcon = await NativeChannel.getFloatingBallIcon();
+      if (nativeIcon != null && nativeIcon.isNotEmpty) {
+        config = config.copyWith(imagePath: nativeIcon);
+      }
+    }
+    return config;
   }
 
   Future<void> saveDefaultFloaterConfig(FloaterConfig config) async {
