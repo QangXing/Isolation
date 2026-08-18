@@ -686,8 +686,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val imagePath = imageName?.let { resolveAssetPath(it) } ?: defaultConfig.imagePath
         val visible = ball["visible"] as? Boolean ?: (role == "main")
 
-        val locationX = resolveIntValue(ball["locationX"], if (role == "main") 100 else 0)
-        val locationY = resolveIntValue(ball["locationY"], if (role == "main") 300 else 0)
+        val defaultLocationX = floatingParams?.x ?: 100
+        val defaultLocationY = floatingParams?.y ?: 300
+        val locationX = resolveIntValue(ball["locationX"], if (role == "main") defaultLocationX else 0)
+        val locationY = resolveIntValue(ball["locationY"], if (role == "main") defaultLocationY else 0)
 
         val wm = windowManager ?: (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).also {
             windowManager = it
