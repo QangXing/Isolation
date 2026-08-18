@@ -981,9 +981,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
             Log.w(TAG, "插件资源目录未设置，无法解析: $fileName")
             return null
         }
+        val dirFile = File(dir)
         val file = File(dir, fileName)
         Log.d(TAG, "解析资源路径: ${file.absolutePath}, 存在=${file.exists()}")
-        return if (file.exists()) file.absolutePath else null
+        if (file.exists()) return file.absolutePath
+
+        // 若精确匹配失败，尝试不区分大小写匹配，兼容 asset.jpg / ASSET.JPG
+        val lower = fileName.lowercase()
+        val candidates = dirFile.listFiles()?.filter { it.name.lowercase() == lower }
+        if (!candidates.isNullOrEmpty()) {
+            Log.d(TAG, "不区分大小写匹配资源: ${candidates[0].absolutePath}")
+            return candidates[0].absolutePath
+        }
+        return null
     }
 
     private fun executeFloaterSteps(steps: List<Map<String, Any>>) {

@@ -730,9 +730,16 @@ class PluginProvider extends ChangeNotifier {
 
   // Macro assets
 
-  /// 将裁剪好的图片复制到插件 assets 目录，返回生成的文件名。
-  Future<String?> importMacroAsset(String pluginId, String imagePath) async {
-    final file = File(imagePath);
+  /// 将文件复制到插件 assets 目录，返回生成的文件名。
+  ///
+  /// [desiredName] 可指定保存后的文件名；为 null 时使用 [sourcePath] 的 basename。
+  /// 同名文件会覆盖，便于 DSL 中 image("xxx.jpg") 直接引用。
+  Future<String?> importMacroAsset(
+    String pluginId,
+    String sourcePath, {
+    String? desiredName,
+  }) async {
+    final file = File(sourcePath);
     if (!await file.exists()) return null;
 
     final pluginDir = await _pluginDirectory();
@@ -741,9 +748,11 @@ class PluginProvider extends ChangeNotifier {
       await assetsDir.create(recursive: true);
     }
 
-    final ext = path.extension(imagePath).toLowerCase();
-    final fileName = 'asset_${DateTime.now().millisecondsSinceEpoch}${ext.isEmpty ? '.jpg' : ext}';
+    final fileName = desiredName ?? path.basename(sourcePath);
     final destFile = File('${assetsDir.path}/$fileName');
+    if (await destFile.exists()) {
+      await destFile.delete();
+    }
     await file.copy(destFile.path);
     return fileName;
   }

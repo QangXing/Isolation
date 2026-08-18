@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
 import '../widgets/glass_card.dart';
@@ -55,7 +56,12 @@ class _FloaterAssetsScreenState extends State<FloaterAssetsScreen> {
     if (croppedPath == null) return;
 
     final provider = context.read<PluginProvider>();
-    final fileName = await provider.importMacroAsset(widget.pluginId, croppedPath);
+    final originalName = path.basename(sourcePath);
+    final fileName = await provider.importMacroAsset(
+      widget.pluginId,
+      croppedPath,
+      desiredName: originalName,
+    );
     await _loadAssets();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
