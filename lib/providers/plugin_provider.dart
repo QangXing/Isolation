@@ -629,10 +629,10 @@ class PluginProvider extends ChangeNotifier {
     final pluginDir = await _pluginDirectory();
     final targetDir = Directory('${pluginDir.path}/$id');
 
-    if (await targetDir.exists()) {
-      await targetDir.delete(recursive: true);
+    // 保留已有插件目录，避免清空已导入的 assets 与设置文件。
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
     }
-    await targetDir.create(recursive: true);
 
     // 优先按多球 DSL 解析；若解析失败则回退为旧步骤列表以兼容。
     FloaterProgram? program;
@@ -643,6 +643,19 @@ class PluginProvider extends ChangeNotifier {
       fallbackSteps = MacroProgramParser.parse(source);
     }
 
+    // 保留原插件的启用状态与图标设置，避免保存后设置被清空。
+    final oldPlugin = _plugins.firstWhere(
+      (p) => p.id == id,
+      orElse: () => Plugin(
+        id: id,
+        name: name,
+        version: '1.0.0',
+        description: description,
+        author: 'user',
+        type: 'floaterPlugin',
+      ),
+    );
+
     final manifest = {
       'id': id,
       'type': 'floaterPlugin',
@@ -650,7 +663,7 @@ class PluginProvider extends ChangeNotifier {
       'version': '1.0.0',
       'description': description,
       'author': 'user',
-      'iconName': 'favorite',
+      'iconName': oldPlugin.iconName ?? 'favorite',
     };
 
     await File('${targetDir.path}/manifest.json').writeAsString(jsonEncode(manifest));
@@ -658,10 +671,15 @@ class PluginProvider extends ChangeNotifier {
     await File('${targetDir.path}/floater.json').writeAsString(
       jsonEncode(program?.toJson() ?? fallbackSteps),
     );
-    await Directory('${targetDir.path}/assets').create();
+    await Directory('${targetDir.path}/assets').create(recursive: true);
 
     _plugins.removeWhere((p) => p.id == id);
-    final plugin = Plugin.fromManifest(manifest);
+    final plugin = Plugin.fromManifest(
+      manifest,
+      iconPath: oldPlugin.iconPath,
+      iconName: oldPlugin.iconName,
+    );
+    plugin.enabled = oldPlugin.enabled;
     _plugins.add(plugin);
     _manager.replacePlugins(_plugins);
     await _manager.savePlugins();

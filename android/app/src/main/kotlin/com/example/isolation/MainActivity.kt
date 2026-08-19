@@ -139,6 +139,19 @@ class MainActivity : FlutterFragmentActivity() {
                     FloatingBallService.applyFloaterConfig(cornerRadius, size, imagePath)
                     result.success(true)
                 }
+                "registerFloaters" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val program = (call.argument<Map<String, Any>>("program") ?: emptyMap()).toMap()
+                    val pluginId = call.argument<String>("pluginId") ?: ""
+                    val assetsDir = call.argument<String>("assetsDir")
+                    val registered = FloatingBallService.registerFloaters(this, program, assetsDir)
+                    result.success(registered)
+                }
+                "getFloaterPosition" -> {
+                    val name = call.argument<String>("name") ?: ""
+                    val pos = FloatingBallService.getFloaterPosition(name)
+                    result.success(pos)
+                }
                 "checkAccessibilityPermission" -> {
                     result.success(InputAccessibilityService.isEnabled(this))
                 }

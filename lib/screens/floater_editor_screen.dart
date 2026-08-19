@@ -180,6 +180,10 @@ status(show, "helper")
       final program = MacroProgramParser.parseFloaterProgram(_codeController.text);
       final ballCount = program.balls.length;
       final hasMain = program.mainBall != null;
+      final formatted = _formatDsl(_codeController.text);
+      if (formatted != _codeController.text) {
+        _codeController.text = formatted;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -206,6 +210,30 @@ status(show, "helper")
         ),
       );
     }
+  }
+
+  /// 对 DSL 源码进行简单格式化：根据大括号增减 4 空格缩进。
+  String _formatDsl(String source) {
+    final lines = const LineSplitter().convert(source);
+    final buffer = StringBuffer();
+    var indent = 0;
+    for (final raw in lines) {
+      final line = raw.trim();
+      if (line.isEmpty) {
+        buffer.writeln();
+        continue;
+      }
+      final openBraces = '{'.allMatches(line).length;
+      final closeBraces = '}'.allMatches(line).length;
+      if (closeBraces > 0) {
+        indent = (indent - closeBraces).clamp(0, indent).toInt();
+      }
+      buffer.writeln('${'    ' * indent}$line');
+      if (openBraces > 0) {
+        indent += openBraces;
+      }
+    }
+    return buffer.toString();
   }
 
   Future<void> _showSaveDialog(BuildContext context) async {
