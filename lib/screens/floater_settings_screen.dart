@@ -22,6 +22,7 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   bool _loading = true;
+  bool _pinned = false;
   String? _iconName;
   String? _iconPath;
 
@@ -63,6 +64,7 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
         _descriptionController.text = plugin?.description ?? '';
         _iconName = plugin?.iconName;
         _iconPath = plugin?.iconPath;
+        _pinned = plugin?.pinned ?? false;
         _loading = false;
       });
     }
@@ -80,6 +82,9 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
       iconName: _iconName,
       iconPath: _iconPath,
     );
+    if (success) {
+      await provider.updatePluginPin(widget.pluginId, _pinned);
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -437,6 +442,18 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
+                      _buildSwitchCard(
+                        icon: Icons.push_pin_rounded,
+                        title: '置顶卡片',
+                        subtitle: '在首页和管理区列表中优先显示该卡片',
+                        value: _pinned,
+                        onChanged: (value) {
+                          setState(() {
+                            _pinned = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 14),
                       GestureDetector(
                         onTap: _openAssets,
                         child: GlassCard(
@@ -517,6 +534,110 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildSwitchCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return GlassCard(
+      child: Row(
+        children: [
+          Icon(icon, size: 22, color: Colors.black.withValues(alpha: 0.6)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.black.withValues(alpha: 0.45),
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _CustomSwitch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomSwitch extends StatefulWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _CustomSwitch({required this.value, required this.onChanged});
+
+  @override
+  State<_CustomSwitch> createState() => _CustomSwitchState();
+}
+
+class _CustomSwitchState extends State<_CustomSwitch> {
+  late bool _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.value;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomSwitch oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      _value = widget.value;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() => _value = !_value);
+        widget.onChanged(_value);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 50,
+        height: 28,
+        decoration: BoxDecoration(
+          color: _value ? Colors.black87 : Colors.black.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: AnimatedAlign(
+          duration: const Duration(milliseconds: 200),
+          alignment: _value ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

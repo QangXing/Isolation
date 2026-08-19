@@ -18,6 +18,7 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
   MacroSettings? _settings;
   String? _iconName;
   bool _loading = true;
+  bool _pinned = false;
 
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -63,6 +64,7 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
       setState(() {
         _settings = data?.settings ?? const MacroSettings();
         _iconName = plugin?.iconName;
+        _pinned = plugin?.pinned ?? false;
         _nameController.text = plugin?.name ?? '';
         _descriptionController.text = plugin?.description ?? '';
         _featurePointCountController.text = _settings!.featurePointCount.toString();
@@ -88,6 +90,9 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
       settings: settings,
       iconName: _iconName,
     );
+    if (success) {
+      await provider.updatePluginPin(widget.pluginId, _pinned);
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -267,6 +272,19 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                             ),
                           ],
                         ),
+                      ),
+                      const SizedBox(height: 14),
+                      // 置顶卡片
+                      _buildSwitchCard(
+                        icon: Icons.push_pin_rounded,
+                        title: '置顶卡片',
+                        subtitle: '在首页和管理区列表中优先显示该卡片',
+                        value: _pinned,
+                        onChanged: (value) {
+                          setState(() {
+                            _pinned = value;
+                          });
+                        },
                       ),
                       const SizedBox(height: 14),
                       // 调试模式

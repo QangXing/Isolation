@@ -31,8 +31,8 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
         final plugins = provider.plugins;
-        final macros = plugins.where((p) => !p.isFloater).toList();
-        final floaters = plugins.where((p) => p.isFloater).toList();
+        final macros = _sortedPlugins(plugins.where((p) => !p.isFloater).toList());
+        final floaters = _sortedPlugins(plugins.where((p) => p.isFloater).toList());
         final items = _tab == _HomeTab.macro ? macros : floaters;
 
         return Scaffold(
@@ -179,6 +179,13 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  List<Plugin> _sortedPlugins(List<Plugin> plugins) {
+    final pinned = plugins.where((p) => p.pinned).toList()
+      ..sort((a, b) => (b.pinnedAt ?? DateTime(0)).compareTo(a.pinnedAt ?? DateTime(0)));
+    final unpinned = plugins.where((p) => !p.pinned).toList();
+    return [...pinned, ...unpinned];
   }
 
   Future<void> _onEnabledChanged(

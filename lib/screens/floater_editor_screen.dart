@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
+import '../screens/professional_editor_screen.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
 import '../widgets/code_editor.dart';
@@ -30,7 +31,9 @@ class _FloaterEditorScreenState extends State<FloaterEditorScreen> {
     location("mainBall", 100, 200)
     status(show, "mainBall")
 
-    singleClick(Launch_macro)
+    singleClick {
+        toggle("helper")
+    }
 
     doubleClick {
         launch("com.example.app", timeout=3000) {
@@ -50,13 +53,14 @@ ball(deputy, "helper") {
     image("helper.png")
     location("helper", 0, 0)
     status(hide, "helper")
+
+    singleClick(Launch_macro)
 }
 
 // 副球显示在主球右侧
 mainX = found("mainBall", x)
 mainY = found("mainBall", y)
 location("helper", mainX + 80, mainY)
-status(show, "helper")
 ''';
 
   @override
@@ -166,6 +170,13 @@ status(show, "helper")
             const SizedBox(width: 12),
             Expanded(
               child: _ActionButton(
+                label: '全屏',
+                onTap: _openProfessionalEditor,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ActionButton(
                 label: '保存',
                 filled: true,
                 onTap: () => _showSaveDialog(context),
@@ -175,6 +186,21 @@ status(show, "helper")
         ),
       ),
     );
+  }
+
+  Future<void> _openProfessionalEditor() async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ProfessionalEditorScreen(
+          initialText: _codeController.text,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
+    if (result != null && mounted) {
+      _codeController.text = result;
+      setState(() {});
+    }
   }
 
   void _validate() {

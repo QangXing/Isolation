@@ -257,6 +257,13 @@ class PluginProvider extends ChangeNotifier {
     await NativeChannel.executeAction(action.type, action.params);
   }
 
+  Future<bool> updatePluginPin(String pluginId, bool pinned) async {
+    await _manager.setPinned(pluginId, pinned);
+    _plugins = List.from(_manager.plugins);
+    notifyListeners();
+    return true;
+  }
+
   // Recording
 
   Future<bool> startRecording({bool captureColors = false}) async {
@@ -464,6 +471,8 @@ class PluginProvider extends ChangeNotifier {
       builtIn: plugin.builtIn,
       actions: plugin.actions,
       enabled: plugin.enabled,
+      pinned: plugin.pinned,
+      pinnedAt: plugin.pinnedAt,
     );
     _plugins[pluginIndex] = updatedPlugin;
     await _manager.savePlugins();
@@ -531,6 +540,8 @@ class PluginProvider extends ChangeNotifier {
       actions: plugin.actions,
       enabled: plugin.enabled,
       type: plugin.type,
+      pinned: plugin.pinned,
+      pinnedAt: plugin.pinnedAt,
     );
     _plugins[pluginIndex] = updatedPlugin;
     await _manager.savePlugins();
@@ -619,6 +630,12 @@ class PluginProvider extends ChangeNotifier {
     final manifestFile = File('${targetDir.path}/manifest.json');
     await manifestFile.writeAsString(jsonEncode(manifest));
 
+    // 编辑时保留置顶状态
+    final oldPlugin = _plugins.firstWhere(
+      (p) => p.id == id,
+      orElse: () => Plugin(id: id, name: name, version: '', description: '', author: ''),
+    );
+
     // Remove old plugin entry if editing
     _plugins.removeWhere((p) => p.id == id);
 
@@ -626,6 +643,8 @@ class PluginProvider extends ChangeNotifier {
       manifest,
       iconPath: iconPath != null ? '${targetDir.path}/icon.png' : null,
     );
+    plugin.pinned = oldPlugin.pinned;
+    plugin.pinnedAt = oldPlugin.pinnedAt;
     _plugins.add(plugin);
     _manager.replacePlugins(_plugins);
     await _manager.savePlugins();
@@ -696,6 +715,8 @@ class PluginProvider extends ChangeNotifier {
       iconName: oldPlugin.iconName,
     );
     plugin.enabled = oldPlugin.enabled;
+    plugin.pinned = oldPlugin.pinned;
+    plugin.pinnedAt = oldPlugin.pinnedAt;
     _plugins.add(plugin);
     _manager.replacePlugins(_plugins);
     await _manager.savePlugins();

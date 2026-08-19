@@ -162,6 +162,9 @@ class MacroProgramParser {
         step['state'] = keyword(0) ?? '';
         step['name'] = keyword(1) ?? '';
         break;
+      case 'toggle':
+        step['name'] = keyword(0) ?? '';
+        break;
       case 'found':
         step['name'] = keyword(0) ?? '';
         step['axis'] = keyword(1) ?? '';
@@ -659,6 +662,9 @@ class MacroProgramParser {
         break;
       case 'status':
         buffer.writeln('${indent}status(${_serializeArgValue(step['state'])}, ${_serializeArgValue(step['name'])})');
+        break;
+      case 'toggle':
+        buffer.writeln('${indent}toggle(${_serializeArgValue(step['name'])})');
         break;
       case 'found':
         buffer.writeln('${indent}found(${_serializeArgValue(step['name'])}, ${_serializeArgValue(step['axis'])})');

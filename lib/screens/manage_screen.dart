@@ -25,7 +25,7 @@ class ManageScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<PluginProvider>(
       builder: (context, provider, child) {
-        final plugins = provider.plugins.where((p) => !p.builtIn).toList();
+        final plugins = _sortedPlugins(provider.plugins.where((p) => !p.builtIn).toList());
         return CustomScrollView(
           slivers: [
             SliverToBoxAdapter(
@@ -209,6 +209,13 @@ class ManageScreen extends StatelessWidget {
     }
   }
 
+  static List<Plugin> _sortedPlugins(List<Plugin> plugins) {
+    final pinned = plugins.where((p) => p.pinned).toList()
+      ..sort((a, b) => (b.pinnedAt ?? DateTime(0)).compareTo(a.pinnedAt ?? DateTime(0)));
+    final unpinned = plugins.where((p) => !p.pinned).toList();
+    return [...pinned, ...unpinned];
+  }
+
   Future<void> _setPluginEnabled(BuildContext context, PluginProvider provider, String pluginId, bool enabled) async {
     await provider.setEnabled(pluginId, enabled);
   }
@@ -364,6 +371,7 @@ class _PluginListItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final typeLabel = isFloater ? ' · 球' : (isMacro ? ' · 宏' : '');
     return GlassCard(
+      color: plugin.pinned ? Colors.black.withValues(alpha: 0.12) : null,
       child: Column(
         children: [
           Row(

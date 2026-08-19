@@ -952,10 +952,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val handlers = pluginFloaterRegistry.get(event)
         if (handlers.isEmpty()) return
         for (handler in handlers) {
-            // 在后台线程执行事件步骤，避免阻塞主线程
-            Thread {
+            // 事件步骤包含 UI 操作（Toast、startActivity、showBubble、executeMacro 等），
+            // 必须在主线程执行，否则会导致新建编程球点击闪退。
+            mainHandler.post {
                 executeFloaterSteps(handler.children)
-            }.start()
+            }
         }
     }
 
@@ -1077,6 +1078,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 val name = step["name"] as? String ?: return
                 val state = step["state"] as? String ?: return
                 setPluginBallVisible(name, state == "show")
+            }
+            "toggle" -> {
+                val name = step["name"] as? String ?: return
+                val ball = pluginBalls[name] ?: return
+                setPluginBallVisible(name, !ball.visible)
             }
             "print" -> {
                 val message = step["message"] as? String ?: return

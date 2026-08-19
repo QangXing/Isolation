@@ -24,6 +24,7 @@ class PluginCard extends StatelessWidget {
     return GlassCard(
       animate: true,
       onTap: () => _handleTap(context),
+      color: plugin.pinned ? Colors.black.withValues(alpha: 0.12) : null,
       child: Row(
         children: [
           _buildIcon(plugin),

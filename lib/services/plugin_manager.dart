@@ -177,6 +177,13 @@ class PluginManager {
     await savePlugins();
   }
 
+  Future<void> setPinned(String id, bool pinned) async {
+    final plugin = _plugins.firstWhere((p) => p.id == id);
+    plugin.pinned = pinned;
+    plugin.pinnedAt = pinned ? DateTime.now() : null;
+    await savePlugins();
+  }
+
   Future<Directory> _pluginDirectory() async {
     final appDir = await getApplicationDocumentsDirectory();
     final dir = Directory('${appDir.path}/plugins');
