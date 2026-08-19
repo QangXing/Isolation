@@ -193,9 +193,33 @@ class FloatingBallService : Service(), MacroExecutorListener {
         var cornerRadiusDp: Int,
         var imagePath: String?,
         var visible: Boolean
+    ) {
+        /** 是否为主球 */
+        val isMain: Boolean
+            get() = name == "main"
+    }
+
+    /** 气泡定位锚点：优先使用主球，其次默认悬浮球。 */
+    private data class BallAnchor(
+        val params: WindowManager.LayoutParams,
+        val sizePx: Int
     )
 
     private val pluginBalls = mutableMapOf<String, PluginBall>()
+
+    private fun bubbleAnchor(): BallAnchor? {
+        // 优先使用可见的主球
+        val main = pluginBalls.values.firstOrNull { it.isMain && it.visible }
+            ?: pluginBalls.values.firstOrNull { it.visible }
+        if (main != null) {
+            return BallAnchor(main.params, dpToPx(main.sizeDp))
+        }
+        // 回退到默认悬浮球
+        floatingParams?.let {
+            return BallAnchor(it, ballSizePx)
+        }
+        return null
+    }
     private val pluginFloaterRegistry = FloaterRegistry()
     private var pluginAssetsDir: String? = null
     private val pluginVariables = mutableMapOf<String, Variable>()
@@ -618,9 +642,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
             pluginFloaterRegistry.clear()
             pluginVariables.clear()
 
-            // 每次启用球插件时刷新默认悬浮球状态，确保后续回退参数使用最新值
+            // 启用编程球前先隐藏默认悬浮球，避免默认球与主/副球重叠显示
+            hideDefaultFloatingBall()
+
+            // 加载默认悬浮球配置，供未声明外观参数的球回退使用
             val config = loadDefaultFloaterConfig()
-            applyFloaterConfigInternal(config.cornerRadius, config.size, config.imagePath)
 
             // 注册 found 函数，用于表达式中获取球坐标
             val foundHandler: (String, List<Map<String, Any>>, Map<String, Variable>) -> Variable? = { name, args, variables ->
@@ -685,10 +711,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun clearAllPluginBalls() {
-        val wm = windowManager ?: return
+        val wm = windowManager
         for ((_, ball) in pluginBalls) {
             try {
-                if (ball.view.parent != null) {
+                if (wm != null && ball.view.parent != null) {
                     wm.removeView(ball.view)
                 }
             } catch (e: Exception) {
@@ -1152,6 +1178,14 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun hideFloatingBall() {
+        clearAllPluginBalls()
+        hideDefaultFloatingBall()
+        hideBubble()
+        hideAnimationOverlay()
+    }
+
+    /** 仅隐藏默认悬浮球视图，不停掉服务。用于启用编程球时保留服务并显示主/副球。 */
+    private fun hideDefaultFloatingBall() {
         if (floatingView != null) {
             try {
                 windowManager?.removeView(floatingView)
@@ -1161,8 +1195,6 @@ class FloatingBallService : Service(), MacroExecutorListener {
             floatingView = null
             floatingParams = null
         }
-        hideBubble()
-        hideAnimationOverlay()
     }
 
     private fun hideKeyboard() {
@@ -1238,16 +1270,18 @@ class FloatingBallService : Service(), MacroExecutorListener {
      * 确保 print 消息不会被截断或跑到屏幕外。
      */
     private fun showBubble(message: String) {
-        if (windowManager == null || floatingView == null) return
+        if (windowManager == null) return
 
         val density = resources.displayMetrics.density
         val gap = (BUBBLE_GAP_DP * density).toInt()
         val screen = screenSize()
-        val ballParams = floatingParams ?: return
+        val anchor = bubbleAnchor() ?: return
+        val ballParams = anchor.params
+        val anchorSizePx = anchor.sizePx
 
-        // 悬浮球中心坐标（屏幕坐标系）
-        val ballCenterX = ballParams.x + ballSizePx / 2
-        val ballCenterY = ballParams.y + ballSizePx / 2
+        // 锚点球中心坐标（屏幕坐标系）
+        val ballCenterX = ballParams.x + anchorSizePx / 2
+        val ballCenterY = ballParams.y + anchorSizePx / 2
 
         // 先确保气泡存在，能拿到尺寸
         if (bubbleView == null) {
@@ -1298,10 +1332,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val bubbleW = bubbleView?.measuredWidth ?: 0
         val bubbleH = bubbleView?.measuredHeight ?: 0
 
-        // 默认放在悬浮球右侧；右侧空间不足则放左侧
-        val putRight = ballCenterX + ballSizePx / 2 + gap + bubbleW <= screen.x
+        // 默认放在锚点球右侧；右侧空间不足则放左侧
+        val putRight = ballCenterX + anchorSizePx / 2 + gap + bubbleW <= screen.x
         var bubbleX = if (putRight) {
-            ballParams.x + ballSizePx + gap
+            ballParams.x + anchorSizePx + gap
         } else {
             ballParams.x - gap - bubbleW
         }
@@ -1408,6 +1442,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
         mainHandler.removeCallbacks(bubbleHideRunnable)
         // 服务销毁时若有宏在跑，强制停止，避免泄漏
         MacroExecutor.stopActive()
+        // 必须先清理插件球，再清理默认球，防止孤儿视图残留
+        clearAllPluginBalls()
         hideFloatingBall()
         hideKeyboard()
         MacroExecutor.removeListener(this)

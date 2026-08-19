@@ -235,6 +235,19 @@ class PluginProvider extends ChangeNotifier {
     } else if (isFloater && !enabled) {
       // 禁用编程球时清除屏幕上的插件球
       await NativeChannel.unregisterFloaters();
+      // 若默认悬浮球开关仍开启，恢复显示默认悬浮球
+      if (_floatingBallVisible) {
+        final ok = await _startFloatingBallIfReady();
+        if (ok) {
+          final config = await loadDefaultFloaterConfig();
+          final iconPath = await NativeChannel.getFloatingBallIcon();
+          await NativeChannel.applyDefaultFloaterConfig(
+            cornerRadius: config.cornerRadius,
+            size: config.size,
+            imagePath: iconPath,
+          );
+        }
+      }
     }
     _plugins = List.from(_manager.plugins);
     notifyListeners();
