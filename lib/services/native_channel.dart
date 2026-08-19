@@ -159,6 +159,16 @@ class NativeChannel {
     }
   }
 
+  /// 清除当前显示的所有插件球（禁用编程球时调用）。
+  static Future<bool> unregisterFloaters() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('unregisterFloaters');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// 获取指定名称悬浮球的当前位置。
   static Future<Map<String, dynamic>?> getFloaterPosition(String name) async {
     try {

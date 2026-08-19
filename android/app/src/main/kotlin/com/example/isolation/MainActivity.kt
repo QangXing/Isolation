@@ -147,6 +147,10 @@ class MainActivity : FlutterFragmentActivity() {
                     val registered = FloatingBallService.registerFloaters(this, program, assetsDir)
                     result.success(registered)
                 }
+                "unregisterFloaters" -> {
+                    FloatingBallService.unregisterFloaters()
+                    result.success(true)
+                }
                 "getFloaterPosition" -> {
                     val name = call.argument<String>("name") ?: ""
                     val pos = FloatingBallService.getFloaterPosition(name)

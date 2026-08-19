@@ -143,6 +143,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
             return instance?.registerFloatersInternal(context, program, assetsDir) ?: false
         }
 
+        /** 清除所有插件球（用于禁用编程球时）。 */
+        fun unregisterFloaters() {
+            instance?.clearAllPluginBalls()
+        }
+
         /** 获取指定名称插件球的位置。 */
         fun getFloaterPosition(name: String): Map<String, Int>? {
             return instance?.getPluginBallPosition(name)
@@ -606,6 +611,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun registerFloatersInternal(context: Context, program: Map<String, Any>, assetsDir: String?): Boolean {
         try {
+            // 先清除旧插件球，保证同时只有一个编程球在运行
+            clearAllPluginBalls()
+
             pluginAssetsDir = assetsDir
             pluginFloaterRegistry.clear()
             pluginVariables.clear()
@@ -674,6 +682,20 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private fun getPluginBallPosition(name: String): Map<String, Int>? {
         val ball = pluginBalls[name] ?: return null
         return mapOf("x" to ball.params.x, "y" to ball.params.y)
+    }
+
+    private fun clearAllPluginBalls() {
+        val wm = windowManager ?: return
+        for ((_, ball) in pluginBalls) {
+            try {
+                if (ball.view.parent != null) {
+                    wm.removeView(ball.view)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "移除旧插件球失败: ${ball.name}", e)
+            }
+        }
+        pluginBalls.clear()
     }
 
     private fun eventStepsForAction(action: String?): List<Map<String, Any>>? {

@@ -232,6 +232,9 @@ class PluginProvider extends ChangeNotifier {
           assetsDir: assetsDir,
         );
       }
+    } else if (isFloater && !enabled) {
+      // 禁用编程球时清除屏幕上的插件球
+      await NativeChannel.unregisterFloaters();
     }
     _plugins = List.from(_manager.plugins);
     notifyListeners();
