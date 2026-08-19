@@ -153,6 +153,7 @@ class PluginManager {
   Future<void> setEnabled(String id, bool enabled) async {
     final plugin = _plugins.firstWhere((p) => p.id == id);
     final isMacro = plugin.actions.any((a) => a.type == 'macro');
+    final isFloater = plugin.isFloater;
 
     // 互斥规则：宏插件启用时，强制关闭其他所有宏插件
     if (enabled && isMacro) {
@@ -162,6 +163,16 @@ class PluginManager {
         }
       }
     }
+
+    // 互斥规则：编程球插件一次只能启用一个
+    if (enabled && isFloater) {
+      for (final p in _plugins) {
+        if (p.id != id && p.isFloater && p.enabled) {
+          p.enabled = false;
+        }
+      }
+    }
+
     plugin.enabled = enabled;
     await savePlugins();
   }
