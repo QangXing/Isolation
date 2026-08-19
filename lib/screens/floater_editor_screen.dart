@@ -214,7 +214,7 @@ status(show, "helper")
 
   /// 对 DSL 源码进行简单格式化：根据大括号增减 4 空格缩进。
   String _formatDsl(String source) {
-    final lines = const LineSplitter().convert(source);
+    final lines = LineSplitter().convert(source);
     final buffer = StringBuffer();
     var indent = 0;
     for (final raw in lines) {
