@@ -61,6 +61,8 @@ class MacroSyntaxHighlighter {
     'status',
     'show',
     'hide',
+    'toggle',
+    'follow',
     'found',
   ];
 

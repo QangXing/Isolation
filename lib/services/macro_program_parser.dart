@@ -165,6 +165,9 @@ class MacroProgramParser {
       case 'toggle':
         step['name'] = keyword(0) ?? '';
         break;
+      case 'follow':
+        assign(['target', 'dx', 'dy']);
+        break;
       case 'found':
         step['name'] = keyword(0) ?? '';
         step['axis'] = keyword(1) ?? '';
@@ -226,6 +229,9 @@ class MacroProgramParser {
     dynamic locationX;
     dynamic locationY;
     bool? visible;
+    String? followTarget;
+    int? followDx;
+    int? followDy;
     final ballSteps = <Map<String, dynamic>>[];
 
     final children = step['children'] as List<dynamic>? ?? [];
@@ -245,6 +251,10 @@ class MacroProgramParser {
         final state = _extractKeywordString(c['state']);
         if (state == 'show') visible = true;
         if (state == 'hide') visible = false;
+      } else if (type == 'follow') {
+        followTarget = _extractKeywordString(c['target']);
+        followDx = _extractIntValue(c['dx']);
+        followDy = _extractIntValue(c['dy']);
       } else {
         ballSteps.add(c);
       }
@@ -259,6 +269,9 @@ class MacroProgramParser {
       locationX: locationX,
       locationY: locationY,
       visible: visible,
+      followTarget: followTarget,
+      followDx: followDx,
+      followDy: followDy,
       steps: ballSteps,
     );
   }
@@ -665,6 +678,9 @@ class MacroProgramParser {
         break;
       case 'toggle':
         buffer.writeln('${indent}toggle(${_serializeArgValue(step['name'])})');
+        break;
+      case 'follow':
+        buffer.writeln('${indent}follow(${_serializeArgValue(step['target'])}, ${_serializeArgValue(step['dx'])}, ${_serializeArgValue(step['dy'])})');
         break;
       case 'found':
         buffer.writeln('${indent}found(${_serializeArgValue(step['name'])}, ${_serializeArgValue(step['axis'])})');

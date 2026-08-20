@@ -54,13 +54,11 @@ ball(deputy, "helper") {
     location("helper", 0, 0)
     status(hide, "helper")
 
+    // 跟随主球，保持 (mainX + 80, mainY) 的相对偏移；主球拖拽时副球同步移动
+    follow("mainBall", 80, 0)
+
     singleClick(Launch_macro)
 }
-
-// 副球显示在主球右侧
-mainX = found("mainBall", x)
-mainY = found("mainBall", y)
-location("helper", mainX + 80, mainY)
 ''';
 
   @override

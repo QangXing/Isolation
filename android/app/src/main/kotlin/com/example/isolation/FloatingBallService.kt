@@ -193,7 +193,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
         var sizeDp: Int,
         var cornerRadiusDp: Int,
         var imagePath: String?,
-        var visible: Boolean
+        var visible: Boolean,
+        var followTarget: String? = null,
+        var followDx: Int = 0,
+        var followDy: Int = 0
     ) {
         /** 是否为主球 */
         val isMain: Boolean
@@ -747,6 +750,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val imageName = ball["image"] as? String
         val imagePath = imageName?.let { resolveAssetPath(it) } ?: defaultConfig.imagePath
         val visible = ball["visible"] as? Boolean ?: (role == "main")
+        val followTarget = ball["followTarget"] as? String
+        val followDx = (ball["followDx"] as? Number)?.toInt() ?: 0
+        val followDy = (ball["followDy"] as? Number)?.toInt() ?: 0
 
         val defaultLocationX = floatingParams?.x ?: 100
         val defaultLocationY = floatingParams?.y ?: 300
@@ -763,11 +769,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
             existing.cornerRadiusDp = cornerRadiusDp
             existing.imagePath = imagePath
             existing.visible = visible
+            existing.followTarget = followTarget
+            existing.followDx = followDx
+            existing.followDy = followDy
             applyPluginBallConfig(existing)
             updatePluginBallPosition(name, locationX, locationY)
             setPluginBallVisible(name, visible)
             return
         }
+
+        // 如果声明了跟随某球且目标已存在，初始位置放在目标相对偏移处
+        val leader = followTarget?.let { pluginBalls[it] }
+        val initialX = leader?.let { it.params.x + followDx } ?: locationX
+        val initialY = leader?.let { it.params.y + followDy } ?: locationY
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -780,12 +794,12 @@ class FloatingBallService : Service(), MacroExecutorListener {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = locationX
-            y = locationY
+            x = initialX
+            y = initialY
         }
 
         val view = LayoutInflater.from(context).inflate(R.layout.floating_ball, null)
-        val pluginBall = PluginBall(name, view, params, sizeDp, cornerRadiusDp, imagePath, visible)
+        val pluginBall = PluginBall(name, view, params, sizeDp, cornerRadiusDp, imagePath, visible, followTarget, followDx, followDy)
         applyPluginBallConfig(pluginBall)
         setupPluginBallTouch(pluginBall)
 
@@ -794,6 +808,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
             pluginBalls[name] = pluginBall
             if (!visible) {
                 view.visibility = View.GONE
+            }
+            // 创建完成后同步一次跟随位置（若目标球尚未创建，则等目标球创建/移动时自然同步）
+            leader?.let {
+                updatePluginBallPosition(name, it.params.x + followDx, it.params.y + followDy)
             }
         } catch (e: Exception) {
             Log.e(TAG, "创建插件球失败: $name", e)
@@ -904,14 +922,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     if (kotlin.math.abs(dx) > CLICK_SLOP_PX || kotlin.math.abs(dy) > CLICK_SLOP_PX) {
                         touchState.hasMoved = true
                     }
-                    ball.params.x = touchState.initialX + dx.toInt()
-                    ball.params.y = touchState.initialY + dy.toInt()
-                    clampPluginBallToScreen(ball)
-                    try {
-                        windowManager?.updateViewLayout(view, ball.params)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                    val newX = touchState.initialX + dx.toInt()
+                    val newY = touchState.initialY + dy.toInt()
+                    updatePluginBallPosition(ball.name, newX, newY)
                     true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -966,7 +979,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
-    private fun updatePluginBallPosition(name: String, x: Int, y: Int) {
+    private fun updatePluginBallPosition(name: String, x: Int, y: Int, visited: MutableSet<String> = mutableSetOf()) {
+        if (!visited.add(name)) return
         val ball = pluginBalls[name] ?: return
         ball.params.x = x
         ball.params.y = y
@@ -975,6 +989,13 @@ class FloatingBallService : Service(), MacroExecutorListener {
             windowManager?.updateViewLayout(ball.view, ball.params)
         } catch (e: Exception) {
             Log.w(TAG, "移动插件球失败: $name", e)
+        }
+
+        // 该球被移动后，同步更新所有以它为目标的跟随球
+        for ((followerName, follower) in pluginBalls) {
+            if (follower.followTarget == name) {
+                updatePluginBallPosition(followerName, ball.params.x + follower.followDx, ball.params.y + follower.followDy, visited)
+            }
         }
     }
 

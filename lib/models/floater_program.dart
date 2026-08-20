@@ -50,6 +50,9 @@ class FloaterBall {
   final dynamic locationX;
   final dynamic locationY;
   final bool? visible;
+  final String? followTarget;
+  final int? followDx;
+  final int? followDy;
   final List<Map<String, dynamic>> steps;
 
   const FloaterBall({
@@ -61,6 +64,9 @@ class FloaterBall {
     this.locationX,
     this.locationY,
     this.visible,
+    this.followTarget,
+    this.followDx,
+    this.followDy,
     required this.steps,
   });
 
@@ -73,6 +79,9 @@ class FloaterBall {
         if (locationX != null) 'locationX': locationX,
         if (locationY != null) 'locationY': locationY,
         if (visible != null) 'visible': visible,
+        if (followTarget != null) 'followTarget': followTarget,
+        if (followDx != null) 'followDx': followDx,
+        if (followDy != null) 'followDy': followDy,
         'steps': steps,
       };
 
@@ -87,6 +96,9 @@ class FloaterBall {
       locationX: json['locationX'],
       locationY: json['locationY'],
       visible: json['visible'] as bool?,
+      followTarget: json['followTarget'] as String?,
+      followDx: json['followDx'] as int?,
+      followDy: json['followDy'] as int?,
       steps: stepsJson.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
     );
   }
