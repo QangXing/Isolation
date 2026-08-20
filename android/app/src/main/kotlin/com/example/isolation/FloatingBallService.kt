@@ -26,13 +26,12 @@ import android.view.View
 import android.view.WindowManager
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
-import android.graphics.BitmapFactory
-import android.graphics.drawable.BitmapDrawable
 import android.widget.ImageView
 import androidx.core.app.ServiceCompat
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import com.bumptech.glide.Glide
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -544,17 +543,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun applyCustomIcon(imagePath: String) {
         val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
-        try {
-            val bitmap = BitmapFactory.decodeFile(imagePath)
-            if (bitmap != null) {
-                ball.setImageBitmap(bitmap)
-            } else {
-                applyDefaultIcon()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            applyDefaultIcon()
-        }
+        loadImageInto(ball, imagePath)
     }
 
     private fun applyDefaultIcon() {
@@ -598,23 +587,22 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private fun applyImageInternal(imagePath: String?) {
         val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
         Log.d(TAG, "应用默认悬浮球图片: $imagePath")
-        if (imagePath != null && File(imagePath).exists()) {
+        loadImageInto(ball, imagePath)
+    }
+
+    /** 使用 Glide 加载图片/GIF，失败后清空 ImageView。 */
+    private fun loadImageInto(imageView: ImageView, path: String?) {
+        if (path != null && File(path).exists()) {
             try {
-                val bitmap = BitmapFactory.decodeFile(imagePath)
-                if (bitmap != null) {
-                    ball.setImageBitmap(bitmap)
-                    Log.d(TAG, "默认悬浮球图片加载成功")
-                } else {
-                    Log.w(TAG, "默认悬浮球图片解码失败: $imagePath")
-                    ball.setImageDrawable(null)
-                }
+                Glide.with(imageView.context)
+                    .load(File(path))
+                    .into(imageView)
             } catch (e: Exception) {
-                Log.w(TAG, "默认悬浮球图片加载异常: $imagePath", e)
-                ball.setImageDrawable(null)
+                Log.w(TAG, "Glide 加载图片失败: $path", e)
+                imageView.setImageDrawable(null)
             }
         } else {
-            Log.d(TAG, "默认悬浮球图片路径为空或不存在: $imagePath")
-            ball.setImageDrawable(null)
+            imageView.setImageDrawable(null)
         }
     }
 
@@ -833,26 +821,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
         view.invalidate()
 
         val imageView = view.findViewById<ImageView>(R.id.floating_ball_image)
-        val path = ball.imagePath
-        Log.d(TAG, "应用球配置: ${ball.name}, imagePath=$path")
-        if (path != null && File(path).exists()) {
-            try {
-                val bitmap = BitmapFactory.decodeFile(path)
-                if (bitmap != null) {
-                    imageView.setImageBitmap(bitmap)
-                    Log.d(TAG, "球图片加载成功: ${ball.name}")
-                } else {
-                    Log.w(TAG, "球图片解码失败: $path")
-                    imageView.setImageDrawable(null)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "球图片加载异常: $path", e)
-                imageView.setImageDrawable(null)
-            }
-        } else {
-            Log.d(TAG, "球图片路径为空或不存在: $path")
-            imageView.setImageDrawable(null)
-        }
+        Log.d(TAG, "应用球配置: ${ball.name}, imagePath=${ball.imagePath}")
+        loadImageInto(imageView, ball.imagePath)
 
         if (view.parent != null) {
             try {
@@ -1370,22 +1340,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val bubbleW = bubbleView?.measuredWidth ?: 0
         val bubbleH = bubbleView?.measuredHeight ?: 0
 
-        // 默认放在锚点球右侧；右侧空间不足则放左侧
-        val putRight = ballCenterX + anchorSizePx / 2 + gap + bubbleW <= screen.x
-        var bubbleX = if (putRight) {
-            ballParams.x + anchorSizePx + gap
-        } else {
-            ballParams.x - gap - bubbleW
+        // 默认放在锚点球上方；上方空间不足则放下方
+        var bubbleY = ballParams.y - bubbleH - gap
+        val putBelow = bubbleY < 0
+        if (putBelow) {
+            bubbleY = ballParams.y + anchorSizePx + gap
         }
+        if (bubbleY + bubbleH > screen.y) bubbleY = screen.y - bubbleH
+        if (bubbleY < 0) bubbleY = 0
 
-        // 水平方向裁剪，确保不会超出屏幕
+        // 水平方向居中对齐，并裁剪到屏幕内
+        var bubbleX = ballCenterX - bubbleW / 2
         if (bubbleX < 0) bubbleX = 0
         if (bubbleX + bubbleW > screen.x) bubbleX = screen.x - bubbleW
-
-        // 垂直方向：相对悬浮球中心对齐，并做边界裁剪
-        var bubbleY = ballCenterY - bubbleH / 2
-        if (bubbleY < 0) bubbleY = 0
-        if (bubbleY + bubbleH > screen.y) bubbleY = screen.y - bubbleH
 
         bubbleParams?.apply {
             x = bubbleX

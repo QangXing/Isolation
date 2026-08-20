@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../models/floater_config.dart';
@@ -63,20 +64,25 @@ class _DefaultFloaterSettingsScreenState extends State<DefaultFloaterSettingsScr
     final sourcePath = result.files.single.path;
     if (sourcePath == null || !mounted) return;
 
-    final croppedPath = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => ImageCropScreen(
-          sourcePath: sourcePath,
-          maxOutputSize: 128,
-          aspectRatio: 1.0,
+    String iconPath = sourcePath;
+    final ext = path.extension(sourcePath).toLowerCase();
+    if (ext != '.gif') {
+      final croppedPath = await Navigator.of(context).push<String>(
+        MaterialPageRoute(
+          builder: (_) => ImageCropScreen(
+            sourcePath: sourcePath,
+            maxOutputSize: 128,
+            aspectRatio: 1.0,
+          ),
         ),
-      ),
-    );
-    if (croppedPath == null || !mounted) return;
+      );
+      if (croppedPath == null || !mounted) return;
+      iconPath = croppedPath;
+    }
 
     final appDir = await getApplicationDocumentsDirectory();
     final iconFile = File('${appDir.path}/floating_ball_icon.png');
-    await File(croppedPath).copy(iconFile.path);
+    await File(iconPath).copy(iconFile.path);
 
     final saved = await NativeChannel.setFloatingBallIcon(iconFile.path);
     if (saved && mounted) {

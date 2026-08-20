@@ -47,19 +47,24 @@ class _FloaterAssetsScreenState extends State<FloaterAssetsScreen> {
     final sourcePath = result.files.single.path;
     if (sourcePath == null) return;
 
-    if (!mounted) return;
-    final croppedPath = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => ImageCropScreen(sourcePath: sourcePath),
-      ),
-    );
-    if (croppedPath == null) return;
+    String assetPath = sourcePath;
+    final ext = path.extension(sourcePath).toLowerCase();
+    if (ext != '.gif') {
+      if (!mounted) return;
+      final croppedPath = await Navigator.of(context).push<String>(
+        MaterialPageRoute(
+          builder: (_) => ImageCropScreen(sourcePath: sourcePath),
+        ),
+      );
+      if (croppedPath == null) return;
+      assetPath = croppedPath;
+    }
 
     final provider = context.read<PluginProvider>();
     final originalName = path.basename(sourcePath);
     final fileName = await provider.importMacroAsset(
       widget.pluginId,
-      croppedPath,
+      assetPath,
       desiredName: originalName,
     );
     await _loadAssets();

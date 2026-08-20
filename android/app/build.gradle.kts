@@ -54,6 +54,7 @@ tasks.withType<JavaCompile> {
 
 dependencies {
     implementation("org.opencv:opencv:4.12.0")
+    implementation("com.github.bumptech.glide:glide:4.16.0")
     testImplementation("junit:junit:4.13.2")
 }
 
