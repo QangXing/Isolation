@@ -6,7 +6,6 @@ import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
 import '../widgets/code_editor.dart';
-import 'image_crop_screen.dart';
 import 'professional_editor_screen.dart';
 
 class ProgramMacroScreen extends StatefulWidget {
@@ -340,16 +339,8 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
     final sourcePath = result.files.single.path;
     if (sourcePath == null) return;
 
-    if (!mounted) return;
-    final croppedPath = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => ImageCropScreen(sourcePath: sourcePath),
-      ),
-    );
-    if (croppedPath == null) return;
-
     final provider = context.read<PluginProvider>();
-    final fileName = await provider.importMacroAsset(widget.pluginId!, croppedPath);
+    final fileName = await provider.importMacroAsset(widget.pluginId!, sourcePath);
     await _loadAssets();
     if (mounted) {
       setState(() {});

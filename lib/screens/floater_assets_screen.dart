@@ -5,7 +5,6 @@ import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
 import '../widgets/glass_card.dart';
-import 'image_crop_screen.dart';
 
 class FloaterAssetsScreen extends StatefulWidget {
   final String pluginId;
@@ -47,24 +46,11 @@ class _FloaterAssetsScreenState extends State<FloaterAssetsScreen> {
     final sourcePath = result.files.single.path;
     if (sourcePath == null) return;
 
-    String assetPath = sourcePath;
-    final ext = path.extension(sourcePath).toLowerCase();
-    if (ext != '.gif') {
-      if (!mounted) return;
-      final croppedPath = await Navigator.of(context).push<String>(
-        MaterialPageRoute(
-          builder: (_) => ImageCropScreen(sourcePath: sourcePath),
-        ),
-      );
-      if (croppedPath == null) return;
-      assetPath = croppedPath;
-    }
-
     final provider = context.read<PluginProvider>();
     final originalName = path.basename(sourcePath);
     final fileName = await provider.importMacroAsset(
       widget.pluginId,
-      assetPath,
+      sourcePath,
       desiredName: originalName,
     );
     await _loadAssets();

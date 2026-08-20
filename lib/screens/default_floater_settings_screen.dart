@@ -8,7 +8,6 @@ import '../models/floater_config.dart';
 import '../providers/plugin_provider.dart';
 import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
-import 'image_crop_screen.dart';
 
 class DefaultFloaterSettingsScreen extends StatefulWidget {
   const DefaultFloaterSettingsScreen({super.key});
@@ -64,25 +63,10 @@ class _DefaultFloaterSettingsScreenState extends State<DefaultFloaterSettingsScr
     final sourcePath = result.files.single.path;
     if (sourcePath == null || !mounted) return;
 
-    String iconPath = sourcePath;
-    final ext = path.extension(sourcePath).toLowerCase();
-    if (ext != '.gif') {
-      final croppedPath = await Navigator.of(context).push<String>(
-        MaterialPageRoute(
-          builder: (_) => ImageCropScreen(
-            sourcePath: sourcePath,
-            maxOutputSize: 128,
-            aspectRatio: 1.0,
-          ),
-        ),
-      );
-      if (croppedPath == null || !mounted) return;
-      iconPath = croppedPath;
-    }
-
     final appDir = await getApplicationDocumentsDirectory();
-    final iconFile = File('${appDir.path}/floating_ball_icon.png');
-    await File(iconPath).copy(iconFile.path);
+    final ext = path.extension(sourcePath);
+    final iconFile = File('${appDir.path}/floating_ball_icon$ext');
+    await File(sourcePath).copy(iconFile.path);
 
     final saved = await NativeChannel.setFloatingBallIcon(iconFile.path);
     if (saved && mounted) {

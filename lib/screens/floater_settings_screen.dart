@@ -8,7 +8,6 @@ import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
 import '../widgets/glass_card.dart';
 import 'floater_assets_screen.dart';
-import 'image_crop_screen.dart';
 
 class FloaterSettingsScreen extends StatefulWidget {
   final String pluginId;
@@ -223,25 +222,10 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
     final sourcePath = result.files.single.path;
     if (sourcePath == null || !mounted) return;
 
-    String iconPath = sourcePath;
-    final ext = path.extension(sourcePath).toLowerCase();
-    if (ext != '.gif') {
-      final croppedPath = await Navigator.of(context).push<String>(
-        MaterialPageRoute(
-          builder: (_) => ImageCropScreen(
-            sourcePath: sourcePath,
-            maxOutputSize: 128,
-            aspectRatio: 1.0,
-          ),
-        ),
-      );
-      if (croppedPath == null || !mounted) return;
-      iconPath = croppedPath;
-    }
-
     final appDir = await getApplicationDocumentsDirectory();
-    final tempIcon = File('${appDir.path}/floater_icon_temp.png');
-    await File(iconPath).copy(tempIcon.path);
+    final ext = path.extension(sourcePath);
+    final tempIcon = File('${appDir.path}/floater_icon_temp$ext');
+    await File(sourcePath).copy(tempIcon.path);
 
     setState(() {
       _iconPath = tempIcon.path;
