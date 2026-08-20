@@ -140,16 +140,40 @@ location("helper", mainX + 80, mainY)
         borderRadius: BorderRadius.circular(16),
       ),
       clipBehavior: Clip.hardEdge,
-      child: CodeEditor(
-        controller: _codeController,
-        showLineNumbers: true,
-        showIndentGuides: true,
-        decoration: const InputDecoration(
-          border: InputBorder.none,
-          hintText: '在此输入悬浮球 DSL…',
-          hintStyle: TextStyle(color: Color(0xFF757575)),
-        ),
-        onChanged: (_) => setState(() {}),
+      child: Stack(
+        children: [
+          CodeEditor(
+            controller: _codeController,
+            showLineNumbers: true,
+            showIndentGuides: true,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              hintText: '在此输入悬浮球 DSL…',
+              hintStyle: TextStyle(color: Color(0xFF757575)),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: GestureDetector(
+              onTap: _openProfessionalEditor,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.open_in_full,
+                  size: 16,
+                  color: Color(0xFFE0E0E0),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -165,13 +189,6 @@ location("helper", mainX + 80, mainY)
               child: _ActionButton(
                 label: '校验',
                 onTap: _validate,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _ActionButton(
-                label: '全屏',
-                onTap: _openProfessionalEditor,
               ),
             ),
             const SizedBox(width: 12),

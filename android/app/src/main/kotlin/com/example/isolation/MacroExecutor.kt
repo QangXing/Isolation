@@ -137,7 +137,7 @@ class MacroExecutor(
     private var lastFoundText: String? = null
 
     fun execute(settings: Map<String, Any>, steps: List<Map<String, Any>>) {
-        if (running) return
+        if (running || activeExecutor != null) return
         running = true
         stopRequested = false
         debugMode = settings["debugMode"] as? Boolean ?: false

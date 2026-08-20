@@ -176,6 +176,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bubbleHideRunnable = Runnable { hideBubble() }
     private val longClickRunnable = Runnable {
+        if (pluginModeActive) return@Runnable
         if (!hasMoved && !longClickFired) {
             longClickFired = true
             openMainActivity()
@@ -223,6 +224,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private val pluginFloaterRegistry = FloaterRegistry()
     private var pluginAssetsDir: String? = null
     private val pluginVariables = mutableMapOf<String, Variable>()
+
+    /** 编程球启用后，禁用默认悬浮球的那一套点击事件，避免与球文件内置事件冲突。 */
+    private var pluginModeActive = false
 
     private fun dpToPx(dp: Int): Int {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics).toInt()
@@ -641,6 +645,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
             pluginAssetsDir = assetsDir
             pluginFloaterRegistry.clear()
             pluginVariables.clear()
+            pluginModeActive = true
 
             // 启用编程球前先隐藏默认悬浮球，避免默认球与主/副球重叠显示
             hideDefaultFloatingBall()
@@ -686,7 +691,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     @Suppress("UNCHECKED_CAST")
                     val elseChildren = step["else"] as? List<Map<String, Any>>
                     val actionChildren = eventStepsForAction(step["action"] as? String)
-                    pluginFloaterRegistry.register(event, children ?: actionChildren ?: emptyList(), elseChildren)
+                    pluginFloaterRegistry.registerBallEvent(name, event, children ?: actionChildren ?: emptyList(), elseChildren)
                 }
             }
 
@@ -722,6 +727,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
             }
         }
         pluginBalls.clear()
+        pluginModeActive = false
     }
 
     private fun eventStepsForAction(action: String?): List<Map<String, Any>>? {
@@ -949,7 +955,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun dispatchPluginBallEvent(name: String, event: String) {
-        val handlers = pluginFloaterRegistry.get(event)
+        val handlers = pluginFloaterRegistry.getBallEvent(name, event)
         if (handlers.isEmpty()) return
         for (handler in handlers) {
             // 事件步骤包含 UI 操作（Toast、startActivity、showBubble、executeMacro 等），
@@ -1221,6 +1227,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
      * - 宏未运行：检查辅助功能与已启用宏，启动执行
      */
     private fun onBallSingleClick() {
+        if (pluginModeActive) return
         if (MacroExecutor.isRunning()) {
             MacroExecutor.notifyFloatingBallClick(this)
             return
@@ -1229,6 +1236,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun runEnabledMacro() {
+        if (MacroExecutor.isRunning()) {
+            Log.w(TAG, "已有宏在运行，忽略本次执行请求")
+            return
+        }
         val state = InputAccessibilityService.readinessState(this)
         when (state) {
             1 -> {
