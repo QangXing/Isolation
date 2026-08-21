@@ -331,7 +331,8 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
     }
 
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return;
@@ -340,7 +341,12 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
     if (sourcePath == null) return;
 
     final provider = context.read<PluginProvider>();
-    final fileName = await provider.importMacroAsset(widget.pluginId!, sourcePath);
+    final originalName = result.files.single.name;
+    final fileName = await provider.importMacroAsset(
+      widget.pluginId!,
+      sourcePath,
+      desiredName: originalName,
+    );
     await _loadAssets();
     if (mounted) {
       setState(() {});

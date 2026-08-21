@@ -214,7 +214,8 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
 
   Future<void> _pickIconFromGallery() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return;
@@ -223,7 +224,7 @@ class _FloaterSettingsScreenState extends State<FloaterSettingsScreen> {
     if (sourcePath == null || !mounted) return;
 
     final appDir = await getApplicationDocumentsDirectory();
-    final ext = path.extension(sourcePath);
+    final ext = path.extension(result.files.single.name);
     final tempIcon = File('${appDir.path}/floater_icon_temp$ext');
     await File(sourcePath).copy(tempIcon.path);
 

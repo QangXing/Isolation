@@ -38,7 +38,8 @@ class _FloaterAssetsScreenState extends State<FloaterAssetsScreen> {
 
   Future<void> _importImage() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return;
@@ -47,7 +48,7 @@ class _FloaterAssetsScreenState extends State<FloaterAssetsScreen> {
     if (sourcePath == null) return;
 
     final provider = context.read<PluginProvider>();
-    final originalName = path.basename(sourcePath);
+    final originalName = result.files.single.name;
     final fileName = await provider.importMacroAsset(
       widget.pluginId,
       sourcePath,

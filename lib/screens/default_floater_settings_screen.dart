@@ -56,7 +56,8 @@ class _DefaultFloaterSettingsScreenState extends State<DefaultFloaterSettingsScr
 
   Future<void> _pickIcon() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return;
@@ -64,7 +65,7 @@ class _DefaultFloaterSettingsScreenState extends State<DefaultFloaterSettingsScr
     if (sourcePath == null || !mounted) return;
 
     final appDir = await getApplicationDocumentsDirectory();
-    final ext = path.extension(sourcePath);
+    final ext = path.extension(result.files.single.name);
     final iconFile = File('${appDir.path}/floating_ball_icon$ext');
     await File(sourcePath).copy(iconFile.path);
 
