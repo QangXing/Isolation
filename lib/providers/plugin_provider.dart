@@ -515,9 +515,11 @@ class PluginProvider extends ChangeNotifier {
         manifest['iconName'] = iconName;
       }
       if (iconPath != null && await File(iconPath).exists()) {
-        final destIcon = File('${targetDir.path}/icon.png');
+        final ext = path.extension(iconPath);
+        final iconFileName = 'icon$ext';
+        final destIcon = File('${targetDir.path}/$iconFileName');
         await File(iconPath).copy(destIcon.path);
-        manifest['icon'] = 'icon.png';
+        manifest['icon'] = iconFileName;
         effectiveIconPath = destIcon.path;
       } else if (iconPath == null && iconName == null && plugin.iconName == null) {
         // 显式恢复默认时不保留自定义图标
@@ -606,13 +608,16 @@ class PluginProvider extends ChangeNotifier {
     final macroData = MacroData(settings: effectiveSettings, steps: steps);
     await macroFile.writeAsString(jsonEncode(macroData.toJson()));
 
+    final ext = iconPath != null ? path.extension(iconPath) : '';
+    final iconFileName = iconPath != null ? 'icon$ext' : null;
+
     final manifest = {
       'id': id,
       'name': name,
       'version': '1.0.0',
       'description': description,
       'author': 'isolation',
-      'icon': iconPath != null ? 'icon.png' : null,
+      'icon': iconFileName,
       'actions': [
         {
           'type': 'macro',
@@ -623,7 +628,7 @@ class PluginProvider extends ChangeNotifier {
     };
 
     if (iconPath != null && await File(iconPath).exists()) {
-      final destIcon = File('${targetDir.path}/icon.png');
+      final destIcon = File('${targetDir.path}/$iconFileName');
       await File(iconPath).copy(destIcon.path);
     }
 
@@ -641,7 +646,7 @@ class PluginProvider extends ChangeNotifier {
 
     final plugin = Plugin.fromManifest(
       manifest,
-      iconPath: iconPath != null ? '${targetDir.path}/icon.png' : null,
+      iconPath: iconPath != null ? '${targetDir.path}/$iconFileName' : null,
     );
     plugin.pinned = oldPlugin.pinned;
     plugin.pinnedAt = oldPlugin.pinnedAt;
@@ -809,7 +814,77 @@ class PluginProvider extends ChangeNotifier {
       await destFile.delete();
     }
     await file.copy(destFile.path);
+
+    // 同时复制到公共目录 /storage/emulated/0/Isolation/，方便其他文件管理器访问
+    await _copyToPublicWorkspace(destFile.path, fileName);
+
     return fileName;
+  }
+
+  /// 公共工作目录，位于 /storage/emulated/0/Isolation/。
+  static const String publicWorkspacePath = '/storage/emulated/0/Isolation';
+
+  /// 确保公共工作目录存在，返回实际路径。
+  Future<String?> ensurePublicWorkspace({String? subFolder}) async {
+    final dirPath = subFolder == null || subFolder.isEmpty
+        ? publicWorkspacePath
+        : '$publicWorkspacePath/$subFolder';
+    final dir = Directory(dirPath);
+    try {
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      return dir.path;
+    } catch (e) {
+      debugPrint('创建公共目录失败: $e');
+      return null;
+    }
+  }
+
+  /// 将指定文件复制到公共目录。
+  Future<String?> _copyToPublicWorkspace(String sourcePath, String fileName, {String? subFolder}) async {
+    final publicDir = await ensurePublicWorkspace(subFolder: subFolder);
+    if (publicDir == null) return null;
+    final destFile = File('$publicDir/$fileName');
+    try {
+      if (await destFile.exists()) await destFile.delete();
+      await File(sourcePath).copy(destFile.path);
+      return destFile.path;
+    } catch (e) {
+      debugPrint('复制到公共目录失败: $e');
+      return null;
+    }
+  }
+
+  /// 将插件 assets 中的文件导出到公共目录。
+  Future<String?> exportMacroAssetToPublic(
+    String pluginId,
+    String fileName, {
+    String? subFolder,
+  }) async {
+    final pluginDir = await _pluginDirectory();
+    final sourceFile = File('${pluginDir.path}/$pluginId/assets/$fileName');
+    if (!await sourceFile.exists()) return null;
+    return _copyToPublicWorkspace(sourceFile.path, fileName, subFolder: subFolder);
+  }
+
+  /// 列出公共目录下的文件（仅一层）。
+  Future<List<String>> listPublicAssets({String? subFolder}) async {
+    final publicDirPath = subFolder == null || subFolder.isEmpty
+        ? publicWorkspacePath
+        : '$publicWorkspacePath/$subFolder';
+    final dir = Directory(publicDirPath);
+    if (!await dir.exists()) return [];
+    try {
+      return await dir
+          .list()
+          .where((e) => e is File)
+          .map((e) => path.basename(e.path))
+          .toList();
+    } catch (e) {
+      debugPrint('列出公共目录失败: $e');
+      return [];
+    }
   }
 
   /// 列出插件 assets 目录下的所有文件名。
