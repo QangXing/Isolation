@@ -67,6 +67,9 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Run parser tests
+        run: flutter test test/parser_test.dart
+
       - name: Use local Gradle distribution
         run: |
           GRADLE_ZIP="${{ github.workspace }}/android/gradle/gradle-9.1.0-all.zip"

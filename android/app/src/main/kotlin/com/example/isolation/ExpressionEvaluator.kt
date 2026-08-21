@@ -2,6 +2,13 @@ package com.example.isolation
 
 object ExpressionEvaluator {
 
+    /**
+     * 外部函数调用处理器，用于解析如 found("name", x) 等自定义函数。
+     *
+     * 签名：(函数名, 参数表达式列表, 当前变量表) -> 返回值。
+     */
+    var callHandler: ((String, List<Map<String, Any>>, Map<String, Variable>) -> Variable?)? = null
+
     fun evaluate(expr: Map<String, Any>?, variables: Map<String, Variable>): Variable? {
         if (expr == null) return null
         return when (expr["op"]) {
@@ -27,6 +34,13 @@ object ExpressionEvaluator {
                 val right = evaluate(rightExpr, variables) ?: return null
                 evaluateBinary(operator, left, right)
             }
+            "call" -> {
+                val name = expr["name"] as? String ?: return null
+                @Suppress("UNCHECKED_CAST")
+                val args = expr["args"] as? List<Map<String, Any>> ?: return null
+                evaluateBuiltinCall(name, args, variables)
+                    ?: callHandler?.invoke(name, args, variables)
+            }
             else -> null
         }
     }
@@ -35,6 +49,23 @@ object ExpressionEvaluator {
         return when (variable) {
             is Variable.Number -> variable.value != 0.0
             else -> false
+        }
+    }
+
+    private fun evaluateBuiltinCall(
+        name: String,
+        args: List<Map<String, Any>>,
+        variables: Map<String, Variable>
+    ): Variable? {
+        if (args.isEmpty()) return null
+        val firstArg = evaluate(args[0], variables) ?: return null
+        if (firstArg !is Variable.Number) return null
+        val value = firstArg.value
+        return when (name) {
+            "sin" -> Variable.Number(kotlin.math.sin(value))
+            "cos" -> Variable.Number(kotlin.math.cos(value))
+            "tan" -> Variable.Number(kotlin.math.tan(value))
+            else -> null
         }
     }
 

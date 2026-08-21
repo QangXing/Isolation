@@ -172,44 +172,65 @@ class _CoordinateDebugScreenState extends State<CoordinateDebugScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.image_search_rounded,
-                size: 72, color: Colors.black.withValues(alpha: 0.25)),
-            const SizedBox(height: 16),
-            const Text('坐标调试', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 12),
-            const Text(
-              '从相册选择一张屏幕截图作为背景\n点击图片任意位置即可获取该点坐标与颜色',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.6),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Text(
-                '坐标 = 图片像素坐标 = Android 屏幕像素\n原点：左上角 (0,0)  ·  单位：像素(px)',
-                style: TextStyle(fontSize: 11, color: Colors.black54, height: 1.5),
-              ),
+            Icon(
+              Icons.image_search_rounded,
+              size: 88,
+              color: Colors.black.withValues(alpha: 0.15),
             ),
             const SizedBox(height: 24),
+            Text(
+              '坐标调试',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.black.withValues(alpha: 0.85),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '从相册选择一张屏幕截图作为背景\n点击图片任意位置即可获取该点坐标与颜色',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.black.withValues(alpha: 0.45),
+                height: 1.6,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                '坐标 = 图片像素坐标 = Android 屏幕像素\n原点：左上角 (0,0) · 单位：像素(px)',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.black.withValues(alpha: 0.45),
+                  height: 1.5,
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
             GestureDetector(
               onTap: _loading ? null : _pickImage,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
                 decoration: BoxDecoration(
                   color: Colors.black87,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (_loading)
                       const SizedBox(
-                        width: 16, height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
                     else
                       const Icon(Icons.photo_library_rounded, color: Colors.white, size: 18),
                     const SizedBox(width: 8),
