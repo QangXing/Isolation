@@ -11,6 +11,7 @@
 ///
 /// 录制产生的 clickNode / clickPoint / swipe 等旧 step 仍会在 convertLegacySteps
 /// 中转换为新 DSL 写法，但用户编写的旧 `find(...)` 语法不再兼容。
+import '../models/floater_program.dart';
 import 'macro_expression_parser.dart';
 
 class MacroParseError implements Exception {
@@ -33,7 +34,7 @@ class MacroProgramParser {
     } on MacroParseError {
       rethrow;
     } catch (e, s) {
-      throw MacroParseError('解析失败: $e', 0);
+      throw MacroParseError('解析失败: $e\n$s', 0);
     }
   }
 
@@ -52,6 +53,11 @@ class MacroProgramParser {
       for (int i = 0; i < positional.length && i < names.length; i++) {
         step[names[i]] = positional[i];
       }
+    }
+
+    String? keyword(int index) {
+      final value = positional.length > index ? positional[index] : null;
+      return _extractKeywordString(value);
     }
 
     switch (type) {
@@ -137,7 +143,34 @@ class MacroProgramParser {
         assign(['path']);
         break;
       case 'floater':
-        assign(['event']);
+        step['event'] = keyword(0);
+        break;
+      case 'singleClick':
+      case 'doubleClick':
+      case 'tripleClick':
+      case 'longPress':
+        step['action'] = keyword(0);
+        break;
+      case 'ball':
+        step['role'] = keyword(0) ?? 'deputy';
+        step['name'] = keyword(1) ?? '';
+        break;
+      case 'location':
+        assign(['name', 'x', 'y']);
+        break;
+      case 'status':
+        step['state'] = keyword(0) ?? '';
+        step['name'] = keyword(1) ?? '';
+        break;
+      case 'toggle':
+        step['name'] = keyword(0) ?? '';
+        break;
+      case 'follow':
+        assign(['target', 'dx', 'dy']);
+        break;
+      case 'found':
+        step['name'] = keyword(0) ?? '';
+        step['axis'] = keyword(1) ?? '';
         break;
     }
 
@@ -163,6 +196,103 @@ class MacroProgramParser {
       }
     }
     return step;
+  }
+
+  /// 解析多球 DSL 源码，返回结构化程序。
+  static FloaterProgram parseFloaterProgram(String source) {
+    try {
+      final steps = parse(source);
+      final balls = <FloaterBall>[];
+      final globalSteps = <Map<String, dynamic>>[];
+      for (final step in steps) {
+        if (step['type'] == 'comment') continue;
+        if (step['type'] == 'ball') {
+          balls.add(_stepToBall(step));
+        } else {
+          globalSteps.add(step);
+        }
+      }
+      return FloaterProgram(balls: balls, steps: globalSteps);
+    } on MacroParseError {
+      rethrow;
+    } catch (e, s) {
+      throw MacroParseError('解析失败: $e\n$s', 0);
+    }
+  }
+
+  static FloaterBall _stepToBall(Map<String, dynamic> step) {
+    final role = _extractKeywordString(step['role']) ?? 'deputy';
+    final name = _extractKeywordString(step['name']) ?? '';
+    int? size;
+    int? cornerRadius;
+    String? image;
+    dynamic locationX;
+    dynamic locationY;
+    bool? visible;
+    String? followTarget;
+    int? followDx;
+    int? followDy;
+    final ballSteps = <Map<String, dynamic>>[];
+
+    final children = step['children'] as List<dynamic>? ?? [];
+    for (final child in children) {
+      final c = Map<String, dynamic>.from(child as Map);
+      final type = c['type'] as String?;
+      if (type == 'size') {
+        size = _extractIntValue(c['value']);
+      } else if (type == 'cornerRadius') {
+        cornerRadius = _extractIntValue(c['value']);
+      } else if (type == 'image') {
+        image = _extractKeywordString(c['path']);
+      } else if (type == 'location') {
+        locationX = c['x'];
+        locationY = c['y'];
+      } else if (type == 'status') {
+        final state = _extractKeywordString(c['state']);
+        if (state == 'show') visible = true;
+        if (state == 'hide') visible = false;
+      } else if (type == 'follow') {
+        followTarget = _extractKeywordString(c['target']);
+        followDx = _extractIntValue(c['dx']);
+        followDy = _extractIntValue(c['dy']);
+      } else {
+        ballSteps.add(c);
+      }
+    }
+
+    return FloaterBall(
+      role: role,
+      name: name,
+      size: size,
+      cornerRadius: cornerRadius,
+      image: image,
+      locationX: locationX,
+      locationY: locationY,
+      visible: visible,
+      followTarget: followTarget,
+      followDx: followDx,
+      followDy: followDy,
+      steps: ballSteps,
+    );
+  }
+
+  /// 从字符串字面量或 var 表达式中提取标识符名称。
+  static String? _extractKeywordString(dynamic value) {
+    if (value is String) return value;
+    if (value is Map && value['op'] == 'var') {
+      return value['name'] as String?;
+    }
+    return null;
+  }
+
+  static int? _extractIntValue(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is Map && value['op'] == 'literal') {
+      final v = value['value'];
+      if (v is num) return v.toInt();
+    }
+    return null;
   }
 
   /// 把步骤列表序列化为 DSL 源码。
@@ -535,6 +665,26 @@ class MacroProgramParser {
         }
         buffer.writeln('${indent}}');
         break;
+      case 'ball':
+        buffer.writeln('${indent}ball(${_serializeArgValue(step['role'])}, ${_serializeArgValue(step['name'])}) {');
+        _serializeChildren(step['children'], indent, buffer);
+        buffer.writeln('${indent}}');
+        break;
+      case 'location':
+        buffer.writeln('${indent}location(${_serializeArgValue(step['name'])}, ${_serializeExprValue(step['x'])}, ${_serializeExprValue(step['y'])})');
+        break;
+      case 'status':
+        buffer.writeln('${indent}status(${_serializeArgValue(step['state'])}, ${_serializeArgValue(step['name'])})');
+        break;
+      case 'toggle':
+        buffer.writeln('${indent}toggle(${_serializeArgValue(step['name'])})');
+        break;
+      case 'follow':
+        buffer.writeln('${indent}follow(${_serializeArgValue(step['target'])}, ${_serializeArgValue(step['dx'])}, ${_serializeArgValue(step['dy'])})');
+        break;
+      case 'found':
+        buffer.writeln('${indent}found(${_serializeArgValue(step['name'])}, ${_serializeArgValue(step['axis'])})');
+        break;
       default:
         buffer.writeln('${indent}// 未知指令: $type');
     }
@@ -702,6 +852,12 @@ class MacroProgramParser {
           final left = _serializeExprValue(value['left']);
           final right = _serializeExprValue(value['right']);
           return '$left ${value['operator']} $right';
+        case 'call':
+          final name = value['name'] as String? ?? '';
+          final args = (value['args'] as List<dynamic>? ?? [])
+              .map(_serializeExprValue)
+              .join(', ');
+          return '$name($args)';
       }
       if (value.containsKey('x') && value.containsKey('y')) {
         final x = _serializeExprValue(value['x']);
@@ -970,6 +1126,7 @@ class _BlockParser {
     'waitForImage',
     'colorAt',
     'launch',
+    'found',
   };
 
   Map<String, dynamic>? _tryParseCallAssignment(String valueSource) {
@@ -985,15 +1142,6 @@ class _BlockParser {
   Map<String, dynamic> _parseArgs(String argsStr) {
     final result = <String, dynamic>{};
     if (argsStr.isEmpty) return result;
-
-    // 先尝试匹配嵌套函数调用（如 if(findText("领取"))）
-    final funcMatch = RegExp(r'^(\w+)\s*\((.*)\)$').firstMatch(argsStr);
-    if (funcMatch != null) {
-      final funcName = funcMatch.group(1)!;
-      final funcArgs = _parseArgs(funcMatch.group(2)!);
-      result['condition'] = {'type': funcName, ...funcArgs};
-      return result;
-    }
 
     final parts = _splitArgs(argsStr);
     int positionalIndex = 0;
@@ -1084,13 +1232,18 @@ class _BlockParser {
   }
 
   bool _looksLikeExpression(String s) {
-    if (RegExp(r'[\+\-\*/%<>=!&|]').hasMatch(s)) return true;
+    if (s.contains('(') || RegExp(r'[\+\-\*/%<>=!&|]').hasMatch(s)) return true;
     return !RegExp(r'^-?(\d+(\.\d+)?|[a-zA-Z_][a-zA-Z0-9_]*)$').hasMatch(s);
   }
 
   dynamic _parseExpressionOrValue(String part) {
+    final trimmed = part.trim();
     final value = _parseValue(part);
-    if (value is String && _looksLikeExpression(part)) {
+    // 引号包裹的字符串应作为普通字符串返回，不要解析为表达式字面量
+    if (value is String &&
+        _looksLikeExpression(part) &&
+        !trimmed.startsWith('"') &&
+        !trimmed.startsWith("'")) {
       try {
         return ExpressionParser.parse(part).toJson();
       } catch (_) {}

@@ -57,6 +57,20 @@ class BinaryExpr extends Expr {
       };
 }
 
+/// 函数调用表达式，例如 found("mainBall", x)。
+class CallExpr extends Expr {
+  final String name;
+  final List<Expr> args;
+  CallExpr(this.name, this.args);
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'call',
+        'name': name,
+        'args': args.map((a) => a.toJson()).toList(),
+      };
+}
+
 class ExpressionParser {
   /// 将表达式源码解析为 AST。
   static Expr parse(String source) {
@@ -113,6 +127,35 @@ class ExpressionParser {
       if (c == ')') {
         tokens.add(_Token(_TokenType.rparen, ')'));
         pos++;
+        continue;
+      }
+      if (c == '"' || c == "'") {
+        final quote = c;
+        final start = pos;
+        pos++;
+        final buffer = StringBuffer();
+        while (pos < source.length) {
+          final ch = source[pos];
+          if (ch == '\\' && pos + 1 < source.length) {
+            final next = source[pos + 1];
+            if (next == '"' || next == "'" || next == '\\') {
+              buffer.write(next);
+              pos += 2;
+              continue;
+            }
+          }
+          if (ch == quote) {
+            pos++;
+            break;
+          }
+          buffer.write(ch);
+          pos++;
+        }
+        tokens.add(_Token(
+          _TokenType.string,
+          source.substring(start, pos),
+          value: buffer.toString(),
+        ));
         continue;
       }
       if (_isDigit(c) || c == '.') {
@@ -217,6 +260,9 @@ String _serialize(Expr expr) {
       final leftOut = leftParens ? '($leftStr)' : leftStr;
       final rightOut = rightParens ? '($rightStr)' : rightStr;
       return '$leftOut ${expr.operator} $rightOut';
+    case CallExpr():
+      final argStr = expr.args.map(_serialize).join(', ');
+      return '${expr.name}($argStr)';
   }
 }
 
@@ -261,7 +307,7 @@ bool _needsParensRight(String parentOp, Expr child) {
   return false;
 }
 
-enum _TokenType { number, identifier, operator, lparen, rparen, eof }
+enum _TokenType { number, identifier, string, operator, lparen, rparen, eof }
 
 class _Token {
   final _TokenType type;
@@ -379,8 +425,22 @@ class _Parser {
     if (_matchNumber()) {
       return LiteralExpr(_previous.value);
     }
+    if (_matchString()) {
+      return LiteralExpr(_previous.value);
+    }
     if (_matchIdentifier()) {
-      return VarExpr(_previous.text);
+      final name = _previous.text;
+      if (_match('(')) {
+        final args = <Expr>[];
+        if (!_check(')')) {
+          do {
+            args.add(_parseOr());
+          } while (_match(','));
+        }
+        _expect(')');
+        return CallExpr(name, args);
+      }
+      return VarExpr(name);
     }
     if (_match('(')) {
       final expr = _parseOr();
@@ -388,6 +448,11 @@ class _Parser {
       return expr;
     }
     throw _ParseError('Unexpected token: ${_current.text}');
+  }
+
+  bool _check(String text) {
+    if (text == ')' && _current.type == _TokenType.rparen) return true;
+    return false;
   }
 
   bool _match(String text) {
@@ -408,6 +473,14 @@ class _Parser {
 
   bool _matchNumber() {
     if (_current.type == _TokenType.number) {
+      _pos++;
+      return true;
+    }
+    return false;
+  }
+
+  bool _matchString() {
+    if (_current.type == _TokenType.string) {
       _pos++;
       return true;
     }

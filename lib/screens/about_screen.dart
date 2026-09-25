@@ -33,11 +33,11 @@ class AboutScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildRow('应用名称', 'isolation'),
-                      const SizedBox(height: 12),
-                      _buildRow('版本', '1.0.0'),
-                      const SizedBox(height: 12),
-                      _buildRow('用途', '插件管理与跨应用自动化宏'),
+                      _buildInfoRow('应用名称', 'isolation'),
+                      const SizedBox(height: 14),
+                      _buildInfoRow('版本', '1.0.0'),
+                      const SizedBox(height: 14),
+                      _buildInfoRow('用途', '插件管理与跨应用自动化宏'),
                     ],
                   ),
                 ),
@@ -54,19 +54,19 @@ class AboutScreen extends StatelessWidget {
                     child: Row(
                       children: [
                         Container(
-                          width: 36,
-                          height: 36,
+                          width: 40,
+                          height: 40,
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(10),
+                            color: Colors.black.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Icon(
-                            Icons.menu_book_outlined,
-                            size: 18,
-                            color: Colors.black87,
+                          child: Icon(
+                            Icons.menu_book_rounded,
+                            size: 20,
+                            color: Colors.black.withValues(alpha: 0.6),
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 14),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -84,16 +84,15 @@ class AboutScreen extends StatelessWidget {
                                 '查看所有支持的宏指令语法与示例',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.black.withValues(alpha: 0.5),
+                                  color: Colors.black.withValues(alpha: 0.45),
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        const Icon(
-                          Icons.chevron_right,
-                          size: 20,
-                          color: Colors.black38,
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.black.withValues(alpha: 0.3),
                         ),
                       ],
                     ),
@@ -105,7 +104,7 @@ class AboutScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildTitle('使用说明'),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       _buildBullet('在“管理”页新建宏或导入 .isoplugin 插件包'),
                       _buildBullet('在“主页”启用需要的宏插件'),
                       _buildBullet('启用宏后需授予悬浮窗与辅助功能权限'),
@@ -120,7 +119,7 @@ class AboutScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildTitle('权限说明'),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       _buildBullet('悬浮窗权限：显示悬浮球'),
                       _buildBullet('辅助功能权限：录制点击事件并回放宏'),
                       _buildBullet('前台服务权限：保持悬浮球后台运行'),
@@ -133,13 +132,13 @@ class AboutScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildTitle('权限检查'),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 14),
                       Row(
                         children: [
                           Expanded(
                             child: _PermissionButton(
                               label: '悬浮窗',
-                              icon: Icons.picture_in_picture_alt_rounded,
+                              icon: Icons.crop_square_rounded,
                               onTap: () async {
                                 final granted = await NativeChannel.checkOverlayPermission();
                                 if (context.mounted) {
@@ -175,22 +174,22 @@ class AboutScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildRow(String label, String value) {
+  Widget _buildInfoRow(String label, String value) {
     return Row(
       children: [
         Text(
           label,
           style: TextStyle(
             fontSize: 14,
-            color: Colors.grey.withValues(alpha: 0.7),
+            color: Colors.black.withValues(alpha: 0.4),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 12),
         Expanded(
           child: Text(
             value,
             style: const TextStyle(
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: FontWeight.w500,
               color: Colors.black87,
             ),
@@ -213,7 +212,7 @@ class AboutScreen extends StatelessWidget {
 
   Widget _buildBullet(String text) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -232,8 +231,8 @@ class AboutScreen extends StatelessWidget {
               text,
               style: TextStyle(
                 fontSize: 13,
-                color: Colors.black.withValues(alpha: 0.7),
-                height: 1.4,
+                color: Colors.black.withValues(alpha: 0.6),
+                height: 1.5,
               ),
             ),
           ),
@@ -253,7 +252,6 @@ class AboutScreen extends StatelessWidget {
   }
 }
 
-/// 权限检查按钮：黑色填充圆角，统一样式。
 class _PermissionButton extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -270,21 +268,21 @@ class _PermissionButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 44,
+        height: 48,
         decoration: BoxDecoration(
           color: Colors.black87,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 16, color: Colors.white),
-            const SizedBox(width: 6),
+            Icon(icon, size: 18, color: Colors.white),
+            const SizedBox(width: 8),
             Text(
               label,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
             ),

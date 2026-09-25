@@ -15,6 +15,7 @@ import android.util.TypedValue
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
@@ -25,13 +26,12 @@ import android.view.View
 import android.view.WindowManager
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
-import android.graphics.BitmapFactory
-import android.graphics.drawable.BitmapDrawable
 import android.widget.ImageView
 import androidx.core.app.ServiceCompat
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import com.bumptech.glide.Glide
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -136,6 +136,21 @@ class FloatingBallService : Service(), MacroExecutorListener {
         fun applyImage(path: String?) {
             instance?.applyImageInternal(path)
         }
+
+        /** 注册多球插件。 */
+        fun registerFloaters(context: Context, program: Map<String, Any>, assetsDir: String?): Boolean {
+            return instance?.registerFloatersInternal(context, program, assetsDir) ?: false
+        }
+
+        /** 清除所有插件球（用于禁用编程球时）。 */
+        fun unregisterFloaters() {
+            instance?.clearAllPluginBalls()
+        }
+
+        /** 获取指定名称插件球的位置。 */
+        fun getFloaterPosition(name: String): Map<String, Int>? {
+            return instance?.getPluginBallPosition(name)
+        }
     }
 
     private var windowManager: WindowManager? = null
@@ -160,6 +175,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bubbleHideRunnable = Runnable { hideBubble() }
     private val longClickRunnable = Runnable {
+        if (pluginModeActive) return@Runnable
         if (!hasMoved && !longClickFired) {
             longClickFired = true
             openMainActivity()
@@ -167,6 +183,52 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private var ballSizePx: Int = 0
+
+    // ── 多球插件支持 ──
+    private data class PluginBall(
+        val name: String,
+        var view: View,
+        var params: WindowManager.LayoutParams,
+        var sizeDp: Int,
+        var cornerRadiusDp: Int,
+        var imagePath: String?,
+        var visible: Boolean,
+        var followTarget: String? = null,
+        var followDx: Int = 0,
+        var followDy: Int = 0
+    ) {
+        /** 是否为主球 */
+        val isMain: Boolean
+            get() = name == "main"
+    }
+
+    /** 气泡定位锚点：优先使用主球，其次默认悬浮球。 */
+    private data class BallAnchor(
+        val params: WindowManager.LayoutParams,
+        val sizePx: Int
+    )
+
+    private val pluginBalls = mutableMapOf<String, PluginBall>()
+
+    private fun bubbleAnchor(): BallAnchor? {
+        // 优先使用可见的主球
+        val main = pluginBalls.values.firstOrNull { it.isMain && it.visible }
+            ?: pluginBalls.values.firstOrNull { it.visible }
+        if (main != null) {
+            return BallAnchor(main.params, dpToPx(main.sizeDp))
+        }
+        // 回退到默认悬浮球
+        floatingParams?.let {
+            return BallAnchor(it, ballSizePx)
+        }
+        return null
+    }
+    private val pluginFloaterRegistry = FloaterRegistry()
+    private var pluginAssetsDir: String? = null
+    private val pluginVariables = mutableMapOf<String, Variable>()
+
+    /** 编程球启用后，禁用默认悬浮球的那一套点击事件，避免与球文件内置事件冲突。 */
+    private var pluginModeActive = false
 
     private fun dpToPx(dp: Int): Int {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics).toInt()
@@ -481,17 +543,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun applyCustomIcon(imagePath: String) {
         val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
-        try {
-            val bitmap = BitmapFactory.decodeFile(imagePath)
-            if (bitmap != null) {
-                ball.setImageBitmap(bitmap)
-            } else {
-                applyDefaultIcon()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            applyDefaultIcon()
-        }
+        loadImageInto(ball, imagePath)
     }
 
     private fun applyDefaultIcon() {
@@ -534,20 +586,23 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun applyImageInternal(imagePath: String?) {
         val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
-        if (imagePath != null && File(imagePath).exists()) {
+        Log.d(TAG, "应用默认悬浮球图片: $imagePath")
+        loadImageInto(ball, imagePath)
+    }
+
+    /** 使用 Glide 加载图片/GIF，失败后清空 ImageView。 */
+    private fun loadImageInto(imageView: ImageView, path: String?) {
+        if (path != null && File(path).exists()) {
             try {
-                val bitmap = BitmapFactory.decodeFile(imagePath)
-                if (bitmap != null) {
-                    ball.setImageBitmap(bitmap)
-                } else {
-                    ball.setImageDrawable(null)
-                }
+                Glide.with(imageView.context)
+                    .load(File(path))
+                    .into(imageView)
             } catch (e: Exception) {
-                e.printStackTrace()
-                ball.setImageDrawable(null)
+                Log.w(TAG, "Glide 加载图片失败: $path", e)
+                imageView.setImageDrawable(null)
             }
         } else {
-            ball.setImageDrawable(null)
+            imageView.setImageDrawable(null)
         }
     }
 
@@ -570,6 +625,527 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val size: Int = 56,
         val imagePath: String? = null
     )
+
+    // ── 多球插件内部实现 ──
+
+    private fun registerFloatersInternal(context: Context, program: Map<String, Any>, assetsDir: String?): Boolean {
+        try {
+            // 先清除旧插件球，保证同时只有一个编程球在运行
+            clearAllPluginBalls()
+
+            pluginAssetsDir = assetsDir
+            pluginFloaterRegistry.clear()
+            pluginVariables.clear()
+            pluginModeActive = true
+
+            // 启用编程球前先隐藏默认悬浮球，避免默认球与主/副球重叠显示
+            hideDefaultFloatingBall()
+
+            // 加载默认悬浮球配置，供未声明外观参数的球回退使用
+            val config = loadDefaultFloaterConfig()
+
+            // 注册 found 函数，用于表达式中获取球坐标
+            val foundHandler: (String, List<Map<String, Any>>, Map<String, Variable>) -> Variable? = { name, args, variables ->
+                if (name != "found") null
+                else {
+                    val ballName = extractStringFromArg(args.getOrNull(0), variables)
+                    val axis = extractStringFromArg(args.getOrNull(1), variables) ?: "x"
+                    val pos = ballName?.let { getPluginBallPosition(it) }
+                    if (pos == null) null
+                    else {
+                        val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
+                        Variable.Number(value.toDouble())
+                    }
+                }
+            }
+            ExpressionEvaluator.callHandler = foundHandler
+
+            @Suppress("UNCHECKED_CAST")
+            val balls = program["balls"] as? List<Map<String, Any>> ?: emptyList()
+            @Suppress("UNCHECKED_CAST")
+            val steps = program["steps"] as? List<Map<String, Any>> ?: emptyList()
+
+            // 注册每个球内的事件处理器（支持 floater 旧写法以及 singleClick/doubleClick/tripleClick/longPress）
+            for (ball in balls) {
+                val name = ball["name"] as? String ?: continue
+                @Suppress("UNCHECKED_CAST")
+                val ballSteps = ball["steps"] as? List<Map<String, Any>> ?: emptyList()
+                for (step in ballSteps) {
+                    val type = step["type"] as? String ?: continue
+                    val event = when (type) {
+                        "floater" -> step["event"] as? String
+                        "singleClick", "doubleClick", "tripleClick", "longPress" -> type
+                        else -> null
+                    } ?: continue
+                    @Suppress("UNCHECKED_CAST")
+                    val children = step["children"] as? List<Map<String, Any>>
+                    @Suppress("UNCHECKED_CAST")
+                    val elseChildren = step["else"] as? List<Map<String, Any>>
+                    val actionChildren = eventStepsForAction(step["action"] as? String)
+                    pluginFloaterRegistry.registerBallEvent(name, event, children ?: actionChildren ?: emptyList(), elseChildren)
+                }
+            }
+
+            // 创建或更新每个球
+            for (ball in balls) {
+                createOrUpdatePluginBall(context, ball)
+            }
+
+            // 执行全局流程步骤
+            executeFloaterSteps(steps)
+
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "注册多球插件失败", e)
+            return false
+        }
+    }
+
+    private fun getPluginBallPosition(name: String): Map<String, Int>? {
+        val ball = pluginBalls[name] ?: return null
+        return mapOf("x" to ball.params.x, "y" to ball.params.y)
+    }
+
+    private fun clearAllPluginBalls() {
+        val wm = windowManager
+        for ((_, ball) in pluginBalls) {
+            try {
+                if (wm != null && ball.view.parent != null) {
+                    wm.removeView(ball.view)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "移除旧插件球失败: ${ball.name}", e)
+            }
+        }
+        pluginBalls.clear()
+        pluginModeActive = false
+    }
+
+    private fun eventStepsForAction(action: String?): List<Map<String, Any>>? {
+        return when (action) {
+            "Launch_macro" -> listOf(mapOf("type" to "launch_macro"))
+            "Turn_off_macros" -> listOf(mapOf("type" to "turn_off_macros"))
+            else -> null
+        }
+    }
+
+    private fun createOrUpdatePluginBall(context: Context, ball: Map<String, Any>) {
+        val name = ball["name"] as? String ?: return
+        val role = ball["role"] as? String ?: "deputy"
+        val defaultConfig = loadDefaultFloaterConfig()
+        val sizeDp = (ball["size"] as? Number)?.toInt() ?: defaultConfig.size
+        val cornerRadiusDp = (ball["cornerRadius"] as? Number)?.toInt() ?: defaultConfig.cornerRadius
+        val imageName = ball["image"] as? String
+        val imagePath = imageName?.let { resolveAssetPath(it) } ?: defaultConfig.imagePath
+        val visible = ball["visible"] as? Boolean ?: (role == "main")
+        val followTarget = ball["followTarget"] as? String
+        val followDx = (ball["followDx"] as? Number)?.toInt() ?: 0
+        val followDy = (ball["followDy"] as? Number)?.toInt() ?: 0
+
+        val defaultLocationX = floatingParams?.x ?: 100
+        val defaultLocationY = floatingParams?.y ?: 300
+        val locationX = resolveIntValue(ball["locationX"], if (role == "main") defaultLocationX else 0)
+        val locationY = resolveIntValue(ball["locationY"], if (role == "main") defaultLocationY else 0)
+
+        val wm = windowManager ?: (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).also {
+            windowManager = it
+        }
+
+        val existing = pluginBalls[name]
+        if (existing != null) {
+            existing.sizeDp = sizeDp
+            existing.cornerRadiusDp = cornerRadiusDp
+            existing.imagePath = imagePath
+            existing.visible = visible
+            existing.followTarget = followTarget
+            existing.followDx = followDx
+            existing.followDy = followDy
+            applyPluginBallConfig(existing)
+            updatePluginBallPosition(name, locationX, locationY)
+            setPluginBallVisible(name, visible)
+            return
+        }
+
+        // 如果声明了跟随某球且目标已存在，初始位置放在目标相对偏移处
+        val leader = followTarget?.let { pluginBalls[it] }
+        val initialX = leader?.let { it.params.x + followDx } ?: locationX
+        val initialY = leader?.let { it.params.y + followDy } ?: locationY
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = initialX
+            y = initialY
+        }
+
+        val view = LayoutInflater.from(context).inflate(R.layout.floating_ball, null)
+        val pluginBall = PluginBall(name, view, params, sizeDp, cornerRadiusDp, imagePath, visible, followTarget, followDx, followDy)
+        applyPluginBallConfig(pluginBall)
+        setupPluginBallTouch(pluginBall)
+
+        try {
+            wm.addView(view, params)
+            pluginBalls[name] = pluginBall
+            if (!visible) {
+                view.visibility = View.GONE
+            }
+            // 创建完成后同步一次跟随位置（若目标球尚未创建，则等目标球创建/移动时自然同步）
+            leader?.let {
+                updatePluginBallPosition(name, it.params.x + followDx, it.params.y + followDy)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "创建插件球失败: $name", e)
+        }
+    }
+
+    private fun applyPluginBallConfig(ball: PluginBall) {
+        val sizePx = dpToPx(ball.sizeDp)
+        ball.params.width = sizePx
+        ball.params.height = sizePx
+
+        val view = ball.view
+        val background = view.background as? GradientDrawable
+        background?.setCornerRadius(
+            TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, ball.cornerRadiusDp.toFloat(), resources.displayMetrics
+            )
+        )
+        view.invalidate()
+
+        val imageView = view.findViewById<ImageView>(R.id.floating_ball_image)
+        Log.d(TAG, "应用球配置: ${ball.name}, imagePath=${ball.imagePath}")
+        loadImageInto(imageView, ball.imagePath)
+
+        if (view.parent != null) {
+            try {
+                windowManager?.updateViewLayout(view, ball.params)
+            } catch (e: Exception) {
+                Log.w(TAG, "更新插件球布局失败: ${ball.name}", e)
+            }
+        }
+    }
+
+    private fun setupPluginBallTouch(ball: PluginBall) {
+        val view = ball.view
+        val handler = Handler(Looper.getMainLooper())
+        val touchState = object {
+            var initialX = 0
+            var initialY = 0
+            var initialTouchX = 0f
+            var initialTouchY = 0f
+            var hasMoved = false
+            var longPressed = false
+            var clickCount = 0
+            var lastClickTime = 0L
+            var pendingClickRunnable: Runnable? = null
+        }
+        val multiClickThresholdMs = 300L
+
+        fun resetClicks() {
+            touchState.clickCount = 0
+            touchState.pendingClickRunnable?.let { handler.removeCallbacks(it) }
+            touchState.pendingClickRunnable = null
+        }
+
+        fun dispatchClickEvent(clicks: Int) {
+            val event = when (clicks) {
+                1 -> "singleClick"
+                2 -> "doubleClick"
+                3 -> "tripleClick"
+                else -> null
+            }
+            if (event != null) dispatchPluginBallEvent(ball.name, event)
+        }
+
+        view.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchState.initialX = ball.params.x
+                    touchState.initialY = ball.params.y
+                    touchState.initialTouchX = event.rawX
+                    touchState.initialTouchY = event.rawY
+                    touchState.hasMoved = false
+                    touchState.longPressed = false
+                    view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(100).start()
+
+                    handler.postDelayed({
+                        if (!touchState.hasMoved && !touchState.longPressed) {
+                            touchState.longPressed = true
+                            resetClicks()
+                            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                            dispatchPluginBallEvent(ball.name, "longPress")
+                        }
+                    }, LONG_CLICK_TIMEOUT_MS)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - touchState.initialTouchX
+                    val dy = event.rawY - touchState.initialTouchY
+                    if (kotlin.math.abs(dx) > CLICK_SLOP_PX || kotlin.math.abs(dy) > CLICK_SLOP_PX) {
+                        touchState.hasMoved = true
+                    }
+                    val newX = touchState.initialX + dx.toInt()
+                    val newY = touchState.initialY + dy.toInt()
+                    updatePluginBallPosition(ball.name, newX, newY)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                    handler.removeCallbacksAndMessages(null)
+                    if (touchState.longPressed || touchState.hasMoved) {
+                        resetClicks()
+                        return@setOnTouchListener true
+                    }
+
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - touchState.lastClickTime > multiClickThresholdMs) {
+                        touchState.clickCount = 0
+                    }
+                    touchState.clickCount++
+                    touchState.lastClickTime = now
+
+                    if (touchState.clickCount >= 3) {
+                        resetClicks()
+                        dispatchClickEvent(3)
+                    } else {
+                        val runnable = Runnable {
+                            val count = touchState.clickCount
+                            resetClicks()
+                            dispatchClickEvent(count)
+                        }
+                        touchState.pendingClickRunnable = runnable
+                        handler.postDelayed(runnable, multiClickThresholdMs)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                    handler.removeCallbacksAndMessages(null)
+                    resetClicks()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun dispatchPluginBallEvent(name: String, event: String) {
+        val handlers = pluginFloaterRegistry.getBallEvent(name, event)
+        if (handlers.isEmpty()) return
+        for (handler in handlers) {
+            // 事件步骤包含 UI 操作（Toast、startActivity、showBubble、executeMacro 等），
+            // 必须在主线程执行，否则会导致新建编程球点击闪退。
+            mainHandler.post {
+                executeFloaterSteps(handler.children)
+            }
+        }
+    }
+
+    private fun updatePluginBallPosition(name: String, x: Int, y: Int, visited: MutableSet<String> = mutableSetOf()) {
+        if (!visited.add(name)) return
+        val ball = pluginBalls[name] ?: return
+        ball.params.x = x
+        ball.params.y = y
+        clampPluginBallToScreen(ball)
+        try {
+            windowManager?.updateViewLayout(ball.view, ball.params)
+        } catch (e: Exception) {
+            Log.w(TAG, "移动插件球失败: $name", e)
+        }
+
+        // 该球被移动后，同步更新所有以它为目标的跟随球
+        for ((followerName, follower) in pluginBalls) {
+            if (follower.followTarget == name) {
+                updatePluginBallPosition(followerName, ball.params.x + follower.followDx, ball.params.y + follower.followDy, visited)
+            }
+        }
+    }
+
+    private fun setPluginBallVisible(name: String, visible: Boolean) {
+        val ball = pluginBalls[name] ?: return
+        ball.visible = visible
+        ball.view.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
+    private fun clampPluginBallToScreen(ball: PluginBall) {
+        val size = screenSize()
+        val sizePx = ball.params.width
+        val maxX = size.x - sizePx
+        val maxY = size.y - sizePx
+        if (ball.params.x < 0) ball.params.x = 0
+        if (ball.params.x > maxX) ball.params.x = maxX
+        if (ball.params.y < 0) ball.params.y = 0
+        if (ball.params.y > maxY) ball.params.y = maxY
+    }
+
+    private fun resolveIntValue(value: Any?, defaultValue: Int): Int {
+        return when (value) {
+            is Int -> value
+            is Number -> value.toInt()
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val expr = value as Map<String, Any>
+                val result = ExpressionEvaluator.evaluate(expr, pluginVariables)
+                (result as? Variable.Number)?.value?.toInt() ?: defaultValue
+            }
+            else -> defaultValue
+        }
+    }
+
+    private fun extractStringFromArg(arg: Any?, variables: Map<String, Variable>): String? {
+        return when (arg) {
+            is String -> arg
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val map = arg as Map<String, Any>
+                when (map["op"]) {
+                    "literal" -> map["value"] as? String
+                    "var" -> {
+                        val varName = map["name"] as? String ?: return null
+                        when (val v = variables[varName]) {
+                            is Variable.Number -> v.value.toString()
+                            else -> null
+                        }
+                    }
+                    else -> null
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun resolveAssetPath(fileName: String): String? {
+        val dir = pluginAssetsDir ?: run {
+            Log.w(TAG, "插件资源目录未设置，无法解析: $fileName")
+            return null
+        }
+        val dirFile = File(dir)
+        val file = File(dir, fileName)
+        Log.d(TAG, "解析资源路径: ${file.absolutePath}, 存在=${file.exists()}")
+        if (file.exists()) return file.absolutePath
+
+        // 若精确匹配失败，尝试不区分大小写匹配，兼容 asset.jpg / ASSET.JPG
+        val lower = fileName.lowercase()
+        val candidates = dirFile.listFiles()?.filter { it.name.lowercase() == lower }
+        if (!candidates.isNullOrEmpty()) {
+            Log.d(TAG, "不区分大小写匹配资源: ${candidates[0].absolutePath}")
+            return candidates[0].absolutePath
+        }
+        return null
+    }
+
+    private fun executeFloaterSteps(steps: List<Map<String, Any>>) {
+        for (step in steps) {
+            executeFloaterStep(step)
+        }
+    }
+
+    private fun executeFloaterStep(step: Map<String, Any>) {
+        when (step["type"]) {
+            "assign", "let", "var" -> {
+                val name = step["name"] as? String ?: return
+                @Suppress("UNCHECKED_CAST")
+                val valueExpr = step["value"] as? Map<String, Any>
+                val value = valueExpr?.let { ExpressionEvaluator.evaluate(it, pluginVariables) }
+                if (value != null) pluginVariables[name] = value
+            }
+            "found" -> {
+                val assignTo = step["assignTo"] as? String ?: return
+                val name = step["name"] as? String ?: return
+                val axis = step["axis"] as? String ?: return
+                val pos = getPluginBallPosition(name) ?: return
+                val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
+                pluginVariables[assignTo] = Variable.Number(value.toDouble())
+            }
+            "location" -> {
+                val name = step["name"] as? String ?: return
+                val x = resolveIntValue(step["x"], 0)
+                val y = resolveIntValue(step["y"], 0)
+                updatePluginBallPosition(name, x, y)
+            }
+            "status" -> {
+                val name = step["name"] as? String ?: return
+                val state = step["state"] as? String ?: return
+                setPluginBallVisible(name, state == "show")
+            }
+            "toggle" -> {
+                val name = step["name"] as? String ?: return
+                val ball = pluginBalls[name] ?: return
+                setPluginBallVisible(name, !ball.visible)
+            }
+            "print" -> {
+                val message = step["message"] as? String ?: return
+                showBubble(message)
+            }
+            "launch" -> {
+                val packageName = step["packageName"] as? String ?: return
+                val intent = packageManager.getLaunchIntentForPackage(packageName)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    startActivity(intent)
+                } else {
+                    showBubble("launch: 无法启动 $packageName")
+                }
+            }
+            "launch_macro" -> runEnabledMacro()
+            "turn_off_macros" -> MacroExecutor.stopActive()
+            "for" -> executeFloaterFor(step)
+            "if" -> executeFloaterIf(step)
+            else -> Log.w(TAG, "未支持的球步骤类型: ${step["type"]}")
+        }
+    }
+
+    private fun executeFloaterFor(step: Map<String, Any>) {
+        @Suppress("UNCHECKED_CAST")
+        val condition = step["condition"] as? Map<String, Any>
+        if (condition != null) {
+            @Suppress("UNCHECKED_CAST")
+            val init = step["init"] as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val update = step["update"] as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val children = (step["children"] as? List<Map<String, Any>>) ?: return
+            init?.let { executeFloaterStep(it) }
+            while (ExpressionEvaluator.toBoolean(ExpressionEvaluator.evaluate(condition, pluginVariables))) {
+                executeFloaterSteps(children)
+                update?.let { executeFloaterStep(it) }
+            }
+            return
+        }
+        val count = (step["count"] as? Number)?.toInt() ?: 1
+        @Suppress("UNCHECKED_CAST")
+        val children = (step["children"] as? List<Map<String, Any>>) ?: return
+        for (i in 1..count) {
+            executeFloaterSteps(children)
+        }
+    }
+
+    private fun executeFloaterIf(step: Map<String, Any>) {
+        @Suppress("UNCHECKED_CAST")
+        val condition = step["condition"] as? Map<String, Any>
+        @Suppress("UNCHECKED_CAST")
+        val expression = step["expression"] as? Map<String, Any>
+        val condExpr = condition ?: expression ?: return
+        val result = ExpressionEvaluator.evaluate(condExpr, pluginVariables)
+        val bool = ExpressionEvaluator.toBoolean(result)
+        @Suppress("UNCHECKED_CAST")
+        val thenChildren = (step["then"] as? List<Map<String, Any>>)
+        @Suppress("UNCHECKED_CAST")
+        val elseChildren = (step["else"] as? List<Map<String, Any>>)
+        if (bool) {
+            thenChildren?.let { executeFloaterSteps(it) }
+        } else {
+            elseChildren?.let { executeFloaterSteps(it) }
+        }
+    }
 
     internal fun postTouchEffect(effect: TouchEffect) {
         mainHandler.post {
@@ -605,6 +1181,14 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun hideFloatingBall() {
+        clearAllPluginBalls()
+        hideDefaultFloatingBall()
+        hideBubble()
+        hideAnimationOverlay()
+    }
+
+    /** 仅隐藏默认悬浮球视图，不停掉服务。用于启用编程球时保留服务并显示主/副球。 */
+    private fun hideDefaultFloatingBall() {
         if (floatingView != null) {
             try {
                 windowManager?.removeView(floatingView)
@@ -614,8 +1198,6 @@ class FloatingBallService : Service(), MacroExecutorListener {
             floatingView = null
             floatingParams = null
         }
-        hideBubble()
-        hideAnimationOverlay()
     }
 
     private fun hideKeyboard() {
@@ -636,6 +1218,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
      * - 宏未运行：检查辅助功能与已启用宏，启动执行
      */
     private fun onBallSingleClick() {
+        if (pluginModeActive) return
         if (MacroExecutor.isRunning()) {
             MacroExecutor.notifyFloatingBallClick(this)
             return
@@ -644,6 +1227,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun runEnabledMacro() {
+        if (MacroExecutor.isRunning()) {
+            Log.w(TAG, "已有宏在运行，忽略本次执行请求")
+            return
+        }
         val state = InputAccessibilityService.readinessState(this)
         when (state) {
             1 -> {
@@ -691,16 +1278,18 @@ class FloatingBallService : Service(), MacroExecutorListener {
      * 确保 print 消息不会被截断或跑到屏幕外。
      */
     private fun showBubble(message: String) {
-        if (windowManager == null || floatingView == null) return
+        if (windowManager == null) return
 
         val density = resources.displayMetrics.density
         val gap = (BUBBLE_GAP_DP * density).toInt()
         val screen = screenSize()
-        val ballParams = floatingParams ?: return
+        val anchor = bubbleAnchor() ?: return
+        val ballParams = anchor.params
+        val anchorSizePx = anchor.sizePx
 
-        // 悬浮球中心坐标（屏幕坐标系）
-        val ballCenterX = ballParams.x + ballSizePx / 2
-        val ballCenterY = ballParams.y + ballSizePx / 2
+        // 锚点球中心坐标（屏幕坐标系）
+        val ballCenterX = ballParams.x + anchorSizePx / 2
+        val ballCenterY = ballParams.y + anchorSizePx / 2
 
         // 先确保气泡存在，能拿到尺寸
         if (bubbleView == null) {
@@ -751,22 +1340,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val bubbleW = bubbleView?.measuredWidth ?: 0
         val bubbleH = bubbleView?.measuredHeight ?: 0
 
-        // 默认放在悬浮球右侧；右侧空间不足则放左侧
-        val putRight = ballCenterX + ballSizePx / 2 + gap + bubbleW <= screen.x
-        var bubbleX = if (putRight) {
-            ballParams.x + ballSizePx + gap
-        } else {
-            ballParams.x - gap - bubbleW
+        // 默认放在锚点球上方；上方空间不足则放下方
+        var bubbleY = ballParams.y - bubbleH - gap
+        val putBelow = bubbleY < 0
+        if (putBelow) {
+            bubbleY = ballParams.y + anchorSizePx + gap
         }
+        if (bubbleY + bubbleH > screen.y) bubbleY = screen.y - bubbleH
+        if (bubbleY < 0) bubbleY = 0
 
-        // 水平方向裁剪，确保不会超出屏幕
+        // 水平方向居中对齐，并裁剪到屏幕内
+        var bubbleX = ballCenterX - bubbleW / 2
         if (bubbleX < 0) bubbleX = 0
         if (bubbleX + bubbleW > screen.x) bubbleX = screen.x - bubbleW
-
-        // 垂直方向：相对悬浮球中心对齐，并做边界裁剪
-        var bubbleY = ballCenterY - bubbleH / 2
-        if (bubbleY < 0) bubbleY = 0
-        if (bubbleY + bubbleH > screen.y) bubbleY = screen.y - bubbleH
 
         bubbleParams?.apply {
             x = bubbleX
@@ -861,6 +1447,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
         mainHandler.removeCallbacks(bubbleHideRunnable)
         // 服务销毁时若有宏在跑，强制停止，避免泄漏
         MacroExecutor.stopActive()
+        // 必须先清理插件球，再清理默认球，防止孤儿视图残留
+        clearAllPluginBalls()
         hideFloatingBall()
         hideKeyboard()
         MacroExecutor.removeListener(this)

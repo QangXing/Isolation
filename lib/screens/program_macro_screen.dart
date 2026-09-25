@@ -6,7 +6,6 @@ import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
 import '../widgets/code_editor.dart';
-import 'image_crop_screen.dart';
 import 'professional_editor_screen.dart';
 
 class ProgramMacroScreen extends StatefulWidget {
@@ -246,11 +245,6 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
               onTap: () => _insert('launch("com.example.app", timeout=3000) {\n    \n}'),
             ),
             _InstructionChip(
-              label: '#include',
-              icon: Icons.link_rounded,
-              onTap: () => _insert('#include <名称>'),
-            ),
-            _InstructionChip(
               label: 'floater',
               icon: Icons.circle_notifications_rounded,
               onTap: () => _insert('floater("click") {\n    image("click.png")\n    audio("click.mp3")\n    print(clickX)\n} else {\n    print("失败")\n}'),
@@ -337,7 +331,8 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
     }
 
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return;
@@ -345,16 +340,13 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
     final sourcePath = result.files.single.path;
     if (sourcePath == null) return;
 
-    if (!mounted) return;
-    final croppedPath = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => ImageCropScreen(sourcePath: sourcePath),
-      ),
-    );
-    if (croppedPath == null) return;
-
     final provider = context.read<PluginProvider>();
-    final fileName = await provider.importMacroAsset(widget.pluginId!, croppedPath);
+    final originalName = result.files.single.name;
+    final fileName = await provider.importMacroAsset(
+      widget.pluginId!,
+      sourcePath,
+      desiredName: originalName,
+    );
     await _loadAssets();
     if (mounted) {
       setState(() {});

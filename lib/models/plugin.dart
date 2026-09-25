@@ -33,6 +33,8 @@ class Plugin {
   final List<PluginAction> actions;
   final String type;
   bool enabled;
+  bool pinned;
+  DateTime? pinnedAt;
 
   Plugin({
     required this.id,
@@ -46,6 +48,8 @@ class Plugin {
     this.actions = const [],
     this.enabled = false,
     this.type = 'macro',
+    this.pinned = false,
+    this.pinnedAt,
   });
 
   String get pluginType => type;
@@ -71,6 +75,10 @@ class Plugin {
       builtIn: builtIn,
       actions: actions,
       type: json['type'] as String? ?? 'macro',
+      pinned: json['pinned'] as bool? ?? false,
+      pinnedAt: json['pinnedAt'] != null
+          ? DateTime.tryParse(json['pinnedAt'] as String)
+          : null,
     );
   }
 
@@ -93,6 +101,8 @@ class Plugin {
               })
           .toList(),
       'enabled': enabled,
+      'pinned': pinned,
+      'pinnedAt': pinnedAt?.toIso8601String(),
     };
   }
 
@@ -105,5 +115,37 @@ class Plugin {
     );
     plugin.enabled = json['enabled'] as bool? ?? false;
     return plugin;
+  }
+
+  Plugin copyWith({
+    String? id,
+    String? name,
+    String? version,
+    String? description,
+    String? author,
+    String? iconPath,
+    String? iconName,
+    bool? builtIn,
+    List<PluginAction>? actions,
+    bool? enabled,
+    String? type,
+    bool? pinned,
+    DateTime? pinnedAt,
+  }) {
+    return Plugin(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      version: version ?? this.version,
+      description: description ?? this.description,
+      author: author ?? this.author,
+      iconPath: iconPath ?? this.iconPath,
+      iconName: iconName ?? this.iconName,
+      builtIn: builtIn ?? this.builtIn,
+      actions: actions ?? this.actions,
+      enabled: enabled ?? this.enabled,
+      type: type ?? this.type,
+      pinned: pinned ?? this.pinned,
+      pinnedAt: pinnedAt ?? this.pinnedAt,
+    );
   }
 }

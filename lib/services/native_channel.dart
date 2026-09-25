@@ -139,6 +139,50 @@ class NativeChannel {
     }
   }
 
+  /// 注册并显示一组悬浮球（多球插件）。
+  ///
+  /// [program] 为 [FloaterProgram.toJson()] 后的结构，包含 balls 与 steps。
+  static Future<bool> registerFloaters(
+    Map<String, dynamic> program,
+    String pluginId, {
+    String? assetsDir,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('registerFloaters', {
+        'pluginId': pluginId,
+        'program': program,
+        'assetsDir': assetsDir,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 清除当前显示的所有插件球（禁用编程球时调用）。
+  static Future<bool> unregisterFloaters() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('unregisterFloaters');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 获取指定名称悬浮球的当前位置。
+  static Future<Map<String, dynamic>?> getFloaterPosition(String name) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'getFloaterPosition',
+        {'name': name},
+      );
+      if (result == null) return null;
+      return Map<String, dynamic>.from(result);
+    } catch (e) {
+      return null;
+    }
+  }
+
   static Future<void> executeAction(
       String type, Map<String, dynamic> params) async {
     try {
