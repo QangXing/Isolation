@@ -99,14 +99,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           TAG="apk-build-${{ github.run_number }}"
+          NOTES=$(printf '由 GitHub Actions 自动构建。\n分支：%s\nCommit：%s' "${{ github.ref_name }}" "${{ github.sha }}")
           if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release create "$TAG" ./release/app-release.apk \
               --repo "${{ github.repository }}" \
               --title "APK 构建 #${{ github.run_number }}" \
-              --notes "由 GitHub Actions 自动构建。
-分支：${{ github.ref_name }}
-Commit：${{ github.sha }}"
+              --notes "$NOTES"
           else
             gh release upload "$TAG" ./release/app-release.apk --repo "${{ github.repository }}" --clobber
           fi
@@ -116,15 +116,12 @@ Commit：${{ github.sha }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          TAG="apk-build-${{ github.run_number }}"
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/app-release.apk"
+          BODY=$(printf 'Flutter APK 已由 GitHub Actions 自动构建完成。\n\n**下载 APK：** %s\n\n| 项目 | 值 |\n| --- | --- |\n| 分支 | %s |\n| Commit | %s |\n| 构建运行 | https://github.com/%s/actions/runs/%s |' \
+            "$URL" "${{ github.ref_name }}" "${{ github.sha }}" "${{ github.repository }}" "${{ github.run_id }}")
           gh issue create \
             --repo "${{ github.repository }}" \
             --title "APK 构建 #${{ github.run_number }}" \
-            --body "Flutter APK 已由 GitHub Actions 自动构建完成。
-
-**下载 APK：** [${{ github.repository }}/releases/download/apk-build-${{ github.run_number }}/app-release.apk](${{ steps.release.outputs.download_url }})
-
-| 项目 | 值 |
-| --- | --- |
-| 分支 | ${{ github.ref_name }} |
-| Commit | ${{ github.sha }} |
-| 构建运行 | https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }} |"
+            --body "$BODY"
