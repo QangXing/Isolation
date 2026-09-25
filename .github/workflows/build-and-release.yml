@@ -1,30 +1,21 @@
-name: Build and Release Flutter APK
+name: Build APK and Publish to Issue
 
 on:
   push:
     branches:
-      - main
-      - master
-      - feature/image-find-feature-redesign
-      - feature/*
-    tags:
-      - 'v*.*.*'
-  pull_request:
-    branches:
-      - main
-      - master
-      - feature/image-find-feature-redesign
+      - feature/ui-implementation
       - feature/*
   workflow_dispatch:
     inputs:
       branch:
         description: 'Branch to build'
         required: true
-        default: 'feature/image-find-feature-redesign'
+        default: 'feature/ui-implementation'
         type: string
 
 permissions:
   contents: write
+  issues: write
 
 env:
   JAVA_TOOL_OPTIONS: "-Djava.net.preferIPv4Stack=true"
@@ -92,11 +83,10 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-  release:
-    name: Create GitHub Release
+  publish-to-issue:
+    name: Publish APK to Issue
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download APK artifact
         uses: actions/download-artifact@v4
@@ -104,10 +94,37 @@ jobs:
           name: release-apk
           path: ./release
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ./release/app-release.apk
-          generate_release_notes: true
+      - name: Create / update GitHub Release with APK
+        id: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="apk-build-${{ github.run_number }}"
+          if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$TAG" ./release/app-release.apk \
+              --repo "${{ github.repository }}" \
+              --title "APK 构建 #${{ github.run_number }}" \
+              --notes "由 GitHub Actions 自动构建。
+分支：${{ github.ref_name }}
+Commit：${{ github.sha }}"
+          else
+            gh release upload "$TAG" ./release/app-release.apk --repo "${{ github.repository }}" --clobber
+          fi
+          echo "download_url=https://github.com/${{ github.repository }}/releases/download/${TAG}/app-release.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Create issue with APK download link
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "APK 构建 #${{ github.run_number }}" \
+            --body "Flutter APK 已由 GitHub Actions 自动构建完成。
+
+**下载 APK：** [${{ github.repository }}/releases/download/apk-build-${{ github.run_number }}/app-release.apk](${{ steps.release.outputs.download_url }})
+
+| 项目 | 值 |
+| --- | --- |
+| 分支 | ${{ github.ref_name }} |
+| Commit | ${{ github.sha }} |
+| 构建运行 | https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }} |"
