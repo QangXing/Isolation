@@ -237,6 +237,15 @@ class NativeChannel {
     }
   }
 
+  /// 查询当前是否有宏正在原生侧运行。
+  static Future<bool> isMacroRunning() async {
+    try {
+      return await _channel.invokeMethod<bool>('isMacroRunning') ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// 读取某宏的执行日志（时间升序，最多 300 条）。
   static Future<List<Map<String, dynamic>>> getMacroLogs(String pluginId) async {
     try {

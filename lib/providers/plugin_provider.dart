@@ -363,10 +363,28 @@ class PluginProvider extends ChangeNotifier {
       assetsDir: assetsDir,
       pluginId: plugin.id,
     );
+    if (!success) {
+      _runningMacroId = null;
+      notifyListeners();
+      return false;
+    }
+    // executeMacro 只负责启动原生线程，这里后台轮询原生执行状态，
+    // 宏真正结束后才清除"运行中"标记
+    _pollMacroRunning(plugin.id);
+    return true;
+  }
 
-    _runningMacroId = null;
-    notifyListeners();
-    return success;
+  /// 轮询原生宏执行状态，结束后清除"运行中"标记。
+  Future<void> _pollMacroRunning(String pluginId) async {
+    while (_runningMacroId == pluginId) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (_runningMacroId != pluginId) return;
+      if (!await NativeChannel.isMacroRunning()) {
+        _runningMacroId = null;
+        notifyListeners();
+        return;
+      }
+    }
   }
 
   // Macro data / settings
