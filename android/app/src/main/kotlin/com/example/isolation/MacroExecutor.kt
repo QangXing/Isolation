@@ -136,7 +136,11 @@ class MacroExecutor(
     private var lastFoundCoordinate: Pair<Int, Int>? = null
     private var lastFoundText: String? = null
 
-    fun execute(settings: Map<String, Any>, steps: List<Map<String, Any>>) {
+    fun execute(
+        settings: Map<String, Any>,
+        steps: List<Map<String, Any>>,
+        pluginId: String? = null
+    ) {
         if (running || activeExecutor != null) return
         running = true
         stopRequested = false
@@ -145,6 +149,7 @@ class MacroExecutor(
             (settings["featurePointCount"] as? Number)?.toInt()?.coerceIn(1, 32) ?: 8
         defaultFeaturePointThreshold =
             (settings["featurePointThreshold"] as? Number)?.toDouble()?.coerceIn(0.0, 1.0) ?: 0.80
+        MacroLogStore.onSessionStart(service, pluginId, debugMode)
         activeExecutor = this
         floaterRegistry.clear()
         currentFloaterAssetsDir = null

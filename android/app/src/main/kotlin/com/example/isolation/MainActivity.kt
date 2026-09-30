@@ -233,12 +233,28 @@ class MainActivity : FlutterFragmentActivity() {
                     val rawSteps = call.argument<List<Map<String, Any>>>("steps")
                     val steps = rawSteps?.map { it.toMap() }
                     val assetsDir = call.argument<String>("assetsDir")
+                    val pluginId = call.argument<String>("pluginId")
                     if (steps != null) {
-                        InputAccessibilityService.executeMacro(this, settings, steps, assetsDir)
+                        InputAccessibilityService.executeMacro(this, settings, steps, assetsDir, pluginId)
                         result.success(true)
                     } else {
                         result.success(false)
                     }
+                }
+                "getMacroLogs" -> {
+                    val pluginId = call.argument<String>("pluginId") ?: ""
+                    if (pluginId.isNotEmpty()) {
+                        result.success(MacroLogStore.getLogs(this, pluginId))
+                    } else {
+                        result.success(emptyList<Any>())
+                    }
+                }
+                "clearMacroLogs" -> {
+                    val pluginId = call.argument<String>("pluginId") ?: ""
+                    if (pluginId.isNotEmpty()) {
+                        MacroLogStore.clearLogs(this, pluginId)
+                    }
+                    result.success(true)
                 }
                 "dispatchClick" -> {
                     val x = call.argument<Int>("x") ?: 0

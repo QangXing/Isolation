@@ -1,7 +1,27 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isolation/models/macro.dart';
+import 'package:isolation/models/macro_log.dart';
 
 void main() {
+  group('MacroLogEntry 解析', () {
+    test('fromJson 正确解析 timeMillis/type/message', () {
+      final entry = MacroLogEntry.fromJson({
+        'timeMillis': 1730000000000,
+        'type': 'print',
+        'message': '签到成功',
+      });
+      expect(entry.isPrint, true);
+      expect(entry.message, '签到成功');
+      expect(entry.time.millisecondsSinceEpoch, 1730000000000);
+    });
+
+    test('缺省字段回退默认值', () {
+      final entry = MacroLogEntry.fromJson({'message': 'hi'});
+      expect(entry.isPrint, false);
+      expect(entry.message, 'hi');
+    });
+  });
+
   group('MacroSettings 定时启动宏序列化', () {
     test('默认值：定时关闭，时间为 08:00', () {
       const settings = MacroSettings();

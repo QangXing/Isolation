@@ -61,7 +61,7 @@ class MacroScheduleReceiver : BroadcastReceiver() {
         val pluginDir = File(File(context.filesDir, "plugins"), pluginId)
         val assetsDir = File(pluginDir, "assets").takeIf { it.exists() }?.absolutePath
         val executed = InputAccessibilityService.executeMacro(
-            context, macro.settings, macro.steps, assetsDir
+            context, macro.settings, macro.steps, assetsDir, pluginId
         )
         if (executed) {
             // 执行成功后续排明天同一时间（每日重复）
