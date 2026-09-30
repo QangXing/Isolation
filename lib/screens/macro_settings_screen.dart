@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/macro.dart';
+import '../models/macro_log.dart';
 import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
 import '../widgets/glass_card.dart';
@@ -19,6 +20,8 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
   String? _iconName;
   bool _loading = true;
   bool _pinned = false;
+  List<MacroLogEntry> _logs = [];
+  bool _logsExpanded = true;
 
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -70,6 +73,27 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
         _featurePointCountController.text = _settings!.featurePointCount.toString();
         _featurePointThresholdController.text = (_settings!.featurePointThreshold * 100).round().toString();
         _loading = false;
+      });
+      _loadLogs();
+    }
+  }
+
+  Future<void> _loadLogs() async {
+    final provider = context.read<PluginProvider>();
+    final logs = await provider.loadMacroLogs(widget.pluginId);
+    if (mounted) {
+      setState(() {
+        _logs = logs;
+      });
+    }
+  }
+
+  Future<void> _clearLogs() async {
+    final provider = context.read<PluginProvider>();
+    await provider.clearMacroLogs(widget.pluginId);
+    if (mounted) {
+      setState(() {
+        _logs = [];
       });
     }
   }
@@ -316,6 +340,9 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                       // 定时启动宏
                       _buildScheduleCard(),
                       const SizedBox(height: 14),
+                      // 执行日志
+                      _buildLogCard(),
+                      const SizedBox(height: 14),
                       // 特征点采样数目
                       _buildNumberCard(
                         icon: Icons.scatter_plot_rounded,
@@ -526,6 +553,176 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildLogCard() {
+    final displayLogs = _logs.length > 100 ? _logs.sublist(_logs.length - 100) : _logs;
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.receipt_long_rounded, size: 22, color: Colors.black.withValues(alpha: 0.6)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '执行日志',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '包含每次执行的 print 输出与调试模式状态文本（最多 300 条）',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.black.withValues(alpha: 0.45),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (_logs.isNotEmpty)
+                GestureDetector(
+                  onTap: () {
+                    showDialog<void>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        backgroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        title: const Text(
+                          '清空日志',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        ),
+                        content: const Text(
+                          '确定清空该宏的全部执行日志吗？',
+                          style: TextStyle(fontSize: 14, color: Colors.black87),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            child: const Text('取消', style: TextStyle(color: Colors.black54)),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(dialogContext).pop();
+                              _clearLogs();
+                            },
+                            child: const Text('清空', style: TextStyle(color: Colors.redAccent)),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      '清空',
+                      style: TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => setState(() => _logsExpanded = !_logsExpanded),
+                child: Icon(
+                  _logsExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                  color: Colors.black.withValues(alpha: 0.45),
+                ),
+              ),
+            ],
+          ),
+          if (_logsExpanded) ...[
+            const SizedBox(height: 12),
+            if (displayLogs.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    '暂无日志',
+                    style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.35)),
+                  ),
+                ),
+              )
+            else
+              Container(
+                constraints: const BoxConstraints(maxHeight: 280),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  itemCount: displayLogs.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    color: Colors.black.withValues(alpha: 0.05),
+                  ),
+                  itemBuilder: (context, index) {
+                    final entry = displayLogs[index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _logTime(entry.time),
+                          const SizedBox(width: 8),
+                          Icon(
+                            entry.isPrint ? Icons.chat_bubble_rounded : Icons.info_outline_rounded,
+                            size: 15,
+                            color: entry.isPrint
+                                ? Colors.blueAccent
+                                : Colors.black.withValues(alpha: 0.5),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              entry.message,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: entry.isPrint
+                                    ? Colors.black87
+                                    : Colors.black.withValues(alpha: 0.7),
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _logTime(DateTime time) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
   }
 
   Widget _buildNumberCard({

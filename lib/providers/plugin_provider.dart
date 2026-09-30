@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/floater_config.dart';
 import '../models/floater_program.dart';
 import '../models/macro.dart';
+import '../models/macro_log.dart';
 import '../models/plugin.dart';
 import '../services/macro_program_parser.dart';
 import '../services/native_channel.dart';
@@ -360,6 +361,7 @@ class PluginProvider extends ChangeNotifier {
       macroData.settings.toJson(),
       macroData.steps,
       assetsDir: assetsDir,
+      pluginId: plugin.id,
     );
 
     _runningMacroId = null;
@@ -502,6 +504,19 @@ class PluginProvider extends ChangeNotifier {
 
     notifyListeners();
     return true;
+  }
+
+  /// 读取某宏的执行日志（时间升序，最多 300 条）。
+  Future<List<MacroLogEntry>> loadMacroLogs(String pluginId) async {
+    final raw = await NativeChannel.getMacroLogs(pluginId);
+    return raw
+        .map((e) => MacroLogEntry.fromJson(e))
+        .toList();
+  }
+
+  /// 清空某宏的执行日志。
+  Future<void> clearMacroLogs(String pluginId) async {
+    await NativeChannel.clearMacroLogs(pluginId);
   }
 
   /// 更新编程球（floaterPlugin）的元数据（名称、简介）。

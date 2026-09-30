@@ -222,12 +222,41 @@ class NativeChannel {
     Map<String, dynamic> settings,
     List<Map<String, dynamic>> steps, {
     String? assetsDir,
+    String? pluginId,
   }) async {
     try {
       final result = await _channel.invokeMethod<bool>('executeMacro', {
         'settings': settings,
         'steps': steps,
         'assetsDir': assetsDir,
+        'pluginId': pluginId,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 读取某宏的执行日志（时间升序，最多 300 条）。
+  static Future<List<Map<String, dynamic>>> getMacroLogs(String pluginId) async {
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>('getMacroLogs', {
+        'pluginId': pluginId,
+      });
+      return result
+              ?.map((e) => Map<String, dynamic>.from(e as Map<dynamic, dynamic>))
+              .toList() ??
+          [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// 清空某宏的执行日志。
+  static Future<bool> clearMacroLogs(String pluginId) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('clearMacroLogs', {
+        'pluginId': pluginId,
       });
       return result ?? false;
     } catch (e) {

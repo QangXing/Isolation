@@ -1248,7 +1248,35 @@ class FloatingBallService : Service(), MacroExecutorListener {
             return
         }
         macroDebugMode = macro.settings["debugMode"] as? Boolean ?: false
-        InputAccessibilityService.executeMacro(this, macro.settings, macro.steps)
+        InputAccessibilityService.executeMacro(
+            this, macro.settings, macro.steps, pluginId = enabledMacroId()
+        )
+    }
+
+    /**
+     * 从 FlutterSharedPreferences 的插件列表解析当前启用宏的 id。
+     * 悬浮球执行的是「启用中的那个宏」，其日志需要归属到正确的宏。
+     */
+    private fun enabledMacroId(): String? {
+        val prefs = flutterPrefs(this)
+        val raw = prefs.getString("isolation_plugins", null) ?: return null
+        return try {
+            val array = JSONArray(raw)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                if (obj.optBoolean("enabled", false) && obj.optString("type") != "floaterPlugin") {
+                    val actions = obj.optJSONArray("actions") ?: continue
+                    for (j in 0 until actions.length()) {
+                        if (actions.getJSONObject(j).optString("type") == "macro") {
+                            return obj.optString("id").ifEmpty { null }
+                        }
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
     }
 
     override fun onMacroStatus(message: String) {
