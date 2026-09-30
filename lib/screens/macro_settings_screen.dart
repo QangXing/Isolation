@@ -686,7 +686,12 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _logTime(entry.time),
+                          Text(_logTime(entry.time),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.black.withValues(alpha: 0.35),
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              )),
                           const SizedBox(width: 8),
                           Icon(
                             entry.isPrint ? Icons.chat_bubble_rounded : Icons.info_outline_rounded,
