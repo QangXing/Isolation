@@ -12,12 +12,24 @@ class MacroSettings {
   /// 图片匹配特征点命中比例阈值，例如 0.8 表示至少 80% 特征点命中才算识别成功。
   final double featurePointThreshold;
 
+  /// 定时启动宏开关：开启后每天固定时间自动执行该宏。
+  final bool scheduleEnabled;
+
+  /// 定时触发小时（0-23）。
+  final int scheduleHour;
+
+  /// 定时触发分钟（0-59）。
+  final int scheduleMinute;
+
   const MacroSettings({
     this.smartRecognition = false,
     this.loopCount = 1,
     this.debugMode = false,
     this.featurePointCount = 8,
     this.featurePointThreshold = 0.80,
+    this.scheduleEnabled = false,
+    this.scheduleHour = 8,
+    this.scheduleMinute = 0,
   });
 
   factory MacroSettings.fromJson(Map<String, dynamic>? json) {
@@ -28,6 +40,9 @@ class MacroSettings {
       debugMode: json['debugMode'] as bool? ?? false,
       featurePointCount: (json['featurePointCount'] as num?)?.toInt() ?? 8,
       featurePointThreshold: (json['featurePointThreshold'] as num?)?.toDouble() ?? 0.80,
+      scheduleEnabled: json['scheduleEnabled'] as bool? ?? false,
+      scheduleHour: (json['scheduleHour'] as num?)?.toInt() ?? 8,
+      scheduleMinute: (json['scheduleMinute'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -37,6 +52,9 @@ class MacroSettings {
         'debugMode': debugMode,
         'featurePointCount': featurePointCount,
         'featurePointThreshold': featurePointThreshold,
+        'scheduleEnabled': scheduleEnabled,
+        'scheduleHour': scheduleHour,
+        'scheduleMinute': scheduleMinute,
       };
 
   MacroSettings copyWith({
@@ -45,6 +63,9 @@ class MacroSettings {
     bool? debugMode,
     int? featurePointCount,
     double? featurePointThreshold,
+    bool? scheduleEnabled,
+    int? scheduleHour,
+    int? scheduleMinute,
   }) {
     return MacroSettings(
       smartRecognition: smartRecognition ?? this.smartRecognition,
@@ -52,6 +73,9 @@ class MacroSettings {
       debugMode: debugMode ?? this.debugMode,
       featurePointCount: featurePointCount ?? this.featurePointCount,
       featurePointThreshold: featurePointThreshold ?? this.featurePointThreshold,
+      scheduleEnabled: scheduleEnabled ?? this.scheduleEnabled,
+      scheduleHour: scheduleHour ?? this.scheduleHour,
+      scheduleMinute: scheduleMinute ?? this.scheduleMinute,
     );
   }
 }

@@ -313,6 +313,9 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                         },
                       ),
                       const SizedBox(height: 14),
+                      // 定时启动宏
+                      _buildScheduleCard(),
+                      const SizedBox(height: 14),
                       // 特征点采样数目
                       _buildNumberCard(
                         icon: Icons.scatter_plot_rounded,
@@ -423,6 +426,103 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
           ),
           const SizedBox(width: 8),
           _CustomSwitch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleCard() {
+    final settings = _settings!;
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.schedule_rounded, size: 22, color: Colors.black.withValues(alpha: 0.6)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '定时启动宏',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '到每天设定时间自动执行该宏（需已开启辅助功能）',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.black.withValues(alpha: 0.45),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _CustomSwitch(
+                value: settings.scheduleEnabled,
+                onChanged: (value) {
+                  setState(() {
+                    _settings = settings.copyWith(scheduleEnabled: value);
+                  });
+                },
+              ),
+            ],
+          ),
+          if (settings.scheduleEnabled) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () async {
+                final picked = await showTimePicker(
+                  context: context,
+                  initialTime: TimeOfDay(
+                    hour: settings.scheduleHour,
+                    minute: settings.scheduleMinute,
+                  ),
+                );
+                if (picked != null) {
+                  setState(() {
+                    _settings = settings.copyWith(
+                      scheduleHour: picked.hour,
+                      scheduleMinute: picked.minute,
+                    );
+                  });
+                }
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.black.withValues(alpha: 0.1)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.access_time_rounded, size: 18, color: Colors.black.withValues(alpha: 0.6)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${settings.scheduleHour.toString().padLeft(2, '0')}:'
+                      '${settings.scheduleMinute.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
