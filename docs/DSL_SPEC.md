@@ -414,6 +414,7 @@ floater("click") {
 | 事件 | 注入变量 | 说明 |
 |---|---|---|
 | `click` | `clickX`、`clickY` | 点击发生时的屏幕坐标 |
+| `longPressAt` | `longPressX`、`longPressY`、`longPressDuration` | 长按发生时的屏幕坐标与按压时长（毫秒） |
 | `swipe` / `swipeRel` | `swipeFromX`、`swipeFromY`、`swipeToX`、`swipeToY` | 滑动的起点与终点坐标 |
 | `findText` / `waitForText` | `foundText` | 命中目标的文字内容 |
 | `findColor` / `waitForColor` / `findImage` / `waitForImage` | `foundX`、`foundY` | 命中目标在屏幕上的坐标 |

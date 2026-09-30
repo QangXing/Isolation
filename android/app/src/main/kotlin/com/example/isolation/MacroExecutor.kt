@@ -527,6 +527,14 @@ class MacroExecutor(
                 variables["clickX"] = Variable.Number(x.toDouble())
                 variables["clickY"] = Variable.Number(y.toDouble())
             }
+            "longPressAt" -> {
+                val x = evaluateNumber(step["x"])?.toInt() ?: 0
+                val y = evaluateNumber(step["y"])?.toInt() ?: 0
+                val duration = evaluateNumber(step["duration"])?.toLong() ?: 800L
+                variables["longPressX"] = Variable.Number(x.toDouble())
+                variables["longPressY"] = Variable.Number(y.toDouble())
+                variables["longPressDuration"] = Variable.Number(duration.toDouble())
+            }
             "swipe", "swipeRel" -> {
                 val fromX = evaluateNumber(step["fromX"])?.toInt()
                 val fromY = evaluateNumber(step["fromY"])?.toInt()
