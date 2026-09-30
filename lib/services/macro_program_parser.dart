@@ -79,6 +79,12 @@ class MacroProgramParser {
       case 'swipeRel':
         assign(['fromX', 'fromY', 'dx', 'dy', 'duration']);
         break;
+      case 'longPressAt':
+        if (positional.length == 1) {
+          throw MacroParseError('longPressAt 需要 0、2 或 3 个参数', 0);
+        }
+        assign(['x', 'y', 'duration']);
+        break;
       case 'input':
         if (positional.isNotEmpty) step['text'] = positional[0];
         break;
@@ -529,6 +535,9 @@ class MacroProgramParser {
       case 'swipeRel':
         _serializeSwipeRel(step, indent, buffer);
         break;
+      case 'longPressAt':
+        _serializeLongPressAt(step, indent, buffer);
+        break;
       case 'input':
         buffer.writeln('${indent}input(${_serializeArgValue(step['text'])})');
         break;
@@ -815,6 +824,26 @@ class MacroProgramParser {
     final dy = _serializeExprValue(step['dy']);
     final dur = _serializeExprValue(step['duration']);
     buffer.writeln('${indent}swipeRel($fromX, $fromY, $dx, $dy, $dur)');
+  }
+
+  static void _serializeLongPressAt(
+      Map<String, dynamic> step, String indent, StringBuffer buffer) {
+    final x = step['x'];
+    final y = step['y'];
+    final duration = step['duration'];
+    if (x != null && y != null) {
+      final args = <String>[
+        _serializeExprValue(x),
+        _serializeExprValue(y),
+        if (duration != null) _serializeExprValue(duration),
+      ];
+      buffer.writeln('${indent}longPressAt(${args.join(', ')})');
+    } else if (duration != null) {
+      buffer.writeln(
+          '${indent}longPressAt(duration=${_serializeExprValue(duration)})');
+    } else {
+      buffer.writeln('${indent}longPressAt()');
+    }
   }
 
   /// 把 var / assign 步骤 JSON 紧凑序列化为 for 头部子句。

@@ -58,6 +58,80 @@ for (int i = 0; i < 3; i = i + 1) {
     expect(serialized, code);
   });
 
+  test('longPressAt round-trip', () {
+    final code = 'longPressAt(500, 800, 1500)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'longPressAt');
+    expect(parsed.first['x'], 500);
+    expect(parsed.first['y'], 800);
+    expect(parsed.first['duration'], 1500);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('longPressAt default duration round-trip', () {
+    final code = 'longPressAt(500, 800)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'longPressAt');
+    expect(parsed.first['x'], 500);
+    expect(parsed.first['y'], 800);
+    expect(parsed.first.containsKey('duration'), isFalse);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('longPressAt named duration round-trip', () {
+    final code = 'longPressAt(500, 800, duration=1000)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'longPressAt');
+    expect(parsed.first['x'], 500);
+    expect(parsed.first['y'], 800);
+    expect(parsed.first['duration'], 1000);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, 'longPressAt(500, 800, 1000)');
+  });
+
+  test('longPressAt variable coordinates round-trip', () {
+    final code = 'longPressAt(btnX, btnY, 2000)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'longPressAt');
+    final x = parsed.first['x'] as Map<String, dynamic>;
+    final y = parsed.first['y'] as Map<String, dynamic>;
+    expect(x['op'], 'var');
+    expect(x['name'], 'btnX');
+    expect(y['name'], 'btnY');
+    expect(parsed.first['duration'], 2000);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('longPressAt no-arg in find block round-trip', () {
+    final code = '''
+findText("应用图标") {
+    longPressAt()
+}
+'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'findText');
+    final children = parsed.first['children'] as List;
+    expect(children.single['type'], 'longPressAt');
+    expect(children.single.containsKey('x'), isFalse);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('longPressAt with single argument is invalid', () {
+    expect(
+      () => MacroProgramParser.parse('longPressAt(500)'),
+      throwsA(isA<MacroParseError>()),
+    );
+  });
+
   test('launch command round-trip', () {
     final code = '''
 launch("com.example.app", timeout=3000) {

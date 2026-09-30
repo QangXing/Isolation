@@ -21,6 +21,7 @@
 |---|---|---|
 | `click(x, y)` | 点击指定坐标 | `click(500, 800)` |
 | `click()` | 点击最近一次查询/查找得到的坐标，只能出现在查找块内 | `findText("签到") { click() }` |
+| `longPressAt(x, y, duration)` | 在指定坐标长按，`duration` 为按压时长（毫秒），默认 800；查找块内可写 `longPressAt()` 长按最近命中坐标 | `longPressAt(500, 800, 1500)` |
 | `swipe(dx, dy, duration)` | 从屏幕中心按相对偏移滑动 | `swipe(0, 300, 400)` |
 | `swipe(x1, y1, x2, y2, duration)` | 从起点滑动到终点 | `swipe(500, 180, 100, 180, 300)` |
 | `swipeRel(fromX, fromY, dx, dy, duration)` | 从指定起点按相对偏移滑动 | `swipeRel(500, 800, 0, -300, 400)` |

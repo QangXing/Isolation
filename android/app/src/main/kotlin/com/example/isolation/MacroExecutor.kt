@@ -210,6 +210,7 @@ class MacroExecutor(
         when (type) {
             // 动作
             "click" -> success = executeClickStep(step)
+            "longPressAt" -> success = executeLongPressStep(step)
             "swipe", "swipeRel" -> success = executeSwipeStep(step)
             "input" -> success = executeInputStep(step)
             "print" -> executePrintStep(step)
@@ -263,6 +264,23 @@ class MacroExecutor(
             dispatchClick(coord.first, coord.second)
         } else {
             postStatus("click: 缺少坐标且不在 find 块内")
+            false
+        }
+    }
+
+    private fun executeLongPressStep(step: Map<String, Any>): Boolean {
+        val duration = (evaluateNumber(step["duration"])?.toLong() ?: 800L).coerceAtLeast(0L)
+        val x = evaluateCoordinate(step["x"])
+        val y = evaluateCoordinate(step["y"])
+        if (x != null && y != null) {
+            return dispatchGesture(x, y, duration)
+        }
+        // 无坐标参数：在 find 块内长按最近命中的坐标
+        val coord = foundCoordinates.firstOrNull()
+        return if (coord != null) {
+            dispatchGesture(coord.first, coord.second, duration)
+        } else {
+            postStatus("longPressAt: 缺少坐标且不在 find 块内")
             false
         }
     }
@@ -1010,6 +1028,10 @@ class MacroExecutor(
     // ---------- 手势派发 ----------
 
     private fun dispatchClick(x: Int, y: Int): Boolean {
+        return dispatchGesture(x, y, 80)
+    }
+
+    private fun dispatchGesture(x: Int, y: Int, durationMs: Long): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
         InputAccessibilityService.showClickAnimation(x.toFloat(), y.toFloat())
         // 加入极短位移，避免某些系统把单点手势优化掉
@@ -1018,7 +1040,7 @@ class MacroExecutor(
             lineTo(x.toFloat() + 0.5f, y.toFloat() + 0.5f)
         }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
             .build()
         val result = AtomicBoolean(false)
         val latch = java.util.concurrent.CountDownLatch(1)
@@ -1026,9 +1048,9 @@ class MacroExecutor(
             try {
                 val ok = service.dispatchGesture(gesture, null, null)
                 result.set(ok)
-                if (!ok) Log.w(TAG, "dispatchClick($x, $y) 被系统拒绝")
+                if (!ok) Log.w(TAG, "dispatchGesture($x, $y, $durationMs) 被系统拒绝")
             } catch (e: Exception) {
-                Log.e(TAG, "dispatchClick($x, $y) 异常", e)
+                Log.e(TAG, "dispatchGesture($x, $y, $durationMs) 异常", e)
             } finally {
                 latch.countDown()
             }
