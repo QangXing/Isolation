@@ -1254,12 +1254,21 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     /**
-     * 从 FlutterSharedPreferences 的插件列表解析当前启用宏的 id。
-     * 悬浮球执行的是「启用中的那个宏」，其日志需要归属到正确的宏。
+     * 解析当前启用宏的 id，用于把执行日志归属到正确的宏。
+     * 优先读取 Flutter 侧写入的旁路文件（不受 shared_preferences key 前缀差异影响），
+     * 解析失败时回退到 FlutterSharedPreferences 中的插件列表。
      */
     private fun enabledMacroId(): String? {
+        // 旁路文件：plugin_provider 写 enabled_macro.json 时同步写入，最可靠
+        val idFile = File(filesDir, "enabled_macro_plugin_id")
+        if (idFile.exists()) {
+            val id = idFile.readText().trim()
+            if (id.isNotEmpty()) return id
+        }
         val prefs = flutterPrefs(this)
-        val raw = prefs.getString("isolation_plugins", null) ?: return null
+        val raw = prefs.getString("isolation_plugins", null)
+            ?: prefs.getString("flutter.isolation_plugins", null)
+            ?: return null
         return try {
             val array = JSONArray(raw)
             for (i in 0 until array.length()) {

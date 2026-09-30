@@ -1021,6 +1021,10 @@ class PluginProvider extends ChangeNotifier {
     final filesDir = await getApplicationSupportDirectory();
     final enabledMacroFile = File('${filesDir.path}/enabled_macro.json');
     await enabledMacroFile.writeAsString(content);
+    // 旁路记录当前启用宏的 pluginId，供悬浮球执行时归属日志到正确宏
+    // （原生侧读取 native shared_preferences 时 key 存在 flutter. 前缀差异，不依赖其解析）
+    final pluginIdFile = File('${filesDir.path}/enabled_macro_plugin_id');
+    await pluginIdFile.writeAsString(plugin.id);
   }
 
   Future<void> _clearEnabledMacro() async {
@@ -1028,6 +1032,10 @@ class PluginProvider extends ChangeNotifier {
     final enabledMacroFile = File('${filesDir.path}/enabled_macro.json');
     if (await enabledMacroFile.exists()) {
       await enabledMacroFile.delete();
+    }
+    final pluginIdFile = File('${filesDir.path}/enabled_macro_plugin_id');
+    if (await pluginIdFile.exists()) {
+      await pluginIdFile.delete();
     }
   }
 
