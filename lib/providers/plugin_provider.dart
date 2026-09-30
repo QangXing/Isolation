@@ -153,6 +153,14 @@ class PluginProvider extends ChangeNotifier {
   }
 
   Future<void> deletePlugin(String id) async {
+    // 删除宏时同步取消其每日定时
+    final plugin = _plugins.firstWhere(
+      (p) => p.id == id,
+      orElse: () => Plugin(id: '', name: '', version: '', description: '', author: ''),
+    );
+    if (plugin.id.isNotEmpty && plugin.actions.any((a) => a.type == 'macro')) {
+      await NativeChannel.clearMacroSchedule(id);
+    }
     await _manager.deletePlugin(id);
     _plugins = List.from(_manager.plugins);
     notifyListeners();
@@ -174,6 +182,11 @@ class PluginProvider extends ChangeNotifier {
           await NativeChannel.requestAccessibilityPermission();
         }
         await _writeEnabledMacro(plugin);
+        // 启用宏时同步其定时启动配置（读取 macro.json 中的设置）
+        final macroData = await loadMacroData(id);
+        if (macroData != null) {
+          await _syncMacroSchedule(plugin, macroData.settings);
+        }
         // 启用宏时若没有开启悬浮球，自动开启以便执行
         bool ballStarted;
         if (!_floatingBallVisible) {
@@ -194,6 +207,8 @@ class PluginProvider extends ChangeNotifier {
         }
       } else {
         await _clearEnabledMacro();
+        // 禁用宏时同步取消其每日定时
+        await NativeChannel.clearMacroSchedule(id);
         // 关闭宏时不影响独立悬浮球开关；用户可在管理页手动关闭
       }
     } else if (isFloater && enabled) {
@@ -481,6 +496,9 @@ class PluginProvider extends ChangeNotifier {
     if (updatedPlugin.enabled) {
       await _writeEnabledMacro(updatedPlugin);
     }
+
+    // 同步定时启动宏配置：启用中的宏按设置注册/取消每日定时
+    await _syncMacroSchedule(updatedPlugin, settings);
 
     notifyListeners();
     return true;
@@ -949,6 +967,29 @@ class PluginProvider extends ChangeNotifier {
     if (encoded == null) return null;
     await exportFile.writeAsBytes(encoded);
     return exportFile.path;
+  }
+
+  /// 同步某宏的每日定时配置到原生侧。
+  /// 仅当宏处于启用状态且设置中打开定时开关时才注册，否则取消已注册的定时。
+  Future<void> _syncMacroSchedule(Plugin plugin, MacroSettings settings) async {
+    final macroAction = plugin.actions.firstWhere(
+      (a) => a.type == 'macro',
+      orElse: () => PluginAction(type: '', label: '', params: {}),
+    );
+    final macroFile = macroAction.params['macroFile'] as String?;
+    if (macroFile == null) return;
+
+    if (plugin.enabled && settings.scheduleEnabled) {
+      await NativeChannel.setMacroSchedule(
+        pluginId: plugin.id,
+        macroFile: macroFile,
+        enabled: true,
+        hour: settings.scheduleHour,
+        minute: settings.scheduleMinute,
+      );
+    } else {
+      await NativeChannel.clearMacroSchedule(plugin.id);
+    }
   }
 
   Future<void> _writeEnabledMacro(Plugin plugin) async {

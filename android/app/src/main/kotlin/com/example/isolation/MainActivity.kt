@@ -246,6 +246,28 @@ class MainActivity : FlutterFragmentActivity() {
                     val dispatched = InputAccessibilityService.dispatchClick(this, x, y)
                     result.success(dispatched)
                 }
+                "setMacroSchedule" -> {
+                    val pluginId = call.argument<String>("pluginId")
+                    val macroFile = call.argument<String>("macroFile")
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    val hour = call.argument<Int>("hour") ?: 0
+                    val minute = call.argument<Int>("minute") ?: 0
+                    if (pluginId != null && macroFile != null) {
+                        if (enabled) {
+                            MacroScheduler.schedule(this, pluginId, macroFile, hour, minute)
+                        } else {
+                            MacroScheduler.cancel(this, pluginId)
+                        }
+                    }
+                    result.success(true)
+                }
+                "clearMacroSchedule" -> {
+                    val pluginId = call.argument<String>("pluginId")
+                    if (pluginId != null) {
+                        MacroScheduler.cancel(this, pluginId)
+                    }
+                    result.success(true)
+                }
                 "checkScreenCapturePermission" -> {
                     result.success(ScreenCaptureHelper.isGranted(this))
                 }

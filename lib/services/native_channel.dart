@@ -235,6 +235,40 @@ class NativeChannel {
     }
   }
 
+  /// 注册指定宏的每日定时触发；[enabled] 为 false 时取消该宏的定时。
+  static Future<bool> setMacroSchedule({
+    required String pluginId,
+    required String macroFile,
+    required bool enabled,
+    required int hour,
+    required int minute,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('setMacroSchedule', {
+        'pluginId': pluginId,
+        'macroFile': macroFile,
+        'enabled': enabled,
+        'hour': hour,
+        'minute': minute,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 取消某宏的每日定时。
+  static Future<bool> clearMacroSchedule(String pluginId) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('clearMacroSchedule', {
+        'pluginId': pluginId,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<bool> dispatchClick(int x, int y) async {
     try {
       final result = await _channel.invokeMethod<bool>('dispatchClick', {
