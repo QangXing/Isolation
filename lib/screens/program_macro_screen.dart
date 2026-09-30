@@ -30,6 +30,7 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
 
   static const List<String> _commands = [
     'click',
+    'longPressAt',
     'swipe',
     'swipeRel',
     'input',

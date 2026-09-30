@@ -34,6 +34,7 @@ class MacroSyntaxHighlighter {
     'home',
     'recents',
     'launch',
+    'longPressAt',
     'true',
     'false',
     'let',
