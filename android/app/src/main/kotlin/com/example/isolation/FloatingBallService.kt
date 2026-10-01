@@ -77,6 +77,17 @@ class FloatingBallService : Service(), MacroExecutorListener {
         fun getInstance(): FloatingBallService? = instance
 
         /**
+         * 当前是否存在可显示气泡的悬浮球 overlay。
+         * 供辅助服务判断 print 是否需要 Toast 兜底（进程被杀后服务重建期间无球可挂载）。
+         */
+        fun hasVisibleBall(): Boolean {
+            val svc = instance ?: return false
+            if (svc.windowManager == null) return false
+            if (svc.floatingView != null) return true
+            return svc.pluginBalls.values.any { it.visible }
+        }
+
+        /**
          * 显示一次点击动画。坐标为屏幕像素坐标系（左上角原点）。
          * 即使悬浮球服务未运行也不会崩溃。
          */

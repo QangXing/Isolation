@@ -206,6 +206,18 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
             Log.w(TAG, "已有宏在运行，跳过暂存定时宏: $pluginId")
             return
         }
+        // 尽力拉起悬浮球服务，让 print 能以气泡形式显示（失败则由 Toast 兜底）
+        try {
+            val intent = Intent(this, FloatingBallService::class.java)
+                .setAction(FloatingBallService.ACTION_SHOW)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "拉起悬浮球服务失败，print 将走 Toast 兜底", e)
+        }
         val macro = MacroScheduleReceiver.loadMacro(this, pluginId, macroFile)
         if (macro == null || macro.steps.isEmpty()) {
             Log.w(TAG, "暂存定时宏文件缺失，已丢弃: $pluginId")
@@ -347,6 +359,14 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         // 宏结束或异常后延迟移除动画覆盖层，保留一段时间让最后一个动画播完
         if (message == "任务完成" || message == "任务已停止" || message.startsWith("任务异常")) {
             mainHandler.postDelayed(hideOverlayRunnable, 1000L)
+        }
+    }
+
+    override fun onMacroPrint(message: String) {
+        // 悬浮球未就绪（如进程被杀后服务重建期间）时没有气泡载体，
+        // 用 Toast 兜底显示，避免 print 不可见；悬浮球就绪后仍由其气泡展示。
+        if (!FloatingBallService.hasVisibleBall()) {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
     }
 
