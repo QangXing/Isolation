@@ -561,6 +561,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val ball = floatingView?.findViewById<ImageView>(R.id.floating_ball_image) ?: return
         // 清除 src，让外层 FrameLayout 的背景按当前圆角显示为默认悬浮球
         ball.setImageDrawable(null)
+        restoreDefaultFloaterBackground(floatingView)
     }
 
     private fun applyFloaterConfigInternal(cornerRadiusDp: Int, sizeDp: Int, imagePath: String?) {
@@ -601,20 +602,45 @@ class FloatingBallService : Service(), MacroExecutorListener {
         loadImageInto(ball, imagePath)
     }
 
-    /** 使用 Glide 加载图片/GIF，失败后清空 ImageView。 */
+    /** 使用 Glide 加载图片/GIF，失败后清空 ImageView。加载自定义图片时移除白色底，透明区域直接透出。 */
     private fun loadImageInto(imageView: ImageView, path: String?) {
+        // 容器即 inflate 的 floating_ball 根布局（FrameLayout），其背景决定透明区域显示效果
+        loadImageInto(imageView, path, imageView.parent as? View ?: floatingView)
+    }
+
+    /** 指定容器的图片加载，插件球在 addView 前 parent 为空时使用显式传入的根布局。 */
+    private fun loadImageInto(imageView: ImageView, path: String?, container: View?) {
         if (path != null && File(path).exists()) {
             try {
+                clearFloaterBackground(container)
                 Glide.with(imageView.context)
                     .load(File(path))
                     .into(imageView)
             } catch (e: Exception) {
                 Log.w(TAG, "Glide 加载图片失败: $path", e)
                 imageView.setImageDrawable(null)
+                restoreDefaultFloaterBackground(container)
             }
         } else {
             imageView.setImageDrawable(null)
+            restoreDefaultFloaterBackground(container)
         }
+    }
+
+    /** 设置悬浮球容器背景为透明，避免 PNG 的透明部分被白色底填充。 */
+    private fun clearFloaterBackground(container: View?) {
+        val background = container?.background as? GradientDrawable ?: return
+        background.setColor(android.graphics.Color.TRANSPARENT)
+        background.setStroke(0, android.graphics.Color.TRANSPARENT)
+        container.invalidate()
+    }
+
+    /** 恢复默认悬浮球的白色圆角底（无自定义图片时使用）。 */
+    private fun restoreDefaultFloaterBackground(container: View?) {
+        val background = container?.background as? GradientDrawable ?: return
+        background.setColor(0xE6FFFFFF.toInt())
+        background.setStroke(1, 0xB3FFFFFF.toInt())
+        container.invalidate()
     }
 
     private fun loadDefaultFloaterConfig(): FloaterConfig {
@@ -833,7 +859,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
         val imageView = view.findViewById<ImageView>(R.id.floating_ball_image)
         Log.d(TAG, "应用球配置: ${ball.name}, imagePath=${ball.imagePath}")
-        loadImageInto(imageView, ball.imagePath)
+        loadImageInto(imageView, ball.imagePath, view)
 
         if (view.parent != null) {
             try {
