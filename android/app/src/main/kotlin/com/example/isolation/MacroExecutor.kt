@@ -44,6 +44,7 @@ class MacroExecutor(
         private var lastClickTime = 0L
         private const val MULTI_CLICK_THRESHOLD_MS = 600
         private const val MULTI_CLICK_COUNT = 3
+        private const val MAX_FLOATER_HANDLER_DEPTH = 16
 
         fun addListener(listener: MacroExecutorListener) {
             synchronized(listeners) {
@@ -87,7 +88,10 @@ class MacroExecutor(
 
             if (clickCount >= MULTI_CLICK_COUNT) {
                 clickCount = 0
-                activeExecutor?.stop()
+                val executor = activeExecutor
+                // 无宏运行时仅清零计数，不弹"已强制停止"提示
+                if (executor == null) return false
+                executor.stop()
                 Toast.makeText(context, "已强制停止循环", Toast.LENGTH_SHORT).show()
                 return true
             }
@@ -133,6 +137,13 @@ class MacroExecutor(
 
     private val floaterRegistry = FloaterRegistry()
     private var currentFloaterAssetsDir: String? = null
+
+    /**
+     * floater 事件处理器嵌套深度。防止 handler 内再次触发同事件导致无限递归。
+     * 新会话开始时清零（见 execute 的 finally）。
+     */
+    private var floaterHandlerDepth = 0
+
     private var lastFoundCoordinate: Pair<Int, Int>? = null
     private var lastFoundText: String? = null
 
@@ -140,8 +151,8 @@ class MacroExecutor(
         settings: Map<String, Any>,
         steps: List<Map<String, Any>>,
         pluginId: String? = null
-    ) {
-        if (running || activeExecutor != null) return
+    ): Boolean {
+        if (running || activeExecutor != null) return false
         running = true
         stopRequested = false
         debugMode = settings["debugMode"] as? Boolean ?: false
@@ -180,8 +191,10 @@ class MacroExecutor(
                 defaultFeaturePointThreshold = 0.80
                 variables.clear()
                 loopStack.clear()
+                floaterHandlerDepth = 0
             }
         }.start()
+        return true
     }
 
     fun stop() {
@@ -516,11 +529,23 @@ class MacroExecutor(
     private fun runFloaterHandlers(event: String, step: Map<String, Any>, success: Boolean) {
         setEventVariables(event, step, success)
         val handlers = floaterRegistry.get(event)
-        for (handler in handlers) {
-            val children = if (success) handler.children else handler.elseChildren
-            if (children != null) {
-                executeSteps(children)
+        if (handlers.isEmpty()) return
+        // 防无限递归：handler 内再次触发同事件指令（如 floater(click){ click() }）
+        // 会逐层深入，超过上限后忽略本次处理器
+        if (floaterHandlerDepth >= MAX_FLOATER_HANDLER_DEPTH) {
+            postStatus("floater: 事件处理器嵌套过深，已忽略 ($event)")
+            return
+        }
+        floaterHandlerDepth++
+        try {
+            for (handler in handlers) {
+                val children = if (success) handler.children else handler.elseChildren
+                if (children != null) {
+                    executeSteps(children)
+                }
             }
+        } finally {
+            floaterHandlerDepth--
         }
     }
 
@@ -749,7 +774,8 @@ class MacroExecutor(
 
     private fun executeWaitForStep(step: Map<String, Any>): Boolean {
         val type = step["type"] as? String ?: return false
-        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return false
+        // children 允许为空：无 body 的 waitForX 也会轮询等待命中或超时
+        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> }
         val timeout = evaluateNumber(step["timeout"])?.toLong() ?: 0L
         val start = SystemClock.elapsedRealtime()
         var found = false
@@ -762,11 +788,13 @@ class MacroExecutor(
             if (coord != null) {
                 found = true
                 updateFoundContext(step, coord)
-                foundCoordinates.addFirst(coord)
-                try {
-                    executeSteps(children)
-                } finally {
-                    foundCoordinates.removeFirstOrNull()
+                if (children != null) {
+                    foundCoordinates.addFirst(coord)
+                    try {
+                        executeSteps(children)
+                    } finally {
+                        foundCoordinates.removeFirstOrNull()
+                    }
                 }
                 break
             }
