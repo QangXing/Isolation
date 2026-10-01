@@ -235,11 +235,15 @@ class MainActivity : FlutterFragmentActivity() {
                     val assetsDir = call.argument<String>("assetsDir")
                     val pluginId = call.argument<String>("pluginId")
                     if (steps != null) {
-                        InputAccessibilityService.executeMacro(this, settings, steps, assetsDir, pluginId)
-                        result.success(true)
+                        result.success(
+                            InputAccessibilityService.executeMacro(this, settings, steps, assetsDir, pluginId)
+                        )
                     } else {
                         result.success(false)
                     }
+                }
+                "isMacroRunning" -> {
+                    result.success(MacroExecutor.isRunning())
                 }
                 "getMacroLogs" -> {
                     val pluginId = call.argument<String>("pluginId") ?: ""

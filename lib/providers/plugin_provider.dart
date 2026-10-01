@@ -363,10 +363,28 @@ class PluginProvider extends ChangeNotifier {
       assetsDir: assetsDir,
       pluginId: plugin.id,
     );
+    if (!success) {
+      _runningMacroId = null;
+      notifyListeners();
+      return false;
+    }
+    // executeMacro 只负责启动原生线程，这里后台轮询原生执行状态，
+    // 宏真正结束后才清除"运行中"标记
+    _pollMacroRunning(plugin.id);
+    return true;
+  }
 
-    _runningMacroId = null;
-    notifyListeners();
-    return success;
+  /// 轮询原生宏执行状态，结束后清除"运行中"标记。
+  Future<void> _pollMacroRunning(String pluginId) async {
+    while (_runningMacroId == pluginId) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (_runningMacroId != pluginId) return;
+      if (!await NativeChannel.isMacroRunning()) {
+        _runningMacroId = null;
+        notifyListeners();
+        return;
+      }
+    }
   }
 
   // Macro data / settings
@@ -1021,10 +1039,6 @@ class PluginProvider extends ChangeNotifier {
     final filesDir = await getApplicationSupportDirectory();
     final enabledMacroFile = File('${filesDir.path}/enabled_macro.json');
     await enabledMacroFile.writeAsString(content);
-    // 旁路记录当前启用宏的 pluginId，供悬浮球执行时归属日志到正确宏
-    // （原生侧读取 native shared_preferences 时 key 存在 flutter. 前缀差异，不依赖其解析）
-    final pluginIdFile = File('${filesDir.path}/enabled_macro_plugin_id');
-    await pluginIdFile.writeAsString(plugin.id);
   }
 
   Future<void> _clearEnabledMacro() async {
@@ -1032,10 +1046,6 @@ class PluginProvider extends ChangeNotifier {
     final enabledMacroFile = File('${filesDir.path}/enabled_macro.json');
     if (await enabledMacroFile.exists()) {
       await enabledMacroFile.delete();
-    }
-    final pluginIdFile = File('${filesDir.path}/enabled_macro_plugin_id');
-    if (await pluginIdFile.exists()) {
-      await pluginIdFile.delete();
     }
   }
 

@@ -82,8 +82,7 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
             pluginId: String? = null
         ): Boolean {
             if (!notifyNotReady(context)) return false
-            instance!!.executeMacroInternal(settings, steps, assetsDir, pluginId)
-            return true
+            return instance!!.executeMacroInternal(settings, steps, assetsDir, pluginId)
         }
 
         fun dispatchClick(context: Context, x: Int, y: Int): Boolean {
@@ -309,13 +308,15 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         steps: List<Map<String, Any>>,
         assetsDir: String? = null,
         pluginId: String? = null
-    ) {
+    ): Boolean {
+        // 已有宏在运行时不启动，返回 false 让调用方得知实际未启动
+        if (MacroExecutor.isRunning()) return false
         MacroExecutor.addListener(this)
         mainHandler.removeCallbacks(hideOverlayRunnable)
         // 同步创建动画覆盖层（MethodChannel 默认在主线程），
         // 保证 macro 线程开始前 touchEffectOverlay 已实例化，动画可进入 pending 队列。
         ensureTouchEffectOverlay()
-        MacroExecutor(this, assetsDir).execute(settings, steps, pluginId)
+        return MacroExecutor(this, assetsDir).execute(settings, steps, pluginId)
     }
 
     private fun dispatchClickForCompanion(x: Int, y: Int): Boolean {

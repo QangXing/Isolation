@@ -13,8 +13,9 @@ import java.io.File
  * 每日定时触发宏的广播接收器。
  *
  * 到点后加载指定插件的 macro.json，校验辅助功能就绪后交给
- * [InputAccessibilityService.executeMacro] 执行；执行成功后由
- * [MacroScheduler.scheduleNext] 续排明天同一时间。
+ * [InputAccessibilityService.executeMacro] 执行；无论本次执行成功与否，
+ * 都会由 [MacroScheduler.scheduleNext] 续排明天同一时间（仅宏文件缺失
+ * 时视为已删除，清除定时）。
  */
 class MacroScheduleReceiver : BroadcastReceiver() {
 
@@ -46,7 +47,7 @@ class MacroScheduleReceiver : BroadcastReceiver() {
         when (state) {
             1 -> {
                 Toast.makeText(context, "定时宏未执行：请先开启辅助功能", Toast.LENGTH_SHORT).show()
-                // 失败不清除定时，明日照常触发
+                // 失败不清除定时，明日照常触发，避免每日定时静默失效
                 MacroScheduler.scheduleNext(context, intent)
                 return
             }
@@ -70,13 +71,12 @@ class MacroScheduleReceiver : BroadcastReceiver() {
 
         val pluginDir = File(File(context.filesDir, "plugins"), pluginId)
         val assetsDir = File(pluginDir, "assets").takeIf { it.exists() }?.absolutePath
-        val executed = InputAccessibilityService.executeMacro(
+        // 无论本次执行成功与否都续排明天同一时间（每日重复）；
+        // 仅当配置已被清除（宏被删除）时 scheduleNext 返回 false，此时不再续排
+        InputAccessibilityService.executeMacro(
             context, macro.settings, macro.steps, assetsDir, pluginId
         )
-        if (executed) {
-            // 执行成功后续排明天同一时间（每日重复）
-            MacroScheduler.scheduleNext(context, intent)
-        }
+        MacroScheduler.scheduleNext(context, intent)
     }
 
     companion object {
