@@ -17,6 +17,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -105,6 +106,29 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
          */
         fun tryEnsureReady(context: Context): Int = readinessState(context)
 
+        // === 定时宏补执行（服务未就绪时暂存，onServiceConnected 后执行） ===
+
+        private const val PREF_PENDING_SCHEDULE = "isolation_pending_schedule"
+        private const val KEY_PLUGIN_ID = "pluginId"
+        private const val KEY_MACRO_FILE = "macroFile"
+
+        /** 定时触发时辅助服务尚未连上，暂存待执行宏，避免本次触发丢失。 */
+        fun persistPendingSchedule(context: Context, pluginId: String, macroFile: String) {
+            context.getSharedPreferences(PREF_PENDING_SCHEDULE, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_PLUGIN_ID, pluginId)
+                .putString(KEY_MACRO_FILE, macroFile)
+                .apply()
+        }
+
+        private fun consumePendingSchedule(context: Context): Pair<String, String>? {
+            val prefs = context.getSharedPreferences(PREF_PENDING_SCHEDULE, Context.MODE_PRIVATE)
+            val pluginId = prefs.getString(KEY_PLUGIN_ID, null) ?: return null
+            val macroFile = prefs.getString(KEY_MACRO_FILE, null) ?: return null
+            prefs.edit().remove(KEY_PLUGIN_ID).remove(KEY_MACRO_FILE).apply()
+            return pluginId to macroFile
+        }
+
         // Legacy helpers for the old floating keyboard behavior (unused after macro migration)
         fun showInputMethod(context: Context) {
             if (!notifyNotReady(context)) return
@@ -169,9 +193,29 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
             super.onServiceConnected()
             instance = this
             Log.d(TAG, "onServiceConnected")
+            runPendingScheduledMacro()
         } catch (e: Exception) {
             Log.e(TAG, "onServiceConnected failed", e)
         }
+    }
+
+    /** 定时触发时服务未就绪被暂存的宏，连接后立即补执行。 */
+    private fun runPendingScheduledMacro() {
+        val pair = consumePendingSchedule(this) ?: return
+        val (pluginId, macroFile) = pair
+        if (MacroExecutor.isRunning()) {
+            Log.w(TAG, "已有宏在运行，跳过暂存定时宏: $pluginId")
+            return
+        }
+        val macro = MacroScheduleReceiver.loadMacro(this, pluginId, macroFile)
+        if (macro == null || macro.steps.isEmpty()) {
+            Log.w(TAG, "暂存定时宏文件缺失，已丢弃: $pluginId")
+            return
+        }
+        val pluginDir = File(filesDir, "plugins")
+        val assetsDir = File(File(pluginDir, pluginId), "assets").takeIf { it.exists() }?.absolutePath
+        Log.d(TAG, "补执行暂存定时宏: $pluginId/$macroFile")
+        executeMacroInternal(macro.settings, macro.steps, assetsDir, pluginId)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

@@ -18,10 +18,6 @@ import java.io.File
  */
 class MacroScheduleReceiver : BroadcastReceiver() {
 
-    companion object {
-        private const val TAG = "MacroScheduleReceiver"
-    }
-
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != MacroScheduler.ACTION_MACRO_SCHEDULE) return
 
@@ -50,10 +46,24 @@ class MacroScheduleReceiver : BroadcastReceiver() {
         when (state) {
             1 -> {
                 Toast.makeText(context, "定时宏未执行：请先开启辅助功能", Toast.LENGTH_SHORT).show()
+                // 失败不清除定时，明日照常触发
+                MacroScheduler.scheduleNext(context, intent)
                 return
             }
             2 -> {
-                Toast.makeText(context, "定时宏未执行：辅助服务启动中", Toast.LENGTH_SHORT).show()
+                // 服务实例尚未连上（常见于进程被杀后系统尚未重连辅助服务）：
+                // 暂存待执行宏，系统回调 onServiceConnected 后自动补执行，避免本次触发丢失。
+                Log.w(TAG, "辅助服务未就绪，暂存定时宏待补执行: $pluginId")
+                InputAccessibilityService.persistPendingSchedule(context, pluginId, macroFile)
+                // 尽力唤醒辅助服务加速重连（失败不影响，系统会自动重建连接）
+                try {
+                    context.startService(Intent(context, InputAccessibilityService::class.java))
+                } catch (e: Exception) {
+                    Log.w(TAG, "唤醒辅助服务失败，等待系统自动重连", e)
+                }
+                Toast.makeText(context, "辅助服务启动中，定时宏稍后自动执行", Toast.LENGTH_SHORT).show()
+                // 延续明天同一时间的定时
+                MacroScheduler.scheduleNext(context, intent)
                 return
             }
         }
@@ -69,65 +79,70 @@ class MacroScheduleReceiver : BroadcastReceiver() {
         }
     }
 
-    private data class MacroFile(
+    companion object {
+        private const val TAG = "MacroScheduleReceiver"
+
+        /** 加载指定宏文件，供本接收器与辅助服务补执行共用以避免逻辑重复。 */
+        fun loadMacro(context: Context, pluginId: String, macroFile: String): MacroFile? {
+            val file = File(File(context.filesDir, "plugins"), "$pluginId/$macroFile")
+            if (!file.exists()) return null
+            return try {
+                val json = file.readText()
+                JSONObject(json).let { obj ->
+                    val settings = jsonObjectToMap(obj.getJSONObject("settings"))
+                    val stepsArray = obj.getJSONArray("steps")
+                    val steps = mutableListOf<Map<String, Any>>()
+                    for (i in 0 until stepsArray.length()) {
+                        steps.add(jsonObjectToMap(stepsArray.getJSONObject(i)))
+                    }
+                    MacroFile(settings, steps)
+                }
+            } catch (e: Exception) {
+                // Fallback to legacy list format
+                try {
+                    val array = JSONArray(file.readText())
+                    val steps = mutableListOf<Map<String, Any>>()
+                    for (i in 0 until array.length()) {
+                        steps.add(jsonObjectToMap(array.getJSONObject(i)))
+                    }
+                    MacroFile(emptyMap(), steps)
+                } catch (e2: Exception) {
+                    null
+                }
+            }
+        }
+
+        fun jsonObjectToMap(obj: JSONObject): Map<String, Any> {
+            val map = mutableMapOf<String, Any>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val value = obj.get(key)
+                map[key] = when (value) {
+                    is JSONObject -> jsonObjectToMap(value)
+                    is JSONArray -> jsonArrayToList(value)
+                    else -> value
+                }
+            }
+            return map
+        }
+
+        fun jsonArrayToList(array: JSONArray): List<Any> {
+            val list = mutableListOf<Any>()
+            for (i in 0 until array.length()) {
+                val value = array.get(i)
+                list.add(when (value) {
+                    is JSONObject -> jsonObjectToMap(value)
+                    is JSONArray -> jsonArrayToList(value)
+                    else -> value
+                })
+            }
+            return list
+        }
+    }
+
+    data class MacroFile(
         val settings: Map<String, Any>,
         val steps: List<Map<String, Any>>
     )
-
-    private fun loadMacro(context: Context, pluginId: String, macroFile: String): MacroFile? {
-        val file = File(File(context.filesDir, "plugins"), "$pluginId/$macroFile")
-        if (!file.exists()) return null
-        return try {
-            val json = file.readText()
-            JSONObject(json).let { obj ->
-                val settings = jsonObjectToMap(obj.getJSONObject("settings"))
-                val stepsArray = obj.getJSONArray("steps")
-                val steps = mutableListOf<Map<String, Any>>()
-                for (i in 0 until stepsArray.length()) {
-                    steps.add(jsonObjectToMap(stepsArray.getJSONObject(i)))
-                }
-                MacroFile(settings, steps)
-            }
-        } catch (e: Exception) {
-            // Fallback to legacy list format
-            try {
-                val array = JSONArray(file.readText())
-                val steps = mutableListOf<Map<String, Any>>()
-                for (i in 0 until array.length()) {
-                    steps.add(jsonObjectToMap(array.getJSONObject(i)))
-                }
-                MacroFile(emptyMap(), steps)
-            } catch (e2: Exception) {
-                null
-            }
-        }
-    }
-
-    private fun jsonObjectToMap(obj: JSONObject): Map<String, Any> {
-        val map = mutableMapOf<String, Any>()
-        val keys = obj.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            val value = obj.get(key)
-            map[key] = when (value) {
-                is JSONObject -> jsonObjectToMap(value)
-                is JSONArray -> jsonArrayToList(value)
-                else -> value
-            }
-        }
-        return map
-    }
-
-    private fun jsonArrayToList(array: JSONArray): List<Any> {
-        val list = mutableListOf<Any>()
-        for (i in 0 until array.length()) {
-            val value = array.get(i)
-            list.add(when (value) {
-                is JSONObject -> jsonObjectToMap(value)
-                is JSONArray -> jsonArrayToList(value)
-                else -> value
-            })
-        }
-        return list
-    }
 }
