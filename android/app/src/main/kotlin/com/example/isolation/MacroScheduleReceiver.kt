@@ -69,7 +69,7 @@ class MacroScheduleReceiver : BroadcastReceiver() {
             }
         }
 
-        val pluginDir = File(File(context.filesDir, "plugins"), pluginId)
+        val pluginDir = MacroScheduleReceiver.pluginRoot(context, pluginId)
         val assetsDir = File(pluginDir, "assets").takeIf { it.exists() }?.absolutePath
         // 无论本次执行成功与否都续排明天同一时间（每日重复）；
         // 仅当配置已被清除（宏被删除）时 scheduleNext 返回 false，此时不再续排
@@ -82,9 +82,34 @@ class MacroScheduleReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "MacroScheduleReceiver"
 
+        /**
+         * 解析插件根目录。
+         * Flutter 侧插件存放在 getApplicationDocumentsDirectory()/plugins
+         * （Android 上即 <应用数据目录>/app_flutter/plugins），
+         * 而不是 files/plugins——旧实现读错目录导致定时宏被误判为已删除。
+         */
+        fun pluginRoot(context: Context, pluginId: String): File {
+            val filesDir = context.filesDir
+            filesDir.parentFile?.let { dataDir ->
+                val docsPlugins = File(dataDir, "app_flutter/plugins")
+                if (docsPlugins.exists()) {
+                    return File(docsPlugins, pluginId)
+                }
+            }
+            // 旧路径兜底
+            return File(File(filesDir, "plugins"), pluginId)
+        }
+
         /** 加载指定宏文件，供本接收器与辅助服务补执行共用以避免逻辑重复。 */
         fun loadMacro(context: Context, pluginId: String, macroFile: String): MacroFile? {
-            val file = File(File(context.filesDir, "plugins"), "$pluginId/$macroFile")
+            parseMacroFile(File(pluginRoot(context, pluginId), macroFile))?.let { return it }
+            // 兜底：读取 Flutter 同步到 files/ 的启用宏副本（悬浮球同一数据源）
+            return parseMacroFile(
+                File(context.filesDir, FloatingBallService.ENABLED_MACRO_FILE)
+            )
+        }
+
+        private fun parseMacroFile(file: File): MacroFile? {
             if (!file.exists()) return null
             return try {
                 val json = file.readText()

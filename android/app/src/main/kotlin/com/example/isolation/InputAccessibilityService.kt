@@ -223,8 +223,8 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
             Log.w(TAG, "暂存定时宏文件缺失，已丢弃: $pluginId")
             return
         }
-        val pluginDir = File(filesDir, "plugins")
-        val assetsDir = File(File(pluginDir, pluginId), "assets").takeIf { it.exists() }?.absolutePath
+        val pluginDir = MacroScheduleReceiver.pluginRoot(this, pluginId)
+        val assetsDir = File(pluginDir, "assets").takeIf { it.exists() }?.absolutePath
         Log.d(TAG, "补执行暂存定时宏: $pluginId/$macroFile")
         executeMacroInternal(macro.settings, macro.steps, assetsDir, pluginId)
     }
