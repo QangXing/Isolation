@@ -78,6 +78,12 @@ object MacroScheduler {
         Log.d(TAG, "已恢复定时: ${readConfigs(context).size} 条")
     }
 
+    /** 返回已配置定时的触发时间标签（如 "08:00"），未配置时返回 null。 */
+    fun nextTriggerLabel(context: Context): String? {
+        val config = readConfigs(context).firstOrNull() ?: return null
+        return String.format("%02d:%02d", config.hour, config.minute)
+    }
+
     private fun registerAlarm(context: Context, config: ScheduleConfig) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val triggerAt = nextTriggerAt(config.hour, config.minute)

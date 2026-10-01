@@ -192,6 +192,7 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
             super.onServiceConnected()
             instance = this
             Log.d(TAG, "onServiceConnected")
+            MacroStatusNotifier.refreshState(this)
             runPendingScheduledMacro()
         } catch (e: Exception) {
             Log.e(TAG, "onServiceConnected failed", e)
@@ -292,6 +293,7 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         MacroExecutor.removeListener(this)
         mainHandler.removeCallbacks(hideOverlayRunnable)
         hideTouchEffectOverlay()
+        MacroStatusNotifier.refreshState(this)
     }
 
     private fun computeDelay(): Long {

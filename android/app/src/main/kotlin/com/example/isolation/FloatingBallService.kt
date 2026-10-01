@@ -263,6 +263,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
             // 后续 onStartCommand 仍会再次尝试。
         }
         MacroExecutor.addListener(this)
+        MacroStatusNotifier.refreshState(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -1527,6 +1528,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         hideKeyboard()
         MacroExecutor.removeListener(this)
         instance = null
+        MacroStatusNotifier.refreshState(this)
         super.onDestroy()
     }
 }

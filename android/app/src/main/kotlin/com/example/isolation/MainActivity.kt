@@ -96,6 +96,14 @@ class MainActivity : FlutterFragmentActivity() {
                 "checkOverlayPermission" -> {
                     result.success(Settings.canDrawOverlays(this))
                 }
+                "setStatusNotificationEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    MacroStatusNotifier.configure(this, enabled)
+                    result.success(true)
+                }
+                "isStatusNotificationEnabled" -> {
+                    result.success(MacroStatusNotifier.isEnabled(this))
+                }
                 "checkNotificationPermission" -> {
                     result.success(hasPostNotificationPermission())
                 }

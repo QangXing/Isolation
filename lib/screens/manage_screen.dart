@@ -10,6 +10,7 @@ import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/programming_type_sheet.dart';
 import 'coordinate_debug_screen.dart';
+import 'app_settings_screen.dart';
 import 'default_floater_settings_screen.dart';
 import 'floater_settings_screen.dart';
 import 'macro_settings_screen.dart';
@@ -80,6 +81,14 @@ class ManageScreen extends StatelessWidget {
                       icon: Icons.my_location_rounded,
                       label: '坐标调试',
                       onTap: () => _openCoordinateDebug(context),
+                      full: true,
+                    ),
+                    const SizedBox(height: 12),
+                    // 应用设置入口
+                    _ActionTile(
+                      icon: Icons.settings_rounded,
+                      label: '设置',
+                      onTap: () => _openAppSettings(context),
                       full: true,
                     ),
                     const SizedBox(height: 12),
@@ -186,6 +195,12 @@ class ManageScreen extends StatelessWidget {
   void _openCoordinateDebug(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CoordinateDebugScreen()),
+    );
+  }
+
+  void _openAppSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AppSettingsScreen()),
     );
   }
 

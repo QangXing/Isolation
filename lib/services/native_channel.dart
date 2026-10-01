@@ -319,6 +319,28 @@ class NativeChannel {
     }
   }
 
+  /// 开启 / 关闭通知栏状态通知（展示运行状态与宏 print 输出）。
+  static Future<bool> setStatusNotificationEnabled(bool enabled) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('setStatusNotificationEnabled', {
+        'enabled': enabled,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 查询通知栏状态通知是否开启（以原生持久化状态为准）。
+  static Future<bool> isStatusNotificationEnabled() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isStatusNotificationEnabled');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<bool> checkScreenCapturePermission() async {
     try {
       final result = await _channel.invokeMethod<bool>('checkScreenCapturePermission');

@@ -161,6 +161,7 @@ class MacroExecutor(
         defaultFeaturePointThreshold =
             (settings["featurePointThreshold"] as? Number)?.toDouble()?.coerceIn(0.0, 1.0) ?: 0.80
         MacroLogStore.onSessionStart(service, pluginId, debugMode)
+        pluginId?.let { MacroStatusNotifier.onSessionStart(service, it) }
         activeExecutor = this
         floaterRegistry.clear()
         currentFloaterAssetsDir = null
