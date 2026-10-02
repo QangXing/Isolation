@@ -510,6 +510,9 @@ class PluginProvider extends ChangeNotifier {
       pinnedAt: plugin.pinnedAt,
     );
     _plugins[pluginIndex] = updatedPlugin;
+    // 同步 PluginManager 单例内部的插件列表，否则 savePlugins 序列化的仍是旧数据，
+    // 导致应用重启后名称/简介/图标读回旧值
+    _manager.replacePlugins(_plugins);
     await _manager.savePlugins();
 
     // 若当前为启用宏，同步更新悬浮球侧缓存
@@ -597,6 +600,8 @@ class PluginProvider extends ChangeNotifier {
       pinnedAt: plugin.pinnedAt,
     );
     _plugins[pluginIndex] = updatedPlugin;
+    // 同步 PluginManager 单例内部的插件列表，否则 savePlugins 序列化的仍是旧数据
+    _manager.replacePlugins(_plugins);
     await _manager.savePlugins();
 
     notifyListeners();

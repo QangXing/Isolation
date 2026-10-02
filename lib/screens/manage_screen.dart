@@ -10,7 +10,6 @@ import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/programming_type_sheet.dart';
 import 'coordinate_debug_screen.dart';
-import 'app_settings_screen.dart';
 import 'default_floater_settings_screen.dart';
 import 'floater_settings_screen.dart';
 import 'macro_settings_screen.dart';
@@ -53,7 +52,7 @@ class ManageScreen extends StatelessWidget {
                         Expanded(
                           child: _ActionTile(
                             icon: Icons.fiber_manual_record_rounded,
-                            label: '新建宏',
+                            label: '录制宏',
                             onTap: () => _createMacro(context),
                           ),
                         ),
@@ -84,12 +83,11 @@ class ManageScreen extends StatelessWidget {
                       full: true,
                     ),
                     const SizedBox(height: 12),
-                    // 应用设置入口
-                    _ActionTile(
-                      icon: Icons.settings_rounded,
-                      label: '设置',
-                      onTap: () => _openAppSettings(context),
-                      full: true,
+                    // 统一分享 / 删除卡片
+                    _ShareDeleteCard(
+                      plugins: plugins,
+                      onShare: (plugin) => _exportPlugin(context, provider, plugin.id),
+                      onDelete: (plugin) => _confirmDelete(context, provider, plugin),
                     ),
                     const SizedBox(height: 12),
                     // 默认悬浮球（含显示开关与外观配置入口）
@@ -128,8 +126,6 @@ class ManageScreen extends StatelessWidget {
                           onToggle: (value) => _setPluginEnabled(context, provider, plugin.id, value),
                           onEditCode: () => _editCode(context, plugin.id, isFloater: isFloater),
                           onSettings: () => _openSettings(context, plugin.id, isFloater: isFloater),
-                          onExport: () => _exportPlugin(context, provider, plugin.id),
-                          onDelete: () => provider.deletePlugin(plugin.id),
                         ),
                       );
                     },
@@ -195,12 +191,6 @@ class ManageScreen extends StatelessWidget {
   void _openCoordinateDebug(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CoordinateDebugScreen()),
-    );
-  }
-
-  void _openAppSettings(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AppSettingsScreen()),
     );
   }
 
@@ -274,6 +264,228 @@ class ManageScreen extends StatelessWidget {
     }
 
     await Share.shareXFiles([XFile(path)]);
+  }
+
+  Future<void> _confirmDelete(
+      BuildContext context, PluginProvider provider, Plugin plugin) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          '删除插件',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          '确定删除《${plugin.name}》吗？删除后无法恢复。',
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消', style: TextStyle(color: Colors.black54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('删除', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await provider.deletePlugin(plugin.id);
+  }
+}
+
+/// 统一的分享 / 删除卡片：点击后先选择插件，再执行对应操作。
+class _ShareDeleteCard extends StatelessWidget {
+  final List<Plugin> plugins;
+  final ValueChanged<Plugin> onShare;
+  final ValueChanged<Plugin> onDelete;
+
+  const _ShareDeleteCard({
+    required this.plugins,
+    required this.onShare,
+    required this.onDelete,
+  });
+
+  Future<void> _pickPlugin(BuildContext context, {required bool share}) async {
+    final plugin = await showModalBottomSheet<Plugin>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _PluginPickerSheet(plugins: plugins, share: share),
+    );
+    if (plugin == null) return;
+    if (share) {
+      onShare(plugin);
+    } else {
+      onDelete(plugin);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final empty = plugins.isEmpty;
+    return GlassCard(
+      child: Row(
+        children: [
+          Expanded(
+            child: _ShareDeleteButton(
+              icon: Icons.share_rounded,
+              label: '分享',
+              danger: false,
+              onTap: empty ? null : () => _pickPlugin(context, share: true),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _ShareDeleteButton(
+              icon: Icons.delete_outline_rounded,
+              label: '删除',
+              danger: true,
+              onTap: empty ? null : () => _pickPlugin(context, share: false),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 分享 / 删除按钮：[danger] 标记危险操作，[onTap] 为 null 时置灰禁用。
+class _ShareDeleteButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool danger;
+  final VoidCallback? onTap;
+
+  const _ShareDeleteButton({
+    required this.icon,
+    required this.label,
+    required this.danger,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    final color = danger ? Colors.redAccent : Colors.black87;
+    final textColor = enabled ? color : Colors.grey.withValues(alpha: 0.45);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: enabled
+              ? (danger
+                  ? Colors.red.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.05))
+              : Colors.black.withValues(alpha: 0.02),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 20, color: textColor),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: textColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 插件选择底部弹层：列出所有非内置插件，点击返回选中项。
+class _PluginPickerSheet extends StatelessWidget {
+  final List<Plugin> plugins;
+  final bool share;
+
+  const _PluginPickerSheet({required this.plugins, required this.share});
+
+  @override
+  Widget build(BuildContext context) {
+    final isFloaterOf = <String, bool>{
+      for (final p in plugins) p.id: p.isFloater,
+    };
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        top: 8,
+        bottom: MediaQuery.of(context).padding.bottom + 8,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+            child: Text(
+              share ? '选择要分享的插件' : '选择要删除的插件',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              itemCount: plugins.length,
+              separatorBuilder: (_, __) => Divider(
+                height: 1,
+                color: Colors.black.withValues(alpha: 0.06),
+              ),
+              itemBuilder: (context, index) {
+                final plugin = plugins[index];
+                final typeLabel =
+                    (isFloaterOf[plugin.id] ?? false) ? ' · 球' : ' · 宏';
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    plugin.name,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'v${plugin.version}$typeLabel',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.black.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  trailing: Icon(
+                    share ? Icons.share_rounded : Icons.delete_outline_rounded,
+                    size: 20,
+                    color: share
+                        ? Colors.black.withValues(alpha: 0.5)
+                        : Colors.redAccent,
+                  ),
+                  onTap: () => Navigator.of(context).pop(plugin),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -368,8 +580,6 @@ class _PluginListItem extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback? onEditCode;
   final VoidCallback onSettings;
-  final VoidCallback onExport;
-  final VoidCallback onDelete;
 
   const _PluginListItem({
     required this.plugin,
@@ -378,8 +588,6 @@ class _PluginListItem extends StatelessWidget {
     required this.onToggle,
     this.onEditCode,
     required this.onSettings,
-    required this.onExport,
-    required this.onDelete,
   });
 
   @override
@@ -430,17 +638,6 @@ class _PluginListItem extends StatelessWidget {
                 icon: Icons.settings_rounded,
                 tooltip: '设置',
                 onTap: onSettings,
-              ),
-              _IconAction(
-                icon: Icons.share_rounded,
-                tooltip: '导出',
-                onTap: onExport,
-              ),
-              _IconAction(
-                icon: Icons.delete_outline_rounded,
-                tooltip: '删除',
-                danger: true,
-                onTap: onDelete,
               ),
             ],
           ),

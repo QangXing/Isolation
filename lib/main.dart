@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'providers/plugin_provider.dart';
-import 'screens/about_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/manage_screen.dart';
+import 'screens/settings_screen.dart';
 import 'widgets/bottom_nav_bar.dart';
 
 void main() {
@@ -55,7 +55,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _screens = const [
     HomeScreen(),
     ManageScreen(),
-    AboutScreen(),
+    SettingsScreen(),
   ];
 
   @override
