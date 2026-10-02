@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/services.dart';
 
 class NativeChannel {
@@ -195,10 +196,21 @@ class NativeChannel {
     }
   }
 
-  static Future<bool> startRecording({bool captureColors = false}) async {
+  /// 开始录制会话（悬浮球 + 全屏手势捕获层）。返回是否成功启动。
+  static Future<bool> startRecordingSession({
+    String mode = 'simple',
+    bool captureColors = false,
+    bool recordSystemKeys = true,
+    int minClickIntervalMs = 100,
+    bool replayGestures = true,
+  }) async {
     try {
-      final result = await _channel.invokeMethod<bool>('startRecording', {
+      final result = await _channel.invokeMethod<bool>('startRecordingSession', {
+        'mode': mode,
         'captureColors': captureColors,
+        'recordSystemKeys': recordSystemKeys,
+        'minClickIntervalMs': minClickIntervalMs,
+        'replayGestures': replayGestures,
       });
       return result ?? false;
     } catch (e) {
@@ -206,15 +218,61 @@ class NativeChannel {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> stopRecording() async {
+  /// 暂停录制（移除捕获层，可正常使用手机）。
+  static Future<void> pauseRecording() async {
     try {
-      final result = await _channel.invokeMethod<List<dynamic>>('stopRecording');
-      return result
-              ?.map((e) => Map<String, dynamic>.from(e as Map<dynamic, dynamic>))
-              .toList() ??
-          [];
+      await _channel.invokeMethod('pauseRecording');
     } catch (e) {
-      return [];
+      // Ignore
+    }
+  }
+
+  /// 继续录制（重新挂载捕获层）。
+  static Future<void> resumeRecording() async {
+    try {
+      await _channel.invokeMethod('resumeRecording');
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  /// 结束录制：原生侧完成指令后处理并持久化结果，随后回到 App 编辑页。
+  static Future<void> finishRecording() async {
+    try {
+      await _channel.invokeMethod('finishRecording');
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  /// 取消录制（丢弃结果）。
+  static Future<void> cancelRecording() async {
+    try {
+      await _channel.invokeMethod('cancelRecording');
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  /// 查询原生侧录制会话状态（state / stepCount / mode）。
+  static Future<Map<String, dynamic>?> getRecordingState() async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('getRecordingState');
+      if (result == null) return null;
+      return Map<String, dynamic>.from(result);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// 读取并消费待处理录制结果（读取后原生侧文件即被清除）。
+  static Future<Map<String, dynamic>?> consumePendingRecordingResult() async {
+    try {
+      final raw = await _channel.invokeMethod<String>('consumePendingRecordingResult');
+      if (raw == null) return null;
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map<dynamic, dynamic>);
+    } catch (e) {
+      return null;
     }
   }
 

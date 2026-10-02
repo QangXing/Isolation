@@ -18,15 +18,11 @@ class PluginProvider extends ChangeNotifier {
   final PluginManager _manager = PluginManager();
   List<Plugin> _plugins = [];
   bool _loaded = false;
-  bool _recording = false;
-  List<Map<String, dynamic>> _recordedSteps = [];
   String? _runningMacroId;
   bool _floatingBallVisible = false;
 
   List<Plugin> get plugins => _plugins;
   bool get loaded => _loaded;
-  bool get recording => _recording;
-  List<Map<String, dynamic>> get recordedSteps => _recordedSteps;
   bool get isRunningMacro => _runningMacroId != null;
   String? get runningMacroId => _runningMacroId;
   bool get floatingBallVisible => _floatingBallVisible;
@@ -278,41 +274,6 @@ class PluginProvider extends ChangeNotifier {
     _plugins = List.from(_manager.plugins);
     notifyListeners();
     return true;
-  }
-
-  // Recording
-
-  Future<bool> startRecording({bool captureColors = false}) async {
-    final hasAccessibility = await NativeChannel.checkAccessibilityPermission();
-    if (!hasAccessibility) {
-      await NativeChannel.requestAccessibilityPermission();
-      return false;
-    }
-    final started = await NativeChannel.startRecording(captureColors: captureColors);
-    if (started) {
-      _recording = true;
-      _recordedSteps = [];
-      notifyListeners();
-    }
-    return started;
-  }
-
-  Future<List<Map<String, dynamic>>> stopRecording() async {
-    final steps = await NativeChannel.stopRecording();
-    _recording = false;
-    _recordedSteps = steps;
-    notifyListeners();
-    return steps;
-  }
-
-  void updateRecordedSteps(List<Map<String, dynamic>> steps) {
-    _recordedSteps = steps;
-    notifyListeners();
-  }
-
-  void clearRecordedSteps() {
-    _recordedSteps = [];
-    notifyListeners();
   }
 
   // Macro execution

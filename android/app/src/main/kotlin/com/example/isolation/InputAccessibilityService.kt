@@ -64,14 +64,18 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
             return state == 0
         }
 
-        fun startRecording(context: Context, captureColors: Boolean = false): Boolean {
-            if (!notifyNotReady(context)) return false
-            return instance!!.startRecordingInternal(captureColors)
-        }
-
-        fun stopRecording(context: Context): List<Map<String, Any>> {
-            if (!notifyNotReady(context)) return emptyList()
-            return instance!!.stopRecordingInternal()
+        /**
+         * 通过辅助服务向系统派发一次手势回放（录制捕获层原样回放给目标 App）。
+         * [suppressEvents] 为 false 时（点击回放），系统产生的 TYPE_VIEW_CLICKED
+         * 事件会回调 onAccessibilityEvent 用于补全最近一次点击的节点信息。
+         */
+        fun dispatchReplayGesture(path: Path, duration: Long, suppressEvents: Boolean): Boolean {
+            val svc = instance ?: return false
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, duration.coerceAtLeast(1L)))
+                .build()
+            return svc.dispatchGesture(gesture, null, null)
         }
 
         fun executeMacro(
@@ -173,19 +177,9 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         }
     }
 
-    private var recording = AtomicBoolean(false)
-    private val recordedSteps = mutableListOf<RecordedStep>()
-    private var lastEventTime: Long = 0L
-    private var captureColors: Boolean = false
-
     private val mainHandler = Handler(Looper.getMainLooper())
     private var touchEffectOverlay: TouchEffectOverlay? = null
     private val hideOverlayRunnable = Runnable { hideTouchEffectOverlay() }
-
-    private data class RecordedStep(
-        val timestamp: Long,
-        val step: Map<String, Any>
-    )
 
     override fun onServiceConnected() {
         try {
@@ -232,7 +226,6 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
-        if (!recording.get()) return
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) return
 
         val source = event.source ?: return
@@ -241,37 +234,36 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
 
         val bounds = Rect()
         source.getBoundsInScreen(bounds)
-
-        val target = mutableMapOf<String, Any?>(
-            "resourceId" to source.viewIdResourceName,
-            "text" to (source.text?.toString()),
-            "contentDescription" to (source.contentDescription?.toString()),
-            "className" to (source.className?.toString()),
-            "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
-            "packageName" to packageName
-        )
-
         val centerX = (bounds.left + bounds.right) / 2
         val centerY = (bounds.top + bounds.bottom) / 2
 
-        val step = mutableMapOf<String, Any?>(
-            "type" to "clickNode",
-            "delay" to computeDelay(),
-            "target" to target.filterValues { it != null }
-        )
+        // 录制会话进行中：捕获层点击回放产生的节点事件，用于补全最近一次点击（复杂模式升级为 clickNode）
+        if (RecordingSession.isRecording()) {
+            val target = mutableMapOf<String, Any?>(
+                "resourceId" to source.viewIdResourceName,
+                "text" to (source.text?.toString()),
+                "contentDescription" to (source.contentDescription?.toString()),
+                "className" to (source.className?.toString()),
+                "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                "packageName" to packageName
+            )
+            RecordingSession.enrichLastClick(target.filterValues { it != null }, centerX, centerY)
+            return
+        }
+    }
 
-        if (captureColors) {
-            val color = ScreenCaptureHelper.captureColor(this, centerX, centerY)
-            if (color != null) {
-                step["color"] = mapOf(
-                    "x" to centerX,
-                    "y" to centerY,
-                    "color" to color
-                )
+    /**
+     * 录制中检测系统按键（返回键 / Home 键）。
+     * 需要用户在系统辅助功能设置中开启"请求按键过滤"，未开启时仅返回键可被监听。
+     */
+    override fun onKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.action == android.view.KeyEvent.ACTION_UP) {
+            when (event.keyCode) {
+                android.view.KeyEvent.KEYCODE_BACK -> RecordingSession.onSystemKey("back")
+                android.view.KeyEvent.KEYCODE_HOME -> RecordingSession.onSystemKey("home")
             }
         }
-
-        recordedSteps.add(RecordedStep(System.currentTimeMillis(), step.filterValues { it != null }.mapValues { it.value as Any }))
+        return super.onKeyEvent(event)
     }
 
     override fun onInterrupt() {
@@ -294,27 +286,6 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         mainHandler.removeCallbacks(hideOverlayRunnable)
         hideTouchEffectOverlay()
         MacroStatusNotifier.refreshState(this)
-    }
-
-    private fun computeDelay(): Long {
-        val now = System.currentTimeMillis()
-        val delay = if (lastEventTime == 0L) 0L else now - lastEventTime
-        lastEventTime = now
-        return delay
-    }
-
-    private fun startRecordingInternal(captureColors: Boolean = false): Boolean {
-        if (recording.getAndSet(true)) return false
-        recordedSteps.clear()
-        lastEventTime = 0L
-        this.captureColors = captureColors
-        return true
-    }
-
-    private fun stopRecordingInternal(): List<Map<String, Any>> {
-        recording.set(false)
-        captureColors = false
-        return recordedSteps.map { it.step }
     }
 
     private fun executeMacroInternal(

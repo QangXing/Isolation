@@ -7,6 +7,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.drawable.GradientDrawable
@@ -26,6 +30,7 @@ import android.view.View
 import android.view.WindowManager
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
+import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.core.app.ServiceCompat
 import android.widget.TextView
@@ -63,6 +68,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
         private const val BUBBLE_AUTO_HIDE_MS = 2500L
         private const val CLICK_SLOP_PX = 12
         private const val LONG_CLICK_TIMEOUT_MS = 400L
+
+        /** 录制悬浮球副球尺寸（dp） */
+        private const val REC_SUB_BALL_SIZE_DP = 44
+        /** 录制悬浮球主球与副球、副球之间的间距（dp） */
+        private const val REC_SUB_GAP_DP = 10
 
         private const val PREF_NAME = "isolation_floating_ball"
         private const val KEY_CUSTOM_ICON = "custom_icon_path"
@@ -162,6 +172,55 @@ class FloatingBallService : Service(), MacroExecutorListener {
         fun getFloaterPosition(name: String): Map<String, Int>? {
             return instance?.getPluginBallPosition(name)
         }
+
+        // ── 录制悬浮球（主球 + 副球） ──
+
+        /**
+         * 确保悬浮球服务在运行，用于承载录制球。
+         * 从录制参数页发起录制时，服务可能尚未启动。
+         */
+        fun ensureServiceRunning(ctx: Context) {
+            if (instance != null) return
+            try {
+                val intent = Intent(ctx, FloatingBallService::class.java).setAction(ACTION_SHOW)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ctx.startForegroundService(intent)
+                } else {
+                    ctx.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "拉起悬浮球服务失败", e)
+            }
+        }
+
+        /** 录制开始前收起默认悬浮球，返回是否原本可见（结束录制后按需恢复）。 */
+        fun hideDefaultBallForRecording(): Boolean {
+            return instance?.hideDefaultBallForRecordingInternal() ?: false
+        }
+
+        /** 挂载录制悬浮球（主球 + 暂停/继续 + 结束）。服务未运行时暂存，待服务创建后挂载。 */
+        fun ensureRecordingBalls(ctx: Context) {
+            val svc = instance
+            if (svc != null) {
+                svc.ensureRecordingBallsInternal(ctx)
+            } else {
+                pendingRecordingBallContext = ctx.applicationContext
+            }
+        }
+
+        /** 录制状态变化（暂停/继续）时同步副球图标。 */
+        fun updateRecordingBallState() {
+            instance?.updateRecordingBallStateInternal()
+        }
+
+        /** 结束/取消录制：移除录制球，并按需恢复默认悬浮球。 */
+        fun endRecordingMode(restoreDefaultBall: Boolean) {
+            instance?.endRecordingModeInternal(restoreDefaultBall)
+        }
+
+        /** 服务尚未创建时暂存的录制球挂载上下文。 */
+        @Volatile
+        private var pendingRecordingBallContext: Context? = null
     }
 
     private var windowManager: WindowManager? = null
@@ -174,6 +233,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private var bubbleParams: WindowManager.LayoutParams? = null
     private var keyboardView: KeyboardOverlayView? = null
     private var animationOverlay: TouchEffectOverlay? = null
+
+    // ── 录制悬浮球（主球 + 暂停/继续副球 + 结束副球） ──
+    private data class RecordingBall(
+        var view: View?,
+        var params: WindowManager.LayoutParams?,
+        var icon: ImageView?
+    )
+
+    private var recordingMainBall = RecordingBall(null, null, null)
+    private var recordingPauseBall = RecordingBall(null, null, null)
+    private var recordingFinishBall = RecordingBall(null, null, null)
+    private var recordingSubBallsVisible = false
+    private var defaultBallVisibleBeforeRecording = false
 
     private var initialX = 0
     private var initialY = 0
@@ -295,6 +367,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     // 仅保持前台服务运行，用于在 Android 14+ 中承载屏幕录制，不显示悬浮球
                 }
             }
+            // 服务创建后补挂载录制球（录制参数页先于服务启动发起录制时）
+            mountPendingRecordingBalls()
         } catch (e: Exception) {
             Log.e(TAG, "处理悬浮球意图失败: ${intent?.action}", e)
         }
@@ -1218,8 +1292,320 @@ class FloatingBallService : Service(), MacroExecutorListener {
         return out
     }
 
+    // ── 录制悬浮球内部实现 ──
+
+    private fun mountPendingRecordingBalls() {
+        val ctx = pendingRecordingBallContext ?: return
+        pendingRecordingBallContext = null
+        ensureRecordingBallsInternal(ctx)
+    }
+
+    private fun hideDefaultBallForRecordingInternal(): Boolean {
+        val wasVisible = floatingView != null
+        if (wasVisible) {
+            defaultBallVisibleBeforeRecording = true
+            hideDefaultFloatingBall()
+        }
+        return wasVisible
+    }
+
+    /**
+     * 挂载录制悬浮球：主球（单击展开/收起副球）+ 暂停/继续副球 + 结束副球。
+     * 三个球都是独立 overlay 窗口，层级高于全屏捕获层，
+     * 因此触摸球本身不会落入捕获层、也不会产生录制步骤。
+     */
+    private fun ensureRecordingBallsInternal(ctx: Context) {
+        if (recordingMainBall.view != null) return
+        if (windowManager == null) {
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        }
+        // 收起默认悬浮球，避免与录制球重叠
+        if (floatingView != null) {
+            defaultBallVisibleBeforeRecording = true
+            hideDefaultFloatingBall()
+        }
+
+        val wm = windowManager ?: return
+        val ballSizePx = dpToPx(BALL_SIZE_DP)
+        val subSizePx = dpToPx(REC_SUB_BALL_SIZE_DP)
+        val screen = screenSize()
+        val startX = screen.x - ballSizePx - dpToPx(16)
+        val startY = (screen.y - ballSizePx) / 2
+
+        // 主球
+        val mainParams = recordingWindowParams(startX, startY, ballSizePx)
+        val mainBall = createRecordingBallView(ctx, makeRecordIcon(ballSizePx), 0xFF37474F.toInt(), ballSizePx)
+        recordingMainBall = RecordingBall(mainBall.view, mainParams, mainBall.icon)
+        setupRecordingMainBallTouch(mainBall.view)
+
+        // 暂停/继续副球（初始隐藏）
+        val pauseParams = recordingWindowParams(startX, startY + ballSizePx + dpToPx(REC_SUB_GAP_DP), subSizePx)
+        val pauseBall = createRecordingBallView(ctx, makePauseIcon(subSizePx), 0xFFFFFFFF.toInt(), subSizePx)
+        recordingPauseBall = RecordingBall(pauseBall.view, pauseParams, pauseBall.icon)
+        setupRecordingSubBallClick(pauseBall.view, isFinish = false)
+
+        // 结束副球（初始隐藏）
+        val finishParams = recordingWindowParams(
+            startX,
+            startY + ballSizePx + dpToPx(REC_SUB_GAP_DP) + subSizePx + dpToPx(REC_SUB_GAP_DP),
+            subSizePx
+        )
+        val finishBall = createRecordingBallView(ctx, makeFinishIcon(subSizePx), 0xFFE53935.toInt(), subSizePx)
+        recordingFinishBall = RecordingBall(finishBall.view, finishParams, finishBall.icon)
+        setupRecordingSubBallClick(finishBall.view, isFinish = true)
+
+        try { wm.addView(mainBall.view, mainParams) } catch (e: Exception) { Log.e(TAG, "添加录制主球失败", e) }
+        try { wm.addView(pauseBall.view, pauseParams) } catch (e: Exception) { Log.e(TAG, "添加录制暂停球失败", e) }
+        try { wm.addView(finishBall.view, finishParams) } catch (e: Exception) { Log.e(TAG, "添加录制结束球失败", e) }
+
+        pauseBall.view.visibility = View.GONE
+        finishBall.view.visibility = View.GONE
+        recordingSubBallsVisible = false
+    }
+
+    /** 录制状态变化时同步暂停/继续副球图标。 */
+    private fun updateRecordingBallStateInternal() {
+        val icon = recordingPauseBall.icon ?: return
+        val sizePx = dpToPx(REC_SUB_BALL_SIZE_DP)
+        when (RecordingSession.state) {
+            RecordingSession.State.RECORDING -> icon.setImageBitmap(makePauseIcon(sizePx))
+            RecordingSession.State.PAUSED -> icon.setImageBitmap(makePlayIcon(sizePx))
+            else -> icon.setImageBitmap(makeRecordIcon(sizePx))
+        }
+    }
+
+    /** 结束/取消录制：移除全部录制球，并按需恢复默认悬浮球。 */
+    private fun endRecordingModeInternal(restoreDefaultBall: Boolean) {
+        val wm = windowManager
+        listOf(recordingMainBall, recordingPauseBall, recordingFinishBall).forEach { ball ->
+            ball.view?.let { v ->
+                try {
+                    if (wm != null && v.parent != null) wm.removeView(v)
+                } catch (e: Exception) {
+                    Log.w(TAG, "移除录制球失败", e)
+                }
+            }
+        }
+        recordingMainBall = RecordingBall(null, null, null)
+        recordingPauseBall = RecordingBall(null, null, null)
+        recordingFinishBall = RecordingBall(null, null, null)
+        recordingSubBallsVisible = false
+        if ((restoreDefaultBall || defaultBallVisibleBeforeRecording) && Settings.canDrawOverlays(this)) {
+            defaultBallVisibleBeforeRecording = false
+            if (floatingView == null) {
+                showFloatingBall()
+            }
+        }
+    }
+
+    private fun recordingWindowParams(x: Int, y: Int, sizePx: Int): WindowManager.LayoutParams {
+        return WindowManager.LayoutParams(
+            sizePx,
+            sizePx,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            this.x = x
+            this.y = y
+        }
+    }
+
+    /** 创建单个录制球视图：圆底容器 + 居中图标。 */
+    private fun createRecordingBallView(ctx: Context, icon: Bitmap, bgColor: Int, sizePx: Int): RecordingBall {
+        val root = FrameLayout(ctx)
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(bgColor)
+            setStroke(dpToPx(1), 0x33FFFFFF.toInt())
+        }
+        root.background = bg
+        val image = ImageView(ctx).apply {
+            setImageBitmap(icon)
+            setPadding((sizePx * 0.24f).toInt(), (sizePx * 0.24f).toInt(), (sizePx * 0.24f).toInt(), (sizePx * 0.24f).toInt())
+        }
+        root.addView(image, FrameLayout.LayoutParams(sizePx, sizePx))
+        return RecordingBall(root, null, image)
+    }
+
+    private fun bitmap(sizePx: Int, draw: (Canvas, Paint) -> Unit): Bitmap {
+        val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        draw(canvas, paint)
+        return bmp
+    }
+
+    /** 录制中主球图标：红色圆点。 */
+    private fun makeRecordIcon(sizePx: Int): Bitmap {
+        return bitmap(sizePx) { c, p ->
+            p.color = 0xFFFF5252.toInt()
+            c.drawCircle(sizePx / 2f, sizePx / 2f, sizePx * 0.24f, p)
+        }
+    }
+
+    /** 暂停图标：两道竖杠。 */
+    private fun makePauseIcon(sizePx: Int): Bitmap {
+        return bitmap(sizePx) { c, p ->
+            p.color = android.graphics.Color.BLACK
+            val cx = sizePx / 2f
+            val cy = sizePx / 2f
+            val bw = sizePx * 0.13f
+            val bh = sizePx * 0.42f
+            c.drawRect(cx - sizePx * 0.24f, cy - bh / 2, cx - sizePx * 0.24f + bw, cy + bh / 2, p)
+            c.drawRect(cx + sizePx * 0.24f - bw, cy - bh / 2, cx + sizePx * 0.24f, cy + bh / 2, p)
+        }
+    }
+
+    /** 继续图标：右向三角。 */
+    private fun makePlayIcon(sizePx: Int): Bitmap {
+        return bitmap(sizePx) { c, p ->
+            p.color = android.graphics.Color.BLACK
+            val cx = sizePx / 2f
+            val cy = sizePx / 2f
+            val tri = Path().apply {
+                moveTo(cx - sizePx * 0.16f, cy - sizePx * 0.30f)
+                lineTo(cx + sizePx * 0.26f, cy)
+                lineTo(cx - sizePx * 0.16f, cy + sizePx * 0.30f)
+                close()
+            }
+            c.drawPath(tri, p)
+        }
+    }
+
+    /** 结束图标：白色方块。 */
+    private fun makeFinishIcon(sizePx: Int): Bitmap {
+        return bitmap(sizePx) { c, p ->
+            p.color = android.graphics.Color.WHITE
+            val s = sizePx * 0.32f
+            val cx = sizePx / 2f
+            val cy = sizePx / 2f
+            c.drawRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2, p)
+        }
+    }
+
+    /** 主球触摸：拖动移动，单击展开/收起副球。拖动与点击均不产生录制步骤（球窗口位于捕获层之上）。 */
+    private fun setupRecordingMainBallTouch(view: View) {
+        val params = recordingMainBall.params ?: return
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+        var hasMoved = false
+
+        view.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    hasMoved = false
+                    view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(100).start()
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - initialTouchX
+                    val dy = event.rawY - initialTouchY
+                    if (kotlin.math.abs(dx) > CLICK_SLOP_PX || kotlin.math.abs(dy) > CLICK_SLOP_PX) {
+                        hasMoved = true
+                    }
+                    params.x = initialX + dx.toInt()
+                    params.y = initialY + dy.toInt()
+                    clampToScreen(params)
+                    updateRecordingBallPositions()
+                    try {
+                        windowManager?.updateViewLayout(view, params)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                    if (!hasMoved) {
+                        toggleRecordingSubBalls()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    /** 副球点击：暂停/继续 或 结束录制。 */
+    private fun setupRecordingSubBallClick(view: View, isFinish: Boolean) {
+        view.setOnClickListener {
+            if (isFinish) {
+                RecordingSession.finish()
+            } else {
+                when (RecordingSession.state) {
+                    RecordingSession.State.RECORDING -> RecordingSession.pause()
+                    RecordingSession.State.PAUSED -> RecordingSession.resume()
+                    else -> RecordingSession.pause()
+                }
+            }
+        }
+    }
+
+    /** 展开/收起副球（缩放动画）。 */
+    private fun toggleRecordingSubBalls() {
+        recordingSubBallsVisible = !recordingSubBallsVisible
+        val targetAlpha = if (recordingSubBallsVisible) 1f else 0f
+        val pauseView = recordingPauseBall.view
+        val finishView = recordingFinishBall.view
+        listOf(pauseView, finishView).forEachIndexed { index, v ->
+            v?.apply {
+                visibility = View.VISIBLE
+                alpha = if (recordingSubBallsVisible) 0f else 1f
+                animate()
+                    .alpha(targetAlpha)
+                    .scaleX(if (recordingSubBallsVisible) 1f else 0.6f)
+                    .scaleY(if (recordingSubBallsVisible) 1f else 0.6f)
+                    .setDuration(180)
+                    .withEndAction {
+                        if (!recordingSubBallsVisible) {
+                            visibility = View.GONE
+                        }
+                    }
+                    .start()
+            }
+        }
+    }
+
+    /** 主球拖动时，副球跟随主球排列在下方。 */
+    private fun updateRecordingBallPositions() {
+        val main = recordingMainBall.params ?: return
+        val subGap = dpToPx(REC_SUB_GAP_DP)
+        val subSize = dpToPx(REC_SUB_BALL_SIZE_DP)
+        var y = main.y + main.width + subGap
+        listOf(recordingPauseBall, recordingFinishBall).forEach { ball ->
+            val p = ball.params ?: return@forEach
+            val v = ball.view ?: return@forEach
+            p.x = main.x
+            p.y = y
+            y += subSize + subGap
+            try {
+                windowManager?.updateViewLayout(v, p)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     private fun hideFloatingBall() {
         clearAllPluginBalls()
+        // 同时清理录制悬浮球（录制中关闭服务时）
+        endRecordingModeInternal(restoreDefaultBall = false)
         hideDefaultFloatingBall()
         hideBubble()
         hideAnimationOverlay()

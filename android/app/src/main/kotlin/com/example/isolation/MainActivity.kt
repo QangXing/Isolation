@@ -225,14 +225,39 @@ class MainActivity : FlutterFragmentActivity() {
                     executeAction(type, params)
                     result.success(null)
                 }
-                "startRecording" -> {
+                "startRecordingSession" -> {
+                    val mode = call.argument<String>("mode") ?: "simple"
                     val captureColors = call.argument<Boolean>("captureColors") ?: false
-                    val started = InputAccessibilityService.startRecording(this, captureColors)
+                    val recordSystemKeys = call.argument<Boolean>("recordSystemKeys") ?: true
+                    val minClickIntervalMs = (call.argument<Int>("minClickIntervalMs") ?: 100).toLong()
+                    val replayGestures = call.argument<Boolean>("replayGestures") ?: true
+                    val started = RecordingSession.start(
+                        this, mode, captureColors, recordSystemKeys, minClickIntervalMs, replayGestures
+                    )
                     result.success(started)
                 }
-                "stopRecording" -> {
-                    val steps = InputAccessibilityService.stopRecording(this)
-                    result.success(steps)
+                "pauseRecording" -> {
+                    RecordingSession.pause()
+                    result.success(true)
+                }
+                "resumeRecording" -> {
+                    RecordingSession.resume()
+                    result.success(true)
+                }
+                "finishRecording" -> {
+                    RecordingSession.finish()
+                    result.success(true)
+                }
+                "cancelRecording" -> {
+                    RecordingSession.cancel()
+                    result.success(true)
+                }
+                "getRecordingState" -> {
+                    result.success(RecordingSession.stateMap())
+                }
+                "consumePendingRecordingResult" -> {
+                    val obj = RecordingSession.consumePendingResult(this)
+                    result.success(obj?.toString())
                 }
                 "executeMacro" -> {
                     @Suppress("UNCHECKED_CAST")
