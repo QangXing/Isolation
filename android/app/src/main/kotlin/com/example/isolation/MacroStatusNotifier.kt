@@ -174,7 +174,7 @@ object MacroStatusNotifier : MacroExecutorListener {
             val runningName = synchronized(this) { runningPluginName }
             val title = runningName?.let { "宏运行中：$it" } ?: "Isolation 运行状态"
             val notification: Notification = NotificationCompat.Builder(ctx, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle("Isolation 状态")
                 .setContentText(title)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(lines.joinToString("\n")))
