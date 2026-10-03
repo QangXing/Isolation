@@ -1336,7 +1336,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val mainParams = recordingWindowParams(startX, startY, ballSizePx)
         val mainBall = createRecordingBallView(ctx, makeRecordIcon(ballSizePx), 0xFF37474F.toInt(), ballSizePx)
         recordingMainBall = RecordingBall(mainBall.view, mainParams, mainBall.icon)
-        setupRecordingMainBallTouch(mainBall.view)
+        setupRecordingMainBallTouch(mainBall.view!!)
 
         // 暂停/继续副球（初始隐藏）
         val pauseParams = recordingWindowParams(startX, startY + ballSizePx + dpToPx(REC_SUB_GAP_DP), subSizePx)
