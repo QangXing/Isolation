@@ -1080,7 +1080,7 @@ class _BlockParser {
         // 供 if 分支序列化时通过 _stepToInlineCode 还原。
         final condStep = _tryParseCallAssignment(argsStr);
         if (condStep != null) {
-          step.remove('positional$0');
+          step.remove('positional\$0');
           step['condition'] = condStep;
         } else {
           step.remove('condition');
