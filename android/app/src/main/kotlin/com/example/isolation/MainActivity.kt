@@ -96,6 +96,14 @@ class MainActivity : FlutterFragmentActivity() {
                 "checkOverlayPermission" -> {
                     result.success(Settings.canDrawOverlays(this))
                 }
+                "setStatusNotificationEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    MacroStatusNotifier.configure(this, enabled)
+                    result.success(true)
+                }
+                "isStatusNotificationEnabled" -> {
+                    result.success(MacroStatusNotifier.isEnabled(this))
+                }
                 "checkNotificationPermission" -> {
                     result.success(hasPostNotificationPermission())
                 }
@@ -138,6 +146,23 @@ class MainActivity : FlutterFragmentActivity() {
                     val imagePath = call.argument<String>("imagePath")
                     FloatingBallService.applyFloaterConfig(cornerRadius, size, imagePath)
                     result.success(true)
+                }
+                "registerFloaters" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val program = (call.argument<Map<String, Any>>("program") ?: emptyMap()).toMap()
+                    val pluginId = call.argument<String>("pluginId") ?: ""
+                    val assetsDir = call.argument<String>("assetsDir")
+                    val registered = FloatingBallService.registerFloaters(this, program, assetsDir)
+                    result.success(registered)
+                }
+                "unregisterFloaters" -> {
+                    FloatingBallService.unregisterFloaters()
+                    result.success(true)
+                }
+                "getFloaterPosition" -> {
+                    val name = call.argument<String>("name") ?: ""
+                    val pos = FloatingBallService.getFloaterPosition(name)
+                    result.success(pos)
                 }
                 "checkAccessibilityPermission" -> {
                     result.success(InputAccessibilityService.isEnabled(this))
@@ -200,14 +225,39 @@ class MainActivity : FlutterFragmentActivity() {
                     executeAction(type, params)
                     result.success(null)
                 }
-                "startRecording" -> {
+                "startRecordingSession" -> {
+                    val mode = call.argument<String>("mode") ?: "simple"
                     val captureColors = call.argument<Boolean>("captureColors") ?: false
-                    val started = InputAccessibilityService.startRecording(this, captureColors)
+                    val recordSystemKeys = call.argument<Boolean>("recordSystemKeys") ?: true
+                    val minClickIntervalMs = (call.argument<Int>("minClickIntervalMs") ?: 100).toLong()
+                    val replayGestures = call.argument<Boolean>("replayGestures") ?: true
+                    val started = RecordingSession.start(
+                        this, mode, captureColors, recordSystemKeys, minClickIntervalMs, replayGestures
+                    )
                     result.success(started)
                 }
-                "stopRecording" -> {
-                    val steps = InputAccessibilityService.stopRecording(this)
-                    result.success(steps)
+                "pauseRecording" -> {
+                    RecordingSession.pause()
+                    result.success(true)
+                }
+                "resumeRecording" -> {
+                    RecordingSession.resume()
+                    result.success(true)
+                }
+                "finishRecording" -> {
+                    RecordingSession.finish()
+                    result.success(true)
+                }
+                "cancelRecording" -> {
+                    RecordingSession.cancel()
+                    result.success(true)
+                }
+                "getRecordingState" -> {
+                    result.success(RecordingSession.stateMap())
+                }
+                "consumePendingRecordingResult" -> {
+                    val obj = RecordingSession.consumePendingResult(this)
+                    result.success(obj?.toString())
                 }
                 "executeMacro" -> {
                     @Suppress("UNCHECKED_CAST")
@@ -216,18 +266,60 @@ class MainActivity : FlutterFragmentActivity() {
                     val rawSteps = call.argument<List<Map<String, Any>>>("steps")
                     val steps = rawSteps?.map { it.toMap() }
                     val assetsDir = call.argument<String>("assetsDir")
+                    val pluginId = call.argument<String>("pluginId")
                     if (steps != null) {
-                        InputAccessibilityService.executeMacro(this, settings, steps, assetsDir)
-                        result.success(true)
+                        result.success(
+                            InputAccessibilityService.executeMacro(this, settings, steps, assetsDir, pluginId)
+                        )
                     } else {
                         result.success(false)
                     }
+                }
+                "isMacroRunning" -> {
+                    result.success(MacroExecutor.isRunning())
+                }
+                "getMacroLogs" -> {
+                    val pluginId = call.argument<String>("pluginId") ?: ""
+                    if (pluginId.isNotEmpty()) {
+                        result.success(MacroLogStore.getLogs(this, pluginId))
+                    } else {
+                        result.success(emptyList<Any>())
+                    }
+                }
+                "clearMacroLogs" -> {
+                    val pluginId = call.argument<String>("pluginId") ?: ""
+                    if (pluginId.isNotEmpty()) {
+                        MacroLogStore.clearLogs(this, pluginId)
+                    }
+                    result.success(true)
                 }
                 "dispatchClick" -> {
                     val x = call.argument<Int>("x") ?: 0
                     val y = call.argument<Int>("y") ?: 0
                     val dispatched = InputAccessibilityService.dispatchClick(this, x, y)
                     result.success(dispatched)
+                }
+                "setMacroSchedule" -> {
+                    val pluginId = call.argument<String>("pluginId")
+                    val macroFile = call.argument<String>("macroFile")
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    val hour = call.argument<Int>("hour") ?: 0
+                    val minute = call.argument<Int>("minute") ?: 0
+                    if (pluginId != null && macroFile != null) {
+                        if (enabled) {
+                            MacroScheduler.schedule(this, pluginId, macroFile, hour, minute)
+                        } else {
+                            MacroScheduler.cancel(this, pluginId)
+                        }
+                    }
+                    result.success(true)
+                }
+                "clearMacroSchedule" -> {
+                    val pluginId = call.argument<String>("pluginId")
+                    if (pluginId != null) {
+                        MacroScheduler.cancel(this, pluginId)
+                    }
+                    result.success(true)
                 }
                 "checkScreenCapturePermission" -> {
                     result.success(ScreenCaptureHelper.isGranted(this))

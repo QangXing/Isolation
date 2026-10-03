@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/macro.dart';
+import '../models/macro_log.dart';
 import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
 import '../widgets/glass_card.dart';
@@ -18,6 +19,9 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
   MacroSettings? _settings;
   String? _iconName;
   bool _loading = true;
+  bool _pinned = false;
+  List<MacroLogEntry> _logs = [];
+  bool _logsExpanded = true;
 
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -63,13 +67,33 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
       setState(() {
         _settings = data?.settings ?? const MacroSettings();
         _iconName = plugin?.iconName;
+        _pinned = plugin?.pinned ?? false;
         _nameController.text = plugin?.name ?? '';
         _descriptionController.text = plugin?.description ?? '';
-        _featurePointCountController.text =
-            _settings!.featurePointCount.toString();
-        _featurePointThresholdController.text =
-            (_settings!.featurePointThreshold * 100).round().toString();
+        _featurePointCountController.text = _settings!.featurePointCount.toString();
+        _featurePointThresholdController.text = (_settings!.featurePointThreshold * 100).round().toString();
         _loading = false;
+      });
+      _loadLogs();
+    }
+  }
+
+  Future<void> _loadLogs() async {
+    final provider = context.read<PluginProvider>();
+    final logs = await provider.loadMacroLogs(widget.pluginId);
+    if (mounted) {
+      setState(() {
+        _logs = logs;
+      });
+    }
+  }
+
+  Future<void> _clearLogs() async {
+    final provider = context.read<PluginProvider>();
+    await provider.clearMacroLogs(widget.pluginId);
+    if (mounted) {
+      setState(() {
+        _logs = [];
       });
     }
   }
@@ -78,7 +102,7 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
     if (_settings == null) return;
     final count = int.tryParse(_featurePointCountController.text) ?? _settings!.featurePointCount;
     final thresholdPercent = int.tryParse(_featurePointThresholdController.text) ?? 80;
-    _settings = _settings!.copyWith(
+    final settings = _settings!.copyWith(
       featurePointCount: count.clamp(1, 32),
       featurePointThreshold: (thresholdPercent.clamp(1, 100) / 100.0),
     );
@@ -87,9 +111,12 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
       widget.pluginId,
       name: _nameController.text.trim(),
       description: _descriptionController.text.trim(),
-      settings: _settings!,
+      settings: settings,
       iconName: _iconName,
     );
+    if (success) {
+      await provider.updatePluginPin(widget.pluginId, _pinned);
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -144,7 +171,7 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                                 color: Colors.black.withValues(alpha: 0.6),
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             TextField(
                               controller: _nameController,
                               decoration: InputDecoration(
@@ -153,25 +180,27 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                                   color: Colors.black.withValues(alpha: 0.3),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 12,
+                                  horizontal: 16,
+                                  vertical: 14,
                                 ),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide(
                                     color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide(
                                     color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: const BorderSide(color: Colors.black87),
                                 ),
+                                filled: true,
+                                fillColor: Colors.black.withValues(alpha: 0.03),
                               ),
                             ),
                           ],
@@ -190,7 +219,7 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                                 color: Colors.black.withValues(alpha: 0.6),
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             TextField(
                               controller: _descriptionController,
                               maxLines: 3,
@@ -200,32 +229,34 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                                   color: Colors.black.withValues(alpha: 0.3),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 12,
+                                  horizontal: 16,
+                                  vertical: 14,
                                 ),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide(
                                     color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: BorderSide(
                                     color: Colors.black.withValues(alpha: 0.1),
                                   ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   borderSide: const BorderSide(color: Colors.black87),
                                 ),
+                                filled: true,
+                                fillColor: Colors.black.withValues(alpha: 0.03),
                               ),
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 14),
-                      // 图标选择
+                      // 宏图标
                       GlassCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,37 +268,27 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                                 color: Colors.black.withValues(alpha: 0.6),
                               ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 14),
                             Wrap(
                               spacing: 12,
                               runSpacing: 12,
                               children: _presetIcons.map((entry) {
                                 final selected = _iconName == entry.key;
                                 return GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _iconName = entry.key;
-                                    });
-                                  },
+                                  onTap: () => setState(() => _iconName = entry.key),
                                   child: Container(
-                                    width: 44,
-                                    height: 44,
+                                    width: 48,
+                                    height: 48,
                                     decoration: BoxDecoration(
                                       color: selected
                                           ? Colors.black87
                                           : Colors.black.withValues(alpha: 0.05),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: selected
-                                            ? Colors.black87
-                                            : Colors.black.withValues(alpha: 0.08),
-                                        width: selected ? 2 : 1,
-                                      ),
+                                      borderRadius: BorderRadius.circular(14),
                                     ),
                                     child: Icon(
                                       entry.value,
                                       color: selected ? Colors.white : Colors.black.withValues(alpha: 0.6),
-                                      size: 22,
+                                      size: 24,
                                     ),
                                   ),
                                 );
@@ -277,264 +298,87 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
+                      // 置顶卡片
+                      _buildSwitchCard(
+                        icon: Icons.push_pin_rounded,
+                        title: '置顶卡片',
+                        subtitle: '在首页和管理区列表中优先显示该卡片',
+                        value: _pinned,
+                        onChanged: (value) {
+                          setState(() {
+                            _pinned = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 14),
                       // 调试模式
-                      GlassCard(
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.bug_report_rounded,
-                              size: 20,
-                              color: Colors.black.withValues(alpha: 0.6),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    '调试模式',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '开启后每执行一步都在悬浮球显示默认提示',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.withValues(alpha: 0.7),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Switch(
-                              value: _settings!.debugMode,
-                              onChanged: (value) {
-                                setState(() {
-                                  _settings = _settings!.copyWith(debugMode: value);
-                                });
-                              },
-                              activeColor: Colors.black87,
-                            ),
-                          ],
-                        ),
+                      _buildSwitchCard(
+                        icon: Icons.bug_report_rounded,
+                        title: '调试模式',
+                        subtitle: '开启后每执行一步都在悬浮球显示默认提示',
+                        value: _settings!.debugMode,
+                        onChanged: (value) {
+                          setState(() {
+                            _settings = _settings!.copyWith(debugMode: value);
+                          });
+                        },
                       ),
                       const SizedBox(height: 14),
                       // 无限循环
-                      GlassCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.all_inclusive_rounded,
-                                  size: 20,
-                                  color: Colors.black.withValues(alpha: 0.6),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        '无限循环',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '宏执行完后自动从头开始，三连击悬浮球强制停止',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.withValues(alpha: 0.7),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Switch(
-                                  value: _settings!.loopCount <= 0,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _settings = _settings!.copyWith(
-                                        loopCount: value ? 0 : 1,
-                                      );
-                                    });
-                                  },
-                                  activeColor: Colors.black87,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                      _buildSwitchCard(
+                        icon: Icons.all_inclusive_rounded,
+                        title: '无限循环',
+                        subtitle: '宏执行完后自动从头开始，三连击悬浮球强制停止',
+                        value: _settings!.loopCount <= 0,
+                        onChanged: (value) {
+                          setState(() {
+                            _settings = _settings!.copyWith(loopCount: value ? 0 : 1);
+                          });
+                        },
                       ),
                       const SizedBox(height: 14),
+                      // 定时启动宏
+                      _buildScheduleCard(),
+                      const SizedBox(height: 14),
+                      // 执行日志
+                      _buildLogCard(),
+                      const SizedBox(height: 14),
                       // 特征点采样数目
-                      GlassCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.scatter_plot_rounded,
-                                  size: 20,
-                                  color: Colors.black.withValues(alpha: 0.6),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        '特征点采样数目',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '图片匹配时围绕中心原点采样的特征点数量（1-32），越大越稳定但越慢',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.withValues(alpha: 0.7),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 64,
-                                  child: TextField(
-                                    controller: _featurePointCountController,
-                                    textAlign: TextAlign.center,
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 10,
-                                      ),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide(
-                                          color: Colors.black.withValues(alpha: 0.1),
-                                        ),
-                                      ),
-                                      enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide(
-                                          color: Colors.black.withValues(alpha: 0.1),
-                                        ),
-                                      ),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: const BorderSide(color: Colors.black87),
-                                      ),
-                                    ),
-                                    onChanged: (value) {
-                                      final count = int.tryParse(value);
-                                      if (count != null) {
-                                        setState(() {
-                                          _settings = _settings!.copyWith(
-                                            featurePointCount: count.clamp(1, 32),
-                                          );
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                      _buildNumberCard(
+                        icon: Icons.scatter_plot_rounded,
+                        title: '特征点采样数目',
+                        subtitle: '图片匹配时围绕中心原点采样的特征点数量（1-32），越大越稳定但越慢',
+                        controller: _featurePointCountController,
+                        suffix: '',
+                        onChanged: (value) {
+                          final count = int.tryParse(value);
+                          if (count != null) {
+                            setState(() {
+                              _settings = _settings!.copyWith(
+                                featurePointCount: count.clamp(1, 32),
+                              );
+                            });
+                          }
+                        },
                       ),
                       const SizedBox(height: 14),
                       // 特征点匹配比例阈值
-                      GlassCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.percent_rounded,
-                                  size: 20,
-                                  color: Colors.black.withValues(alpha: 0.6),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        '特征点匹配比例阈值',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '命中特征点比例达到该值才算识别成功（1%-100%），默认 80%',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.withValues(alpha: 0.7),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 64,
-                                  child: TextField(
-                                    controller: _featurePointThresholdController,
-                                    textAlign: TextAlign.center,
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      suffixText: '%',
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 10,
-                                      ),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide(
-                                          color: Colors.black.withValues(alpha: 0.1),
-                                        ),
-                                      ),
-                                      enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide(
-                                          color: Colors.black.withValues(alpha: 0.1),
-                                        ),
-                                      ),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: const BorderSide(color: Colors.black87),
-                                      ),
-                                    ),
-                                    onChanged: (value) {
-                                      final percent = int.tryParse(value);
-                                      if (percent != null) {
-                                        setState(() {
-                                          _settings = _settings!.copyWith(
-                                            featurePointThreshold: percent.clamp(1, 100) / 100.0,
-                                          );
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                      _buildNumberCard(
+                        icon: Icons.percent_rounded,
+                        title: '特征点匹配比例阈值',
+                        subtitle: '命中特征点比例达到该值才算识别成功（1%-100%），默认 80%',
+                        controller: _featurePointThresholdController,
+                        suffix: ' %',
+                        onChanged: (value) {
+                          final percent = int.tryParse(value);
+                          if (percent != null) {
+                            setState(() {
+                              _settings = _settings!.copyWith(
+                                featurePointThreshold: percent.clamp(1, 100) / 100.0,
+                              );
+                            });
+                          }
+                        },
                       ),
                     ],
                   ),
@@ -546,6 +390,7 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                     child: GestureDetector(
                       onTap: _save,
                       child: Container(
+                        width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
                           color: Colors.black87,
@@ -567,6 +412,459 @@ class _MacroSettingsScreenState extends State<MacroSettingsScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildSwitchCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return GlassCard(
+      child: Row(
+        children: [
+          Icon(icon, size: 22, color: Colors.black.withValues(alpha: 0.6)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.black.withValues(alpha: 0.45),
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _CustomSwitch(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleCard() {
+    final settings = _settings!;
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.schedule_rounded, size: 22, color: Colors.black.withValues(alpha: 0.6)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '定时启动宏',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '到每天设定时间自动执行该宏（需已开启辅助功能）',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.black.withValues(alpha: 0.45),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _CustomSwitch(
+                value: settings.scheduleEnabled,
+                onChanged: (value) {
+                  setState(() {
+                    _settings = settings.copyWith(scheduleEnabled: value);
+                  });
+                },
+              ),
+            ],
+          ),
+          if (settings.scheduleEnabled) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () async {
+                final picked = await showTimePicker(
+                  context: context,
+                  initialTime: TimeOfDay(
+                    hour: settings.scheduleHour,
+                    minute: settings.scheduleMinute,
+                  ),
+                );
+                if (picked != null) {
+                  setState(() {
+                    _settings = settings.copyWith(
+                      scheduleHour: picked.hour,
+                      scheduleMinute: picked.minute,
+                    );
+                  });
+                }
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.black.withValues(alpha: 0.1)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.access_time_rounded, size: 18, color: Colors.black.withValues(alpha: 0.6)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${settings.scheduleHour.toString().padLeft(2, '0')}:'
+                      '${settings.scheduleMinute.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogCard() {
+    final displayLogs = _logs.length > 100 ? _logs.sublist(_logs.length - 100) : _logs;
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.receipt_long_rounded, size: 22, color: Colors.black.withValues(alpha: 0.6)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '执行日志',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '包含每次执行的 print 输出与调试模式状态文本（最多 300 条）',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.black.withValues(alpha: 0.45),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (_logs.isNotEmpty)
+                GestureDetector(
+                  onTap: () {
+                    showDialog<void>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        backgroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        title: const Text(
+                          '清空日志',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        ),
+                        content: const Text(
+                          '确定清空该宏的全部执行日志吗？',
+                          style: TextStyle(fontSize: 14, color: Colors.black87),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            child: const Text('取消', style: TextStyle(color: Colors.black54)),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(dialogContext).pop();
+                              _clearLogs();
+                            },
+                            child: const Text('清空', style: TextStyle(color: Colors.redAccent)),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      '清空',
+                      style: TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => setState(() => _logsExpanded = !_logsExpanded),
+                child: Icon(
+                  _logsExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                  color: Colors.black.withValues(alpha: 0.45),
+                ),
+              ),
+            ],
+          ),
+          if (_logsExpanded) ...[
+            const SizedBox(height: 12),
+            if (displayLogs.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    '暂无日志',
+                    style: TextStyle(fontSize: 13, color: Colors.black.withValues(alpha: 0.35)),
+                  ),
+                ),
+              )
+            else
+              Container(
+                constraints: const BoxConstraints(maxHeight: 280),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  itemCount: displayLogs.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    color: Colors.black.withValues(alpha: 0.05),
+                  ),
+                  itemBuilder: (context, index) {
+                    final entry = displayLogs[index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_logTime(entry.time),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.black.withValues(alpha: 0.35),
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              )),
+                          const SizedBox(width: 8),
+                          Icon(
+                            entry.isPrint ? Icons.chat_bubble_rounded : Icons.info_outline_rounded,
+                            size: 15,
+                            color: entry.isPrint
+                                ? Colors.blueAccent
+                                : Colors.black.withValues(alpha: 0.5),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              entry.message,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: entry.isPrint
+                                    ? Colors.black87
+                                    : Colors.black.withValues(alpha: 0.7),
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _logTime(DateTime time) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
+  }
+
+  Widget _buildNumberCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required TextEditingController controller,
+    required String suffix,
+    required ValueChanged<String> onChanged,
+  }) {
+    return GlassCard(
+      child: Row(
+        children: [
+          Icon(icon, size: 22, color: Colors.black.withValues(alpha: 0.6)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.black.withValues(alpha: 0.45),
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 72,
+            child: TextField(
+              controller: controller,
+              textAlign: TextAlign.center,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                suffixText: suffix.isEmpty ? null : suffix.trim(),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: Colors.black.withValues(alpha: 0.1),
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: Colors.black.withValues(alpha: 0.1),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.black87),
+                ),
+                filled: true,
+                fillColor: Colors.black.withValues(alpha: 0.03),
+              ),
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomSwitch extends StatefulWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _CustomSwitch({required this.value, required this.onChanged});
+
+  @override
+  State<_CustomSwitch> createState() => _CustomSwitchState();
+}
+
+class _CustomSwitchState extends State<_CustomSwitch> {
+  late bool _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.value;
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomSwitch oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      _value = widget.value;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() => _value = !_value);
+        widget.onChanged(_value);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 50,
+        height: 28,
+        decoration: BoxDecoration(
+          color: _value ? Colors.black87 : Colors.black.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: AnimatedAlign(
+          duration: const Duration(milliseconds: 200),
+          alignment: _value ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

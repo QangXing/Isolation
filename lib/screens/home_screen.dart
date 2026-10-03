@@ -6,157 +6,202 @@ import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/plugin_card.dart';
 import 'floater_editor_screen.dart';
+import 'program_macro_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+enum _HomeTab { macro, floater }
+
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  _HomeTab _tab = _HomeTab.macro;
 
   @override
   Widget build(BuildContext context) {
     return Consumer<PluginProvider>(
       builder: (context, provider, child) {
         if (!provider.loaded) {
-          return const Center(child: CircularProgressIndicator());
+          return const Scaffold(
+            backgroundColor: Colors.white,
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
         final plugins = provider.plugins;
-        final macros = plugins.where((p) => !p.isFloater).toList();
-        final floaters = plugins.where((p) => p.isFloater).toList();
-        return CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: Text(
-                  'isolation',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w300,
-                    color: Colors.black.withValues(alpha: 0.85),
-                    letterSpacing: 1,
-                  ),
-                ),
-              ),
-            ),
-            if (macros.isEmpty && floaters.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: GlassCard(
-                    child: Text(
-                      '暂无插件，请在管理页导入',
-                      style: TextStyle(
-                        color: Colors.grey.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ),
-                ),
-              )
-            else ...[
-              if (macros.isNotEmpty) ...[
+        final macros = _sortedPlugins(plugins.where((p) => !p.isFloater).toList());
+        final floaters = _sortedPlugins(plugins.where((p) => p.isFloater).toList());
+        final items = _tab == _HomeTab.macro ? macros : floaters;
+
+        return Scaffold(
+          backgroundColor: Colors.white,
+          body: SafeArea(
+            child: CustomScrollView(
+              slivers: [
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                    child: _SectionHeader(
-                      title: '编程宏',
-                      icon: Icons.code_rounded,
-                      color: Colors.black87,
-                    ),
-                  ),
-                ),
-                _buildPluginList(context, provider, macros),
-              ],
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                  child: _SectionHeader(
-                    title: '编程球',
-                    icon: Icons.circle_notifications_rounded,
-                    color: Colors.deepPurple,
-                    trailing: GestureDetector(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const FloaterEditorScreen(),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add_circle_outline_rounded,
-                                size: 14, color: Colors.white),
-                            SizedBox(width: 4),
-                            Text(
-                              '新建编程球',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
+                    child: Text(
+                      'isolation',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w300,
+                        color: Colors.black.withValues(alpha: 0.85),
+                        letterSpacing: 1,
                       ),
                     ),
                   ),
                 ),
-              ),
-              if (floaters.isNotEmpty)
-                _buildPluginList(context, provider, floaters)
-              else
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      '暂无编程球，点击上方按钮创建',
-                      style: TextStyle(
-                        color: Colors.grey.withValues(alpha: 0.6),
-                        fontSize: 13,
-                      ),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.code_rounded,
+                          size: 22,
+                          color: Colors.black.withValues(alpha: 0.7),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '编程',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black.withValues(alpha: 0.85),
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => _createNew(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.black87,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.add_circle_outline_rounded,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _tab == _HomeTab.macro ? '新建编程宏' : '新建编程球',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-            ],
-            const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
-          ],
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                    child: Row(
+                      children: [
+                        _TabChip(
+                          label: '编程宏',
+                          selected: _tab == _HomeTab.macro,
+                          onTap: () => setState(() => _tab = _HomeTab.macro),
+                        ),
+                        const SizedBox(width: 10),
+                        _TabChip(
+                          label: '球',
+                          selected: _tab == _HomeTab.floater,
+                          onTap: () => setState(() => _tab = _HomeTab.floater),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (items.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: GlassCard(
+                        child: Text(
+                          _tab == _HomeTab.macro
+                              ? '暂无编程宏，请在管理页导入或新建'
+                              : '暂无编程球，请在管理页导入或新建',
+                          style: TextStyle(
+                            color: Colors.grey.withValues(alpha: 0.6),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final plugin = items[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: PluginCard(
+                              plugin: plugin,
+                              onEnabledChanged: (value) => _onEnabledChanged(
+                                context,
+                                provider,
+                                plugin,
+                                value,
+                              ),
+                              onTap: plugin.isFloater
+                                  ? null
+                                  : () => _runMacro(context, provider, plugin.id),
+                            ),
+                          );
+                        },
+                        childCount: items.length,
+                      ),
+                    ),
+                  ),
+                const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
+              ],
+            ),
+          ),
         );
       },
     );
   }
 
-  bool _usesColorOrImage(List<Map<String, dynamic>> steps) {
-    for (final step in steps) {
-      if (step['color'] != null || step['image'] != null) return true;
-      final condition = step['condition'] as Map<String, dynamic>?;
-      if (condition != null &&
-          (condition['color'] != null || condition['image'] != null)) {
-        return true;
-      }
-      final children = step['children'] as List<dynamic>?;
-      if (children != null && _usesColorOrImage(children.cast<Map<String, dynamic>>())) {
-        return true;
-      }
-      final then = step['then'] as List<dynamic>?;
-      if (then != null && _usesColorOrImage(then.cast<Map<String, dynamic>>())) {
-        return true;
-      }
-      final elseBranch = step['else'] as List<dynamic>?;
-      if (elseBranch != null && _usesColorOrImage(elseBranch.cast<Map<String, dynamic>>())) {
-        return true;
-      }
-    }
-    return false;
+  List<Plugin> _sortedPlugins(List<Plugin> plugins) {
+    final pinned = plugins.where((p) => p.pinned).toList()
+      ..sort((a, b) => (b.pinnedAt ?? DateTime(0)).compareTo(a.pinnedAt ?? DateTime(0)));
+    final unpinned = plugins.where((p) => !p.pinned).toList();
+    return [...pinned, ...unpinned];
   }
 
-  Future<void> _runMacro(BuildContext context, PluginProvider provider, String pluginId) async {
+  Future<void> _onEnabledChanged(
+    BuildContext context,
+    PluginProvider provider,
+    Plugin plugin,
+    bool value,
+  ) async {
+    await provider.setEnabled(plugin.id, value);
+  }
+
+  Future<void> _runMacro(
+      BuildContext context, PluginProvider provider, String pluginId) async {
     final data = await provider.loadMacroData(pluginId);
-    if (data != null && (data.settings.loopCount <= 0 || _usesColorOrImage(data.steps))) {
+    if (data != null &&
+        (data.settings.loopCount <= 0 || _usesColorOrImage(data.steps))) {
       final granted = await NativeChannel.checkScreenCapturePermission();
       if (!granted) {
         await NativeChannel.requestScreenCapturePermission();
@@ -174,189 +219,74 @@ class HomeScreen extends StatelessWidget {
     }
   }
 
-  void _showActions(BuildContext context, plugin) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                plugin.name,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: plugin.actions.map<Widget>((action) {
-                  return ActionButton(
-                    label: action.label,
-                    onTap: () {
-                      context.read<PluginProvider>().executeAction(action);
-                      Navigator.pop(context);
-                    },
-                  );
-                }).toList(),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+  bool _usesColorOrImage(List<Map<String, dynamic>> steps) {
+    for (final step in steps) {
+      if (step['color'] != null || step['image'] != null) return true;
+      final condition = step['condition'] as Map<String, dynamic>?;
+      if (condition != null &&
+          (condition['color'] != null || condition['image'] != null)) {
+        return true;
+      }
+      final children = step['children'] as List<dynamic>?;
+      if (children != null &&
+          _usesColorOrImage(children.cast<Map<String, dynamic>>())) {
+        return true;
+      }
+      final then = step['then'] as List<dynamic>?;
+      if (then != null && _usesColorOrImage(then.cast<Map<String, dynamic>>())) {
+        return true;
+      }
+      final elseBranch = step['else'] as List<dynamic>?;
+      if (elseBranch != null &&
+          _usesColorOrImage(elseBranch.cast<Map<String, dynamic>>())) {
+        return true;
+      }
+    }
+    return false;
   }
 
-  Widget _buildPluginList(
-      BuildContext context, PluginProvider provider, List<Plugin> plugins) {
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      sliver: SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final plugin = plugins[index];
-            final isMacro = plugin.actions.any((a) => a.type == 'macro');
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: PluginCard(
-                plugin: plugin,
-                onEnabledChanged: (value) {
-                  provider.setEnabled(plugin.id, value);
-                },
-                trailing: isMacro && plugin.enabled
-                    ? _RunButton(
-                        running: provider.runningMacroId == plugin.id,
-                        onTap: () => _runMacro(context, provider, plugin.id),
-                      )
-                    : null,
-                onTap: () {
-                  if (isMacro) {
-                    _runMacro(context, provider, plugin.id);
-                  } else if (plugin.actions.isNotEmpty) {
-                    _showActions(context, plugin);
-                  }
-                },
-              ),
-            );
-          },
-          childCount: plugins.length,
-        ),
-      ),
-    );
+  void _createNew(BuildContext context) {
+    if (_tab == _HomeTab.macro) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProgramMacroScreen()),
+      );
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const FloaterEditorScreen()),
+      );
+    }
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final Color color;
-  final Widget? trailing;
-
-  const _SectionHeader({
-    required this.title,
-    required this.icon,
-    required this.color,
-    this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-        ?trailing,
-      ],
-    );
-  }
-}
-
-class _RunButton extends StatelessWidget {
-  final bool running;
-  final VoidCallback onTap;
-
-  const _RunButton({required this.running, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: running ? null : onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: running ? Colors.grey.withValues(alpha: 0.2) : Colors.black87,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (running)
-              Container(
-                width: 12,
-                height: 12,
-                margin: const EdgeInsets.only(right: 6),
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.black.withValues(alpha: 0.6),
-                ),
-              ),
-            Text(
-              running ? '运行中' : '运行',
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class ActionButton extends StatelessWidget {
+class _TabChip extends StatelessWidget {
   final String label;
+  final bool selected;
   final VoidCallback onTap;
 
-  const ActionButton({super.key, required this.label, required this.onTap});
+  const _TabChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.black87,
-          borderRadius: BorderRadius.circular(14),
+          color: selected ? Colors.black87 : Colors.black.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           label,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : Colors.black.withValues(alpha: 0.7),
+          ),
         ),
       ),
     );

@@ -17,6 +17,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -63,25 +64,29 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
             return state == 0
         }
 
-        fun startRecording(context: Context, captureColors: Boolean = false): Boolean {
-            if (!notifyNotReady(context)) return false
-            return instance!!.startRecordingInternal(captureColors)
-        }
-
-        fun stopRecording(context: Context): List<Map<String, Any>> {
-            if (!notifyNotReady(context)) return emptyList()
-            return instance!!.stopRecordingInternal()
+        /**
+         * 通过辅助服务向系统派发一次手势回放（录制捕获层原样回放给目标 App）。
+         * [suppressEvents] 为 false 时（点击回放），系统产生的 TYPE_VIEW_CLICKED
+         * 事件会回调 onAccessibilityEvent 用于补全最近一次点击的节点信息。
+         */
+        fun dispatchReplayGesture(path: Path, duration: Long, suppressEvents: Boolean): Boolean {
+            val svc = instance ?: return false
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, duration.coerceAtLeast(1L)))
+                .build()
+            return svc.dispatchGesture(gesture, null, null)
         }
 
         fun executeMacro(
             context: Context,
             settings: Map<String, Any>,
             steps: List<Map<String, Any>>,
-            assetsDir: String? = null
+            assetsDir: String? = null,
+            pluginId: String? = null
         ): Boolean {
             if (!notifyNotReady(context)) return false
-            instance!!.executeMacroInternal(settings, steps, assetsDir)
-            return true
+            return instance!!.executeMacroInternal(settings, steps, assetsDir, pluginId)
         }
 
         fun dispatchClick(context: Context, x: Int, y: Int): Boolean {
@@ -103,6 +108,29 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
          * 这里通过返回 readinessState 让调用方决策。
          */
         fun tryEnsureReady(context: Context): Int = readinessState(context)
+
+        // === 定时宏补执行（服务未就绪时暂存，onServiceConnected 后执行） ===
+
+        private const val PREF_PENDING_SCHEDULE = "isolation_pending_schedule"
+        private const val KEY_PLUGIN_ID = "pluginId"
+        private const val KEY_MACRO_FILE = "macroFile"
+
+        /** 定时触发时辅助服务尚未连上，暂存待执行宏，避免本次触发丢失。 */
+        fun persistPendingSchedule(context: Context, pluginId: String, macroFile: String) {
+            context.getSharedPreferences(PREF_PENDING_SCHEDULE, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_PLUGIN_ID, pluginId)
+                .putString(KEY_MACRO_FILE, macroFile)
+                .apply()
+        }
+
+        private fun consumePendingSchedule(context: Context): Pair<String, String>? {
+            val prefs = context.getSharedPreferences(PREF_PENDING_SCHEDULE, Context.MODE_PRIVATE)
+            val pluginId = prefs.getString(KEY_PLUGIN_ID, null) ?: return null
+            val macroFile = prefs.getString(KEY_MACRO_FILE, null) ?: return null
+            prefs.edit().remove(KEY_PLUGIN_ID).remove(KEY_MACRO_FILE).apply()
+            return pluginId to macroFile
+        }
 
         // Legacy helpers for the old floating keyboard behavior (unused after macro migration)
         fun showInputMethod(context: Context) {
@@ -149,33 +177,55 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         }
     }
 
-    private var recording = AtomicBoolean(false)
-    private val recordedSteps = mutableListOf<RecordedStep>()
-    private var lastEventTime: Long = 0L
-    private var captureColors: Boolean = false
-
     private val mainHandler = Handler(Looper.getMainLooper())
     private var touchEffectOverlay: TouchEffectOverlay? = null
     private val hideOverlayRunnable = Runnable { hideTouchEffectOverlay() }
-
-    private data class RecordedStep(
-        val timestamp: Long,
-        val step: Map<String, Any>
-    )
 
     override fun onServiceConnected() {
         try {
             super.onServiceConnected()
             instance = this
             Log.d(TAG, "onServiceConnected")
+            MacroStatusNotifier.refreshState(this)
+            runPendingScheduledMacro()
         } catch (e: Exception) {
             Log.e(TAG, "onServiceConnected failed", e)
         }
     }
 
+    /** 定时触发时服务未就绪被暂存的宏，连接后立即补执行。 */
+    private fun runPendingScheduledMacro() {
+        val pair = consumePendingSchedule(this) ?: return
+        val (pluginId, macroFile) = pair
+        if (MacroExecutor.isRunning()) {
+            Log.w(TAG, "已有宏在运行，跳过暂存定时宏: $pluginId")
+            return
+        }
+        // 尽力拉起悬浮球服务，让 print 能以气泡形式显示（失败则由 Toast 兜底）
+        try {
+            val intent = Intent(this, FloatingBallService::class.java)
+                .setAction(FloatingBallService.ACTION_SHOW)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "拉起悬浮球服务失败，print 将走 Toast 兜底", e)
+        }
+        val macro = MacroScheduleReceiver.loadMacro(this, pluginId, macroFile)
+        if (macro == null || macro.steps.isEmpty()) {
+            Log.w(TAG, "暂存定时宏文件缺失，已丢弃: $pluginId")
+            return
+        }
+        val pluginDir = MacroScheduleReceiver.pluginRoot(this, pluginId)
+        val assetsDir = File(pluginDir, "assets").takeIf { it.exists() }?.absolutePath
+        Log.d(TAG, "补执行暂存定时宏: $pluginId/$macroFile")
+        executeMacroInternal(macro.settings, macro.steps, assetsDir, pluginId)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
-        if (!recording.get()) return
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) return
 
         val source = event.source ?: return
@@ -184,37 +234,36 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
 
         val bounds = Rect()
         source.getBoundsInScreen(bounds)
-
-        val target = mutableMapOf<String, Any?>(
-            "resourceId" to source.viewIdResourceName,
-            "text" to (source.text?.toString()),
-            "contentDescription" to (source.contentDescription?.toString()),
-            "className" to (source.className?.toString()),
-            "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
-            "packageName" to packageName
-        )
-
         val centerX = (bounds.left + bounds.right) / 2
         val centerY = (bounds.top + bounds.bottom) / 2
 
-        val step = mutableMapOf<String, Any?>(
-            "type" to "clickNode",
-            "delay" to computeDelay(),
-            "target" to target.filterValues { it != null }
-        )
+        // 录制会话进行中：捕获层点击回放产生的节点事件，用于补全最近一次点击（复杂模式升级为 clickNode）
+        if (RecordingSession.isRecording()) {
+            val target = mutableMapOf<String, Any?>(
+                "resourceId" to source.viewIdResourceName,
+                "text" to (source.text?.toString()),
+                "contentDescription" to (source.contentDescription?.toString()),
+                "className" to (source.className?.toString()),
+                "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                "packageName" to packageName
+            )
+            RecordingSession.enrichLastClick(target.filterValues { it != null }, centerX, centerY)
+            return
+        }
+    }
 
-        if (captureColors) {
-            val color = ScreenCaptureHelper.captureColor(this, centerX, centerY)
-            if (color != null) {
-                step["color"] = mapOf(
-                    "x" to centerX,
-                    "y" to centerY,
-                    "color" to color
-                )
+    /**
+     * 录制中检测系统按键（返回键 / Home 键）。
+     * 需要用户在系统辅助功能设置中开启"请求按键过滤"，未开启时仅返回键可被监听。
+     */
+    override fun onKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.action == android.view.KeyEvent.ACTION_UP) {
+            when (event.keyCode) {
+                android.view.KeyEvent.KEYCODE_BACK -> RecordingSession.onSystemKey("back")
+                android.view.KeyEvent.KEYCODE_HOME -> RecordingSession.onSystemKey("home")
             }
         }
-
-        recordedSteps.add(RecordedStep(System.currentTimeMillis(), step.filterValues { it != null }.mapValues { it.value as Any }))
+        return super.onKeyEvent(event)
     }
 
     override fun onInterrupt() {
@@ -236,40 +285,23 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         MacroExecutor.removeListener(this)
         mainHandler.removeCallbacks(hideOverlayRunnable)
         hideTouchEffectOverlay()
-    }
-
-    private fun computeDelay(): Long {
-        val now = System.currentTimeMillis()
-        val delay = if (lastEventTime == 0L) 0L else now - lastEventTime
-        lastEventTime = now
-        return delay
-    }
-
-    private fun startRecordingInternal(captureColors: Boolean = false): Boolean {
-        if (recording.getAndSet(true)) return false
-        recordedSteps.clear()
-        lastEventTime = 0L
-        this.captureColors = captureColors
-        return true
-    }
-
-    private fun stopRecordingInternal(): List<Map<String, Any>> {
-        recording.set(false)
-        captureColors = false
-        return recordedSteps.map { it.step }
+        MacroStatusNotifier.refreshState(this)
     }
 
     private fun executeMacroInternal(
         settings: Map<String, Any>,
         steps: List<Map<String, Any>>,
-        assetsDir: String? = null
-    ) {
+        assetsDir: String? = null,
+        pluginId: String? = null
+    ): Boolean {
+        // 已有宏在运行时不启动，返回 false 让调用方得知实际未启动
+        if (MacroExecutor.isRunning()) return false
         MacroExecutor.addListener(this)
         mainHandler.removeCallbacks(hideOverlayRunnable)
         // 同步创建动画覆盖层（MethodChannel 默认在主线程），
         // 保证 macro 线程开始前 touchEffectOverlay 已实例化，动画可进入 pending 队列。
         ensureTouchEffectOverlay()
-        MacroExecutor(this, assetsDir).execute(settings, steps)
+        return MacroExecutor(this, assetsDir).execute(settings, steps, pluginId)
     }
 
     private fun dispatchClickForCompanion(x: Int, y: Int): Boolean {
@@ -300,6 +332,14 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
         // 宏结束或异常后延迟移除动画覆盖层，保留一段时间让最后一个动画播完
         if (message == "任务完成" || message == "任务已停止" || message.startsWith("任务异常")) {
             mainHandler.postDelayed(hideOverlayRunnable, 1000L)
+        }
+    }
+
+    override fun onMacroPrint(message: String) {
+        // 悬浮球未就绪（如进程被杀后服务重建期间）时没有气泡载体，
+        // 用 Toast 兜底显示，避免 print 不可见；悬浮球就绪后仍由其气泡展示。
+        if (!FloatingBallService.hasVisibleBall()) {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
     }
 

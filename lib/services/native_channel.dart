@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/services.dart';
 
 class NativeChannel {
@@ -139,6 +140,50 @@ class NativeChannel {
     }
   }
 
+  /// 注册并显示一组悬浮球（多球插件）。
+  ///
+  /// [program] 为 [FloaterProgram.toJson()] 后的结构，包含 balls 与 steps。
+  static Future<bool> registerFloaters(
+    Map<String, dynamic> program,
+    String pluginId, {
+    String? assetsDir,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('registerFloaters', {
+        'pluginId': pluginId,
+        'program': program,
+        'assetsDir': assetsDir,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 清除当前显示的所有插件球（禁用编程球时调用）。
+  static Future<bool> unregisterFloaters() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('unregisterFloaters');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 获取指定名称悬浮球的当前位置。
+  static Future<Map<String, dynamic>?> getFloaterPosition(String name) async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'getFloaterPosition',
+        {'name': name},
+      );
+      if (result == null) return null;
+      return Map<String, dynamic>.from(result);
+    } catch (e) {
+      return null;
+    }
+  }
+
   static Future<void> executeAction(
       String type, Map<String, dynamic> params) async {
     try {
@@ -151,10 +196,21 @@ class NativeChannel {
     }
   }
 
-  static Future<bool> startRecording({bool captureColors = false}) async {
+  /// 开始录制会话（悬浮球 + 全屏手势捕获层）。返回是否成功启动。
+  static Future<bool> startRecordingSession({
+    String mode = 'simple',
+    bool captureColors = false,
+    bool recordSystemKeys = true,
+    int minClickIntervalMs = 100,
+    bool replayGestures = true,
+  }) async {
     try {
-      final result = await _channel.invokeMethod<bool>('startRecording', {
+      final result = await _channel.invokeMethod<bool>('startRecordingSession', {
+        'mode': mode,
         'captureColors': captureColors,
+        'recordSystemKeys': recordSystemKeys,
+        'minClickIntervalMs': minClickIntervalMs,
+        'replayGestures': replayGestures,
       });
       return result ?? false;
     } catch (e) {
@@ -162,9 +218,98 @@ class NativeChannel {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> stopRecording() async {
+  /// 暂停录制（移除捕获层，可正常使用手机）。
+  static Future<void> pauseRecording() async {
     try {
-      final result = await _channel.invokeMethod<List<dynamic>>('stopRecording');
+      await _channel.invokeMethod('pauseRecording');
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  /// 继续录制（重新挂载捕获层）。
+  static Future<void> resumeRecording() async {
+    try {
+      await _channel.invokeMethod('resumeRecording');
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  /// 结束录制：原生侧完成指令后处理并持久化结果，随后回到 App 编辑页。
+  static Future<void> finishRecording() async {
+    try {
+      await _channel.invokeMethod('finishRecording');
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  /// 取消录制（丢弃结果）。
+  static Future<void> cancelRecording() async {
+    try {
+      await _channel.invokeMethod('cancelRecording');
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  /// 查询原生侧录制会话状态（state / stepCount / mode）。
+  static Future<Map<String, dynamic>?> getRecordingState() async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('getRecordingState');
+      if (result == null) return null;
+      return Map<String, dynamic>.from(result);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// 读取并消费待处理录制结果（读取后原生侧文件即被清除）。
+  static Future<Map<String, dynamic>?> consumePendingRecordingResult() async {
+    try {
+      final raw = await _channel.invokeMethod<String>('consumePendingRecordingResult');
+      if (raw == null) return null;
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map<dynamic, dynamic>);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<bool> executeMacro(
+    Map<String, dynamic> settings,
+    List<Map<String, dynamic>> steps, {
+    String? assetsDir,
+    String? pluginId,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('executeMacro', {
+        'settings': settings,
+        'steps': steps,
+        'assetsDir': assetsDir,
+        'pluginId': pluginId,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 查询当前是否有宏正在原生侧运行。
+  static Future<bool> isMacroRunning() async {
+    try {
+      return await _channel.invokeMethod<bool>('isMacroRunning') ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 读取某宏的执行日志（时间升序，最多 300 条）。
+  static Future<List<Map<String, dynamic>>> getMacroLogs(String pluginId) async {
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>('getMacroLogs', {
+        'pluginId': pluginId,
+      });
       return result
               ?.map((e) => Map<String, dynamic>.from(e as Map<dynamic, dynamic>))
               .toList() ??
@@ -174,16 +319,45 @@ class NativeChannel {
     }
   }
 
-  static Future<bool> executeMacro(
-    Map<String, dynamic> settings,
-    List<Map<String, dynamic>> steps, {
-    String? assetsDir,
+  /// 清空某宏的执行日志。
+  static Future<bool> clearMacroLogs(String pluginId) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('clearMacroLogs', {
+        'pluginId': pluginId,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 注册指定宏的每日定时触发；[enabled] 为 false 时取消该宏的定时。
+  static Future<bool> setMacroSchedule({
+    required String pluginId,
+    required String macroFile,
+    required bool enabled,
+    required int hour,
+    required int minute,
   }) async {
     try {
-      final result = await _channel.invokeMethod<bool>('executeMacro', {
-        'settings': settings,
-        'steps': steps,
-        'assetsDir': assetsDir,
+      final result = await _channel.invokeMethod<bool>('setMacroSchedule', {
+        'pluginId': pluginId,
+        'macroFile': macroFile,
+        'enabled': enabled,
+        'hour': hour,
+        'minute': minute,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 取消某宏的每日定时。
+  static Future<bool> clearMacroSchedule(String pluginId) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('clearMacroSchedule', {
+        'pluginId': pluginId,
       });
       return result ?? false;
     } catch (e) {
@@ -197,6 +371,28 @@ class NativeChannel {
         'x': x,
         'y': y,
       });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 开启 / 关闭通知栏状态通知（展示运行状态与宏 print 输出）。
+  static Future<bool> setStatusNotificationEnabled(bool enabled) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('setStatusNotificationEnabled', {
+        'enabled': enabled,
+      });
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 查询通知栏状态通知是否开启（以原生持久化状态为准）。
+  static Future<bool> isStatusNotificationEnabled() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isStatusNotificationEnabled');
       return result ?? false;
     } catch (e) {
       return false;

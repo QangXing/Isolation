@@ -1,34 +1,209 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/macro.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
+import '../services/native_channel.dart';
 import '../widgets/glass_card.dart';
 
+/// 录制宏：录制参数页 + 录制状态页 + 结果编辑页。
+///
+/// - 参数页：选择录制模式（简单 / 复杂）、颜色捕获、系统键录制、点击间隔、手势回放；
+/// - 状态页：录制中实时展示已记录步数，可暂停 / 继续 / 结束 / 取消；
+/// - 编辑页：消费原生侧录制结果（consumePendingRecordingResult）后进入，可编辑步骤 / 代码并保存为宏。
 class RecordingScreen extends StatefulWidget {
-  const RecordingScreen({super.key});
+  /// 直接以结果编辑页打开（前台恢复检测到待处理录制结果时由 main.dart 传入）。
+  final List<Map<String, dynamic>>? initialSteps;
+
+  const RecordingScreen({super.key, this.initialSteps});
 
   @override
   State<RecordingScreen> createState() => _RecordingScreenState();
 }
 
 class _RecordingScreenState extends State<RecordingScreen> {
+  // ── 录制参数 ──
+  bool _complexMode = false;
+  bool _captureColors = false;
+  bool _recordSystemKeys = true;
+  double _minClickIntervalMs = 100;
+  bool _replayGestures = true;
+
+  // ── 录制状态（由 getRecordingState 轮询） ──
+  String _sessionState = 'idle'; // idle | recording | paused | finished
+  int _stepCount = 0;
+  Timer? _pollTimer;
+  bool _resultHandled = false;
+
+  // ── 结果编辑 ──
   bool _showEditor = false;
   bool _codeView = false;
   List<Map<String, dynamic>> _steps = [];
   late final TextEditingController _codeController;
 
+  bool get _recordingActive =>
+      _sessionState == 'recording' || _sessionState == 'paused';
+
   @override
   void initState() {
     super.initState();
     _codeController = TextEditingController();
+    final initial = widget.initialSteps;
+    if (initial != null && initial.isNotEmpty) {
+      _steps = List.from(initial);
+      _showEditor = true;
+      _syncCodeFromSteps();
+    } else {
+      // 管理页进入：若原生侧有未消费的录制结果（上次录制后进程被杀等），直接进入编辑页
+      _checkPendingResult();
+    }
+    // 录制会话进行中则轮询状态（编辑页打开时不轮询）
+    if (!_showEditor) {
+      _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) => _pollSession());
+    }
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _codeController.dispose();
     super.dispose();
   }
+
+  // ── 状态轮询 ──
+
+  Future<void> _pollSession() async {
+    if (!mounted || _showEditor) return;
+    final state = await NativeChannel.getRecordingState();
+    if (!mounted || state == null) return;
+    final s = state['state'] as String? ?? 'idle';
+    final count = (state['stepCount'] as num?)?.toInt() ?? 0;
+    setState(() {
+      _sessionState = s;
+      _stepCount = count;
+    });
+    // 悬浮球结束录制后（或 结束 按钮触发 finish），原生会把结果持久化并回到前台
+    if (s == 'finished' && !_resultHandled) {
+      _resultHandled = true;
+      await _consumeResult();
+    }
+  }
+
+  Future<void> _checkPendingResult() async {
+    final result = await NativeChannel.consumePendingRecordingResult();
+    if (!mounted || result == null) return;
+    _enterEditorWith(result);
+  }
+
+  Future<void> _consumeResult() async {
+    final result = await NativeChannel.consumePendingRecordingResult();
+    if (!mounted || result == null) return;
+    _enterEditorWith(result);
+  }
+
+  void _enterEditorWith(Map<String, dynamic> result) {
+    final rawSteps = (result['steps'] as List?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ??
+        [];
+    if (rawSteps.isEmpty) {
+      if (mounted) {
+        setState(() => _sessionState = 'idle');
+      }
+      return;
+    }
+    final converted = MacroProgramParser.convertLegacySteps(rawSteps);
+    setState(() {
+      _steps = converted;
+      _showEditor = true;
+      _codeView = false;
+      _sessionState = 'idle';
+    });
+    _syncCodeFromSteps();
+  }
+
+  // ── 录制控制 ──
+
+  Future<void> _startRecording() async {
+    final hasA11y = await NativeChannel.checkAccessibilityPermission();
+    if (!hasA11y) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('请先开启辅助功能权限'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      await NativeChannel.requestAccessibilityPermission();
+      return;
+    }
+    final started = await NativeChannel.startRecordingSession(
+      mode: _complexMode ? 'complex' : 'simple',
+      captureColors: _captureColors,
+      recordSystemKeys: _recordSystemKeys,
+      minClickIntervalMs: _minClickIntervalMs.round(),
+      replayGestures: _replayGestures,
+    );
+    if (!mounted) return;
+    if (started) {
+      setState(() {
+        _sessionState = 'recording';
+        _stepCount = 0;
+        _resultHandled = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('录制已开始，请在其他 App 中执行操作，完成后点击悬浮球或返回本页结束'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.black87,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('无法开始录制，请检查悬浮窗与辅助功能权限'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  Future<void> _pause() async {
+    await NativeChannel.pauseRecording();
+    if (mounted) setState(() => _sessionState = 'paused');
+  }
+
+  Future<void> _resume() async {
+    await NativeChannel.resumeRecording();
+    if (mounted) setState(() => _sessionState = 'recording');
+  }
+
+  Future<void> _finish() async {
+    await NativeChannel.finishRecording();
+    if (!mounted) return;
+    setState(() => _resultHandled = true);
+    await _consumeResult();
+    if (mounted) {
+      setState(() {
+        if (!_showEditor) _sessionState = 'idle';
+      });
+    }
+  }
+
+  Future<void> _cancel() async {
+    await NativeChannel.cancelRecording();
+    if (mounted) {
+      setState(() {
+        _sessionState = 'idle';
+        _stepCount = 0;
+      });
+    }
+  }
+
+  // ── 步骤 / 代码互转 ──
 
   void _syncCodeFromSteps() {
     _codeController.text = MacroProgramParser.serialize(_steps);
@@ -53,7 +228,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
         title: Text(
           _showEditor
               ? (_codeView ? '编辑宏 · 代码' : '编辑宏 · 步骤')
-              : '录制宏',
+              : (_recordingActive ? '录制中' : '录制宏'),
           style: TextStyle(
             color: Colors.black.withValues(alpha: 0.85),
             fontWeight: FontWeight.w500,
@@ -74,10 +249,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
               onPressed: () {
                 setState(() {
                   if (_codeView) {
-                    // 切回卡片视图：把代码解析回步骤
                     _syncStepsFromCode();
                   } else {
-                    // 切到代码视图：把步骤序列化为代码
                     _syncCodeFromSteps();
                   }
                   _codeView = !_codeView;
@@ -91,13 +264,173 @@ class _RecordingScreenState extends State<RecordingScreen> {
           if (_showEditor) {
             return _buildEditor(context, provider);
           }
-          return _buildRecording(context, provider);
+          return _recordingActive ? _buildRecordingStatus() : _buildParams(context);
         },
       ),
     );
   }
 
-  Widget _buildRecording(BuildContext context, PluginProvider provider) {
+  // ── 参数页 ──
+
+  Widget _buildParams(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      children: [
+        Text(
+          '录制模式',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.black.withValues(alpha: 0.6),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _ModeCard(
+                icon: Icons.bolt_rounded,
+                title: '简单录制',
+                subtitle: '只记录点击 / 滑动 / 系统键等基础指令，回放快',
+                selected: !_complexMode,
+                onTap: () => setState(() {
+                  _complexMode = false;
+                  _captureColors = false;
+                }),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ModeCard(
+                icon: Icons.auto_awesome_rounded,
+                title: '复杂录制',
+                subtitle: '关键点击升级为文本查找 / 颜色校验，更稳健',
+                selected: _complexMode,
+                onTap: () => setState(() => _complexMode = true),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Text(
+          '参数',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.black.withValues(alpha: 0.6),
+          ),
+        ),
+        const SizedBox(height: 10),
+        GlassCard(
+          child: Column(
+            children: [
+              _SwitchRow(
+                title: '记录系统按键',
+                subtitle: '录制返回键 / Home 键（需在辅助功能中开启按键过滤）',
+                value: _recordSystemKeys,
+                onChanged: (v) => setState(() => _recordSystemKeys = v),
+              ),
+              const Divider(height: 1),
+              _SwitchRow(
+                title: '手势回放',
+                subtitle: '录制时把操作原样回放给目标 App，便于查看录制效果',
+                value: _replayGestures,
+                onChanged: (v) => setState(() => _replayGestures = v),
+              ),
+              const Divider(height: 1),
+              _SwitchRow(
+                title: '颜色捕获',
+                subtitle: '记录点击位置的颜色，回放时校验（仅复杂模式）',
+                value: _captureColors,
+                enabled: _complexMode,
+                onChanged: (v) => setState(() => _captureColors = v),
+              ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '最小点击间隔',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '过滤过密的连点，避免误录',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '${_minClickIntervalMs.round()}ms',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Slider(
+                value: _minClickIntervalMs,
+                min: 0,
+                max: 500,
+                divisions: 50,
+                activeColor: Colors.black87,
+                inactiveColor: Colors.black.withValues(alpha: 0.1),
+                label: '${_minClickIntervalMs.round()}ms',
+                onChanged: (v) => setState(() => _minClickIntervalMs = v),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        GlassCard(
+          child: Row(
+            children: [
+              Icon(
+                Icons.info_outline_rounded,
+                size: 20,
+                color: Colors.black.withValues(alpha: 0.4),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '开始录制后请切换到目标 App 执行操作；屏幕上的录制悬浮球可暂停 / 结束，本页也可随时控制。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.5,
+                    color: Colors.black.withValues(alpha: 0.55),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        _ActionButton(
+          label: '开始录制',
+          filled: true,
+          red: true,
+          onTap: _startRecording,
+        ),
+      ],
+    );
+  }
+
+  // ── 录制状态页 ──
+
+  Widget _buildRecordingStatus() {
+    final paused = _sessionState == 'paused';
     return Column(
       children: [
         Expanded(
@@ -110,30 +443,27 @@ class _RecordingScreenState extends State<RecordingScreen> {
                     width: 64,
                     height: 64,
                     decoration: BoxDecoration(
-                      color: provider.recording
-                          ? Colors.redAccent.withValues(alpha: 0.1)
-                          : Colors.black.withValues(alpha: 0.05),
+                      color: paused
+                          ? Colors.orange.withValues(alpha: 0.12)
+                          : Colors.redAccent.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      provider.recording ? Icons.fiber_manual_record_rounded : Icons.videocam_rounded,
-                      color: provider.recording ? Colors.redAccent : Colors.black54,
+                      paused ? Icons.pause_rounded : Icons.fiber_manual_record_rounded,
+                      color: paused ? Colors.orange : Colors.redAccent,
                       size: 32,
                     ),
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    provider.recording ? '正在录制...' : '准备录制',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    paused ? '录制已暂停' : '正在录制...',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    provider.recording
-                        ? '请在其他 App 中点击目标位置，完成后返回点击完成。'
-                        : '点击开始录制，然后在其他 App 中执行操作。',
+                    paused
+                        ? '点击"继续"或悬浮球恢复录制'
+                        : '请在其他 App 中执行操作，悬浮球可暂停 / 结束。',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
@@ -143,7 +473,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    '已记录 ${provider.recordedSteps.length} 步',
+                    '已记录 $_stepCount 步',
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.black.withValues(alpha: 0.6),
@@ -154,12 +484,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
             ),
           ),
         ),
-        _buildControlBar(context, provider),
+        _buildStatusControls(),
       ],
     );
   }
 
-  Widget _buildControlBar(BuildContext context, PluginProvider provider) {
+  Widget _buildStatusControls() {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 0, 20, 24),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -179,53 +509,31 @@ class _RecordingScreenState extends State<RecordingScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            if (!provider.recording && provider.recordedSteps.isEmpty)
-              _ControlButton(
-                icon: Icons.fiber_manual_record_rounded,
-                label: '开始',
-                color: Colors.redAccent,
-                onTap: () => _startRecording(context, provider),
-              )
-            else if (provider.recording)
-              _ControlButton(
-                icon: Icons.stop_rounded,
-                label: '完成',
-                color: Colors.black87,
-                onTap: () => _stopRecording(provider),
-              )
-            else
-              _ControlButton(
-                icon: Icons.play_arrow_rounded,
-                label: '继续',
-                color: Colors.black87,
-                onTap: () => _startRecording(context, provider),
-              ),
-            if (provider.recordedSteps.isNotEmpty && !provider.recording)
-              _ControlButton(
-                icon: Icons.edit_rounded,
-                label: '编辑',
-                color: Colors.black87,
-                onTap: () {
-                  setState(() {
-                    _showEditor = true;
-                    _steps = List.from(provider.recordedSteps);
-                  });
-                },
-              ),
+            _ControlButton(
+              icon: _sessionState == 'paused' ? Icons.play_arrow_rounded : Icons.pause_rounded,
+              label: _sessionState == 'paused' ? '继续' : '暂停',
+              color: Colors.black87,
+              onTap: _sessionState == 'paused' ? _resume : _pause,
+            ),
+            _ControlButton(
+              icon: Icons.stop_rounded,
+              label: '结束',
+              color: Colors.redAccent,
+              onTap: _finish,
+            ),
             _ControlButton(
               icon: Icons.close_rounded,
               label: '取消',
               color: Colors.grey,
-              onTap: () {
-                provider.clearRecordedSteps();
-                Navigator.of(context).pop();
-              },
+              onTap: _cancel,
             ),
           ],
         ),
       ),
     );
   }
+
+  // ── 结果编辑页 ──
 
   Widget _buildEditor(BuildContext context, PluginProvider provider) {
     return Column(
@@ -243,7 +551,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   child: _ActionButton(
                     label: '返回录制',
                     onTap: () {
-                      // 切回录制页前，若是代码视图则同步步骤
                       if (_codeView) _syncStepsFromCode();
                       setState(() => _showEditor = false);
                     },
@@ -278,15 +585,9 @@ class _RecordingScreenState extends State<RecordingScreen> {
             itemCount: _steps.length,
             itemBuilder: (context, index) {
               final step = _steps[index];
-              final target = step['target'] as Map<String, dynamic>?;
-              final color = step['color'] as Map<String, dynamic>?;
-              final label = switch (step['type']) {
-                'print' => step['message']?.toString() ?? '',
-                _ => target?['text'] as String? ??
-                    target?['resourceId'] as String? ??
-                    target?['className'] as String? ??
-                    '坐标点击',
-              };
+              final type = step['type'] as String? ?? '';
+              final label = _stepLabel(step, type);
+              final delay = step['delay'];
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: GlassCard(
@@ -315,7 +616,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              step['type'] as String,
+                              type,
                               style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
@@ -334,24 +635,14 @@ class _RecordingScreenState extends State<RecordingScreen> {
                           ],
                         ),
                       ),
-                      if (color != null)
-                        Container(
-                          width: 18,
-                          height: 18,
-                          margin: const EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(
-                            color: Color(color['color'] as int),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.black12),
+                      if (delay != null)
+                        Text(
+                          '${delay}ms',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.withValues(alpha: 0.6),
                           ),
                         ),
-                      Text(
-                        '${step['delay']}ms',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.withValues(alpha: 0.6),
-                        ),
-                      ),
                       const SizedBox(width: 8),
                       GestureDetector(
                         onTap: () {
@@ -371,6 +662,41 @@ class _RecordingScreenState extends State<RecordingScreen> {
               );
             },
           );
+  }
+
+  String _stepLabel(Map<String, dynamic> step, String type) {
+    switch (type) {
+      case 'print':
+        return step['message']?.toString() ?? '';
+      case 'click':
+        return '点击 (${step['x']}, ${step['y']})';
+      case 'clickNode':
+        final target = step['target'] as Map<String, dynamic>?;
+        return target?['text']?.toString() ??
+            target?['resourceId']?.toString() ??
+            target?['className']?.toString() ??
+            '节点点击';
+      case 'longPressAt':
+        return '长按 (${step['x']}, ${step['y']})';
+      case 'swipe':
+        return '滑动 (${step['start']} → ${step['end']})';
+      case 'back':
+        return '返回';
+      case 'home':
+        return '主屏';
+      case 'wait':
+        return '等待 ${step['duration']}ms';
+      case 'findText':
+        return '查找文本: ${step['text']}';
+      case 'waitForText':
+        return '等待文本: ${step['text']}';
+      case 'ifColorAt':
+        return '颜色校验 @(${step['x']}, ${step['y']})';
+      case 'findColor':
+        return '查找颜色';
+      default:
+        return '指令参数';
+    }
   }
 
   Widget _buildCodeEditor() {
@@ -398,36 +724,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
         ),
       ),
     );
-  }
-
-  Future<void> _startRecording(BuildContext context, PluginProvider provider) async {
-    final started = await provider.startRecording(captureColors: false);
-    if (!started && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('无法开始录制，请检查辅助功能权限'),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    }
-  }
-
-  Future<void> _stopRecording(PluginProvider provider) async {
-    final steps = await provider.stopRecording();
-    final converted = MacroProgramParser.convertLegacySteps(
-      List<Map<String, dynamic>>.from(steps),
-    );
-    // 录制结果默认首尾加 print，替代原来悬浮球固定提示语
-    final wrapped = <Map<String, dynamic>>[
-      {'type': 'print', 'message': '开始'},
-      ...converted,
-      {'type': 'print', 'message': '完成'},
-    ];
-    setState(() {
-      _steps = wrapped;
-      _showEditor = wrapped.isNotEmpty;
-    });
   }
 
   Future<void> _showSaveDialog(BuildContext context, PluginProvider provider) async {
@@ -475,9 +771,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
     if (saved == true && mounted) {
       final name = nameController.text.trim().isEmpty ? '未命名宏' : nameController.text.trim();
       final description = descController.text.trim();
-      // 保存前若处于代码视图，先把代码解析回 _steps，避免丢失手动编辑
       if (_codeView) _syncStepsFromCode();
-      provider.updateRecordedSteps(_steps);
       final success = await provider.saveMacroPlugin(
         name: name,
         description: description,
@@ -496,6 +790,119 @@ class _RecordingScreenState extends State<RecordingScreen> {
         }
       }
     }
+  }
+}
+
+/// 录制模式选择卡片。
+class _ModeCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ModeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      onTap: onTap,
+      color: selected ? Colors.black.withValues(alpha: 0.06) : Colors.white.withValues(alpha: 0.55),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 22, color: selected ? Colors.black87 : Colors.black45),
+              const Spacer(),
+              Icon(
+                selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                size: 18,
+                color: selected ? Colors.redAccent : Colors.black26,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.4,
+              color: Colors.black.withValues(alpha: 0.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 参数开关行。
+class _SwitchRow extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  const _SwitchRow({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    this.enabled = true,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: enabled ? Colors.black87 : Colors.black38,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: enabled ? onChanged : null,
+            activeColor: Colors.black87,
+            inactiveThumbColor: Colors.grey,
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -542,22 +949,32 @@ class _ControlButton extends StatelessWidget {
 class _ActionButton extends StatelessWidget {
   final String label;
   final bool filled;
+  final bool red;
   final VoidCallback onTap;
 
   const _ActionButton({
     required this.label,
     this.filled = false,
+    this.red = false,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final Color bg;
+    if (filled && red) {
+      bg = Colors.redAccent;
+    } else if (filled) {
+      bg = Colors.black87;
+    } else {
+      bg = Colors.black.withValues(alpha: 0.05);
+    }
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        height: 52,
         decoration: BoxDecoration(
-          color: filled ? Colors.black87 : Colors.black.withValues(alpha: 0.05),
+          color: bg,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Center(

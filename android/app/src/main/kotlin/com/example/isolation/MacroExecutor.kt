@@ -44,6 +44,7 @@ class MacroExecutor(
         private var lastClickTime = 0L
         private const val MULTI_CLICK_THRESHOLD_MS = 600
         private const val MULTI_CLICK_COUNT = 3
+        private const val MAX_FLOATER_HANDLER_DEPTH = 16
 
         fun addListener(listener: MacroExecutorListener) {
             synchronized(listeners) {
@@ -87,7 +88,10 @@ class MacroExecutor(
 
             if (clickCount >= MULTI_CLICK_COUNT) {
                 clickCount = 0
-                activeExecutor?.stop()
+                val executor = activeExecutor
+                // 无宏运行时仅清零计数，不弹"已强制停止"提示
+                if (executor == null) return false
+                executor.stop()
                 Toast.makeText(context, "已强制停止循环", Toast.LENGTH_SHORT).show()
                 return true
             }
@@ -133,11 +137,22 @@ class MacroExecutor(
 
     private val floaterRegistry = FloaterRegistry()
     private var currentFloaterAssetsDir: String? = null
+
+    /**
+     * floater 事件处理器嵌套深度。防止 handler 内再次触发同事件导致无限递归。
+     * 新会话开始时清零（见 execute 的 finally）。
+     */
+    private var floaterHandlerDepth = 0
+
     private var lastFoundCoordinate: Pair<Int, Int>? = null
     private var lastFoundText: String? = null
 
-    fun execute(settings: Map<String, Any>, steps: List<Map<String, Any>>) {
-        if (running) return
+    fun execute(
+        settings: Map<String, Any>,
+        steps: List<Map<String, Any>>,
+        pluginId: String? = null
+    ): Boolean {
+        if (running || activeExecutor != null) return false
         running = true
         stopRequested = false
         debugMode = settings["debugMode"] as? Boolean ?: false
@@ -145,6 +160,8 @@ class MacroExecutor(
             (settings["featurePointCount"] as? Number)?.toInt()?.coerceIn(1, 32) ?: 8
         defaultFeaturePointThreshold =
             (settings["featurePointThreshold"] as? Number)?.toDouble()?.coerceIn(0.0, 1.0) ?: 0.80
+        MacroLogStore.onSessionStart(service, pluginId, debugMode)
+        pluginId?.let { MacroStatusNotifier.onSessionStart(service, it) }
         activeExecutor = this
         floaterRegistry.clear()
         currentFloaterAssetsDir = null
@@ -175,8 +192,10 @@ class MacroExecutor(
                 defaultFeaturePointThreshold = 0.80
                 variables.clear()
                 loopStack.clear()
+                floaterHandlerDepth = 0
             }
         }.start()
+        return true
     }
 
     fun stop() {
@@ -210,6 +229,7 @@ class MacroExecutor(
         when (type) {
             // 动作
             "click" -> success = executeClickStep(step)
+            "longPressAt" -> success = executeLongPressStep(step)
             "swipe", "swipeRel" -> success = executeSwipeStep(step)
             "input" -> success = executeInputStep(step)
             "print" -> executePrintStep(step)
@@ -263,6 +283,23 @@ class MacroExecutor(
             dispatchClick(coord.first, coord.second)
         } else {
             postStatus("click: 缺少坐标且不在 find 块内")
+            false
+        }
+    }
+
+    private fun executeLongPressStep(step: Map<String, Any>): Boolean {
+        val duration = (evaluateNumber(step["duration"])?.toLong() ?: 800L).coerceAtLeast(0L)
+        val x = evaluateCoordinate(step["x"])
+        val y = evaluateCoordinate(step["y"])
+        if (x != null && y != null) {
+            return dispatchGesture(x, y, duration)
+        }
+        // 无坐标参数：在 find 块内长按最近命中的坐标
+        val coord = foundCoordinates.firstOrNull()
+        return if (coord != null) {
+            dispatchGesture(coord.first, coord.second, duration)
+        } else {
+            postStatus("longPressAt: 缺少坐标且不在 find 块内")
             false
         }
     }
@@ -493,11 +530,23 @@ class MacroExecutor(
     private fun runFloaterHandlers(event: String, step: Map<String, Any>, success: Boolean) {
         setEventVariables(event, step, success)
         val handlers = floaterRegistry.get(event)
-        for (handler in handlers) {
-            val children = if (success) handler.children else handler.elseChildren
-            if (children != null) {
-                executeSteps(children)
+        if (handlers.isEmpty()) return
+        // 防无限递归：handler 内再次触发同事件指令（如 floater(click){ click() }）
+        // 会逐层深入，超过上限后忽略本次处理器
+        if (floaterHandlerDepth >= MAX_FLOATER_HANDLER_DEPTH) {
+            postStatus("floater: 事件处理器嵌套过深，已忽略 ($event)")
+            return
+        }
+        floaterHandlerDepth++
+        try {
+            for (handler in handlers) {
+                val children = if (success) handler.children else handler.elseChildren
+                if (children != null) {
+                    executeSteps(children)
+                }
             }
+        } finally {
+            floaterHandlerDepth--
         }
     }
 
@@ -508,6 +557,14 @@ class MacroExecutor(
                 val y = evaluateNumber(step["y"])?.toInt() ?: 0
                 variables["clickX"] = Variable.Number(x.toDouble())
                 variables["clickY"] = Variable.Number(y.toDouble())
+            }
+            "longPressAt" -> {
+                val x = evaluateNumber(step["x"])?.toInt() ?: 0
+                val y = evaluateNumber(step["y"])?.toInt() ?: 0
+                val duration = evaluateNumber(step["duration"])?.toLong() ?: 800L
+                variables["longPressX"] = Variable.Number(x.toDouble())
+                variables["longPressY"] = Variable.Number(y.toDouble())
+                variables["longPressDuration"] = Variable.Number(duration.toDouble())
             }
             "swipe", "swipeRel" -> {
                 val fromX = evaluateNumber(step["fromX"])?.toInt()
@@ -718,7 +775,8 @@ class MacroExecutor(
 
     private fun executeWaitForStep(step: Map<String, Any>): Boolean {
         val type = step["type"] as? String ?: return false
-        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> } ?: return false
+        // children 允许为空：无 body 的 waitForX 也会轮询等待命中或超时
+        val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> }
         val timeout = evaluateNumber(step["timeout"])?.toLong() ?: 0L
         val start = SystemClock.elapsedRealtime()
         var found = false
@@ -731,11 +789,13 @@ class MacroExecutor(
             if (coord != null) {
                 found = true
                 updateFoundContext(step, coord)
-                foundCoordinates.addFirst(coord)
-                try {
-                    executeSteps(children)
-                } finally {
-                    foundCoordinates.removeFirstOrNull()
+                if (children != null) {
+                    foundCoordinates.addFirst(coord)
+                    try {
+                        executeSteps(children)
+                    } finally {
+                        foundCoordinates.removeFirstOrNull()
+                    }
                 }
                 break
             }
@@ -1010,6 +1070,10 @@ class MacroExecutor(
     // ---------- 手势派发 ----------
 
     private fun dispatchClick(x: Int, y: Int): Boolean {
+        return dispatchGesture(x, y, 80)
+    }
+
+    private fun dispatchGesture(x: Int, y: Int, durationMs: Long): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
         InputAccessibilityService.showClickAnimation(x.toFloat(), y.toFloat())
         // 加入极短位移，避免某些系统把单点手势优化掉
@@ -1018,7 +1082,7 @@ class MacroExecutor(
             lineTo(x.toFloat() + 0.5f, y.toFloat() + 0.5f)
         }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
             .build()
         val result = AtomicBoolean(false)
         val latch = java.util.concurrent.CountDownLatch(1)
@@ -1026,9 +1090,9 @@ class MacroExecutor(
             try {
                 val ok = service.dispatchGesture(gesture, null, null)
                 result.set(ok)
-                if (!ok) Log.w(TAG, "dispatchClick($x, $y) 被系统拒绝")
+                if (!ok) Log.w(TAG, "dispatchGesture($x, $y, $durationMs) 被系统拒绝")
             } catch (e: Exception) {
-                Log.e(TAG, "dispatchClick($x, $y) 异常", e)
+                Log.e(TAG, "dispatchGesture($x, $y, $durationMs) 异常", e)
             } finally {
                 latch.countDown()
             }
