@@ -53,8 +53,8 @@ object RecordingPostProcessor {
         // 简单模式（或未补全的复杂模式点击）：输出坐标 click
         return mapOf(
             "type" to "click",
-            "x" to step["x"],
-            "y" to step["y"],
+            "x" to (step["x"] as? Number)?.toInt() ?: 0,
+            "y" to (step["y"] as? Number)?.toInt() ?: 0,
             "delay" to delay
         )
     }

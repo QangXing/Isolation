@@ -1335,14 +1335,16 @@ class FloatingBallService : Service(), MacroExecutorListener {
         // 主球
         val mainParams = recordingWindowParams(startX, startY, ballSizePx)
         val mainBall = createRecordingBallView(ctx, makeRecordIcon(ballSizePx), 0xFF37474F.toInt(), ballSizePx)
-        recordingMainBall = RecordingBall(mainBall.view, mainParams, mainBall.icon)
-        setupRecordingMainBallTouch(mainBall.view)
+        val mainView = mainBall.view ?: return
+        recordingMainBall = RecordingBall(mainView, mainParams, mainBall.icon)
+        setupRecordingMainBallTouch(mainView)
 
         // 暂停/继续副球（初始隐藏）
         val pauseParams = recordingWindowParams(startX, startY + ballSizePx + dpToPx(REC_SUB_GAP_DP), subSizePx)
         val pauseBall = createRecordingBallView(ctx, makePauseIcon(subSizePx), 0xFFFFFFFF.toInt(), subSizePx)
-        recordingPauseBall = RecordingBall(pauseBall.view, pauseParams, pauseBall.icon)
-        setupRecordingSubBallClick(pauseBall.view, isFinish = false)
+        val pauseView = pauseBall.view ?: return
+        recordingPauseBall = RecordingBall(pauseView, pauseParams, pauseBall.icon)
+        setupRecordingSubBallClick(pauseView, isFinish = false)
 
         // 结束副球（初始隐藏）
         val finishParams = recordingWindowParams(
@@ -1351,15 +1353,16 @@ class FloatingBallService : Service(), MacroExecutorListener {
             subSizePx
         )
         val finishBall = createRecordingBallView(ctx, makeFinishIcon(subSizePx), 0xFFE53935.toInt(), subSizePx)
-        recordingFinishBall = RecordingBall(finishBall.view, finishParams, finishBall.icon)
-        setupRecordingSubBallClick(finishBall.view, isFinish = true)
+        val finishView = finishBall.view ?: return
+        recordingFinishBall = RecordingBall(finishView, finishParams, finishBall.icon)
+        setupRecordingSubBallClick(finishView, isFinish = true)
 
-        try { wm.addView(mainBall.view, mainParams) } catch (e: Exception) { Log.e(TAG, "添加录制主球失败", e) }
-        try { wm.addView(pauseBall.view, pauseParams) } catch (e: Exception) { Log.e(TAG, "添加录制暂停球失败", e) }
-        try { wm.addView(finishBall.view, finishParams) } catch (e: Exception) { Log.e(TAG, "添加录制结束球失败", e) }
+        try { wm.addView(mainView, mainParams) } catch (e: Exception) { Log.e(TAG, "添加录制主球失败", e) }
+        try { wm.addView(pauseView, pauseParams) } catch (e: Exception) { Log.e(TAG, "添加录制暂停球失败", e) }
+        try { wm.addView(finishView, finishParams) } catch (e: Exception) { Log.e(TAG, "添加录制结束球失败", e) }
 
-        pauseBall.view.visibility = View.GONE
-        finishBall.view.visibility = View.GONE
+        pauseView.visibility = View.GONE
+        finishView.visibility = View.GONE
         recordingSubBallsVisible = false
     }
 
