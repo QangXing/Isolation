@@ -1075,6 +1075,16 @@ class _BlockParser {
       if (conditionCallMatch == null) {
         step['expression'] = ExpressionParser.parse(argsStr).toJson();
         step.remove('condition');
+      } else {
+        // 形如 if (launch(...)) 的条件是一个命令调用，解析为 condition step，
+        // 供 if 分支序列化时通过 _stepToInlineCode 还原。
+        final condStep = _tryParseCallAssignment(argsStr);
+        if (condStep != null) {
+          step.remove('positional$0');
+          step['condition'] = condStep;
+        } else {
+          step.remove('condition');
+        }
       }
     }
 
@@ -1102,7 +1112,9 @@ class _BlockParser {
           step['else'] = parseBlock(stopOnCloseBrace: true);
         }
       }
-      return MacroProgramParser._normalizeStep(step);
+      // 不要在这里归一化：parse() 已经会对每个顶层 step 调用 _normalizeStep，
+      // 若在此提前归一化会丢掉 positional$N 参数，导致第二次归一化时 event 等字段被置空。
+      return step;
     }
 
     if (hasBraceInline) {
