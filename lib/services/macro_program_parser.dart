@@ -60,8 +60,12 @@ class MacroProgramParser {
       return _extractKeywordString(value);
     }
 
-    switch (type) {
-      case 'click':
+    // 只有第一次规范化时有 positional 参数需要映射；
+    // 已规范化的 step（如 _parseStatement / _tryParseCallAssignment 中提前处理的）
+    // 再次进入这里时 positional 为空，跳过以免覆盖已赋值字段。
+    if (positional.isNotEmpty) {
+      switch (type) {
+        case 'click':
         if (positional.length >= 2) {
           step['x'] = positional[0];
           step['y'] = positional[1];
@@ -178,6 +182,7 @@ class MacroProgramParser {
         step['name'] = keyword(0) ?? '';
         step['axis'] = keyword(1) ?? '';
         break;
+      }
     }
 
     if (step['children'] is List) {
@@ -435,7 +440,7 @@ class MacroProgramParser {
         result = Map<String, dynamic>.from(step);
     }
 
-    if (color != null && result != null) {
+    if (color != null) {
       result.remove('color');
       final cx = (color['x'] as num).toInt();
       final cy = (color['y'] as num).toInt();
@@ -1075,6 +1080,17 @@ class _BlockParser {
       if (conditionCallMatch == null) {
         step['expression'] = ExpressionParser.parse(argsStr).toJson();
         step.remove('condition');
+      } else {
+        // 条件是一个函数调用（如 launch(...)），解析成独立的 condition step
+        final condStep = _tryParseCallAssignment(argsStr);
+        if (condStep != null) {
+          step['condition'] = condStep;
+          step.remove('positional\$0');
+          step.remove('expression');
+        } else {
+          step['expression'] = ExpressionParser.parse(argsStr).toJson();
+          step.remove('condition');
+        }
       }
     }
 
