@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - feature/*
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  JAVA_TOOL_OPTIONS: "-Djava.net.preferIPv4Stack=true"
+  GRADLE_OPTS: "-Djava.net.preferIPv4Stack=true"
+
+jobs:
+  flutter-checks:
+    name: Flutter analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run Flutter tests
+        run: flutter test
+
+  android-tests:
+    name: Android unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Write local.properties
+        run: |
+          FLUTTER_ROOT="$(dirname "$(dirname "$(command -v flutter)")")"
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+
+      - name: Use local Gradle distribution
+        run: |
+          GRADLE_ZIP="${{ github.workspace }}/android/gradle/gradle-9.1.0-all.zip"
+          if [ ! -f "$GRADLE_ZIP" ]; then
+            echo "Gradle distribution not found in repository"
+            exit 1
+          fi
+          # 让 wrapper 直接读仓库里的本地文件，不再走网络
+          printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\ndistributionUrl=file\\://%s\n' "$GRADLE_ZIP" > android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Run Android unit tests
+        working-directory: android
+        run: ./gradlew testDebugUnitTest --no-daemon

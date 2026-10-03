@@ -58,8 +58,8 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Run parser tests
-        run: flutter test test/parser_test.dart
+      - name: Run Flutter tests
+        run: flutter test
 
       - name: Use local Gradle distribution
         run: |
