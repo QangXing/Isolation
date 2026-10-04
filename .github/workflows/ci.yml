@@ -75,16 +75,11 @@ jobs:
           FLUTTER_ROOT="$(dirname "$(dirname "$(command -v flutter)")")"
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
 
-      - name: Use local Gradle distribution
-        run: |
-          GRADLE_ZIP="${{ github.workspace }}/android/gradle/gradle-9.1.0-all.zip"
-          if [ ! -f "$GRADLE_ZIP" ]; then
-            echo "Gradle distribution not found in repository"
-            exit 1
-          fi
-          # 让 wrapper 直接读仓库里的本地文件，不再走网络
-          printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\ndistributionUrl=file\\://%s\n' "$GRADLE_ZIP" > android/gradle/wrapper/gradle-wrapper.properties
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.1.0'
 
       - name: Run Android unit tests
         working-directory: android
-        run: ./gradlew testDebugUnitTest --no-daemon
+        run: gradle testDebugUnitTest --no-daemon

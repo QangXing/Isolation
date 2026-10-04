@@ -61,17 +61,13 @@ jobs:
       - name: Run Flutter tests
         run: flutter test
 
-      - name: Use local Gradle distribution
+      - name: Use official Gradle distribution
         run: |
-          GRADLE_ZIP="${{ github.workspace }}/android/gradle/gradle-9.1.0-all.zip"
-          if [ ! -f "$GRADLE_ZIP" ]; then
-            echo "Gradle distribution not found in repository"
-            exit 1
-          fi
-          ls -lh "$GRADLE_ZIP"
-          # 让 wrapper 直接读仓库里的本地文件，不再走网络
-          printf 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\ndistributionUrl=file\\://%s\n' "$GRADLE_ZIP" > "${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
-          cat "${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
+          # 仓库内的 gradle-wrapper.properties 指向国内镜像供本地开发使用；
+          # CI 环境改写为官方源，由 wrapper 在线下载。
+          PROPS="${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
+          sed -i 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-9.1.0-all.zip|' "$PROPS"
+          cat "$PROPS"
 
       - name: Build APK
         run: flutter build apk --release
