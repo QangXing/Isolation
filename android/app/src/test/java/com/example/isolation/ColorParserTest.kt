@@ -36,6 +36,23 @@ class ColorParserTest {
     }
 
     @Test
+    fun parseColor_hex6WithNonHexChar_returnsZeroInsteadOfThrowing() {
+        // "ZZZZZZ" 长度为 6，旧实现调用 toInt(16) 抛 NumberFormatException，
+        // 会中断整个宏的运行；应返回 0 而不是崩溃。
+        assertEquals(0, ColorParser.parseColor("ZZZZZZ"))
+    }
+
+    @Test
+    fun parseColor_hex8WithNonHexChar_returnsZeroInsteadOfThrowing() {
+        assertEquals(0, ColorParser.parseColor("FF00GG00"))
+    }
+
+    @Test
+    fun parseColor_0xPrefixWithNonHexChar_returnsZeroInsteadOfThrowing() {
+        assertEquals(0, ColorParser.parseColor("0xGGGG"))
+    }
+
+    @Test
     fun parseColor_unsupportedType_returnsZero() {
         assertEquals(0, ColorParser.parseColor(listOf<Any>()))
     }

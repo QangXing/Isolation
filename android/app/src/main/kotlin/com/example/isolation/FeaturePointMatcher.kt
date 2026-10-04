@@ -343,7 +343,7 @@ object FeaturePointMatcher {
         x: Int, y: Int,
         color: IntColor, tolerance: Int
     ): Boolean {
-        val c = readScreenColor(buf, rowStride, pixelStride, width, height, x, y) ?: return false
+        val c = readScreenColor(buf, width, height, rowStride, pixelStride, x, y) ?: return false
         return kotlin.math.abs(c.r - color.r) <= tolerance &&
                 kotlin.math.abs(c.g - color.g) <= tolerance &&
                 kotlin.math.abs(c.b - color.b) <= tolerance

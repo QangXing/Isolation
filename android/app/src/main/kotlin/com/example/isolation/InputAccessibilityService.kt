@@ -312,12 +312,18 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
             .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
             .build()
         val result = AtomicBoolean(false)
-        val latch = CountDownLatch(1)
-        Handler(Looper.getMainLooper()).post {
+        // 本方法既可来自 MethodChannel（主线程），也可能来自其他线程。若已在主线程，
+        // 直接派发，避免向主 Looper post 后阻塞等待造成自死锁（ANR）。
+        if (Looper.myLooper() == Looper.getMainLooper()) {
             result.set(dispatchGesture(gesture, null, null))
-            latch.countDown()
+        } else {
+            val latch = CountDownLatch(1)
+            Handler(Looper.getMainLooper()).post {
+                result.set(dispatchGesture(gesture, null, null))
+                latch.countDown()
+            }
+            try { latch.await() } catch (_: InterruptedException) { /* ignore */ }
         }
-        try { latch.await() } catch (_: InterruptedException) { /* ignore */ }
         return result.get()
     }
 

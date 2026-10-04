@@ -8,9 +8,9 @@ internal object ColorParser {
             is String -> {
                 val s = value.removePrefix("#")
                 if (s.startsWith("0x") || s.startsWith("0X")) {
-                    s.substring(2).toInt(16)
+                    s.substring(2).toIntOrNull(16) ?: 0
                 } else if (s.length == 6 || s.length == 8) {
-                    s.toInt(16)
+                    s.toIntOrNull(16) ?: 0
                 } else {
                     s.toIntOrNull() ?: 0
                 }
