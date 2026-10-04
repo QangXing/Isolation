@@ -51,12 +51,12 @@ object RecordingPostProcessor {
             return clickNode
         }
         // 简单模式（或未补全的复杂模式点击）：输出坐标 click
-        return mapOf(
+        return nonNull(mapOf(
             "type" to "click",
             "x" to step["x"],
             "y" to step["y"],
             "delay" to delay
-        )
+        ))
     }
 
     private fun nonNull(step: Map<String, Any?>): Map<String, Any> {

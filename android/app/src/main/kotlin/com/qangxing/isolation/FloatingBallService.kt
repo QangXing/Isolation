@@ -1336,13 +1336,13 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val mainParams = recordingWindowParams(startX, startY, ballSizePx)
         val mainBall = createRecordingBallView(ctx, makeRecordIcon(ballSizePx), 0xFF37474F.toInt(), ballSizePx)
         recordingMainBall = RecordingBall(mainBall.view, mainParams, mainBall.icon)
-        setupRecordingMainBallTouch(mainBall.view)
+        setupRecordingMainBallTouch(mainBall.view!!)
 
         // 暂停/继续副球（初始隐藏）
         val pauseParams = recordingWindowParams(startX, startY + ballSizePx + dpToPx(REC_SUB_GAP_DP), subSizePx)
         val pauseBall = createRecordingBallView(ctx, makePauseIcon(subSizePx), 0xFFFFFFFF.toInt(), subSizePx)
         recordingPauseBall = RecordingBall(pauseBall.view, pauseParams, pauseBall.icon)
-        setupRecordingSubBallClick(pauseBall.view, isFinish = false)
+        setupRecordingSubBallClick(pauseBall.view!!, isFinish = false)
 
         // 结束副球（初始隐藏）
         val finishParams = recordingWindowParams(
@@ -1352,14 +1352,14 @@ class FloatingBallService : Service(), MacroExecutorListener {
         )
         val finishBall = createRecordingBallView(ctx, makeFinishIcon(subSizePx), 0xFFE53935.toInt(), subSizePx)
         recordingFinishBall = RecordingBall(finishBall.view, finishParams, finishBall.icon)
-        setupRecordingSubBallClick(finishBall.view, isFinish = true)
+        setupRecordingSubBallClick(finishBall.view!!, isFinish = true)
 
         try { wm.addView(mainBall.view, mainParams) } catch (e: Exception) { Log.e(TAG, "添加录制主球失败", e) }
         try { wm.addView(pauseBall.view, pauseParams) } catch (e: Exception) { Log.e(TAG, "添加录制暂停球失败", e) }
         try { wm.addView(finishBall.view, finishParams) } catch (e: Exception) { Log.e(TAG, "添加录制结束球失败", e) }
 
-        pauseBall.view.visibility = View.GONE
-        finishBall.view.visibility = View.GONE
+        pauseBall.view!!.visibility = View.GONE
+        finishBall.view!!.visibility = View.GONE
         recordingSubBallsVisible = false
     }
 
