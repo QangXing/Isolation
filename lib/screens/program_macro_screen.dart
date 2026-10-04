@@ -1,7 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/macro.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
@@ -760,28 +759,6 @@ class _InstructionChip extends StatelessWidget {
       ),
     );
   }
-}
-
-class _IndentGuidePainter extends CustomPainter {
-  final double indentWidth;
-  final Color color;
-
-  _IndentGuidePainter({required this.indentWidth, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1;
-    final maxLevels = (size.width / indentWidth).ceil();
-    for (int i = 1; i < maxLevels; i++) {
-      final x = i * indentWidth;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _ActionButton extends StatelessWidget {

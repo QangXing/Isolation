@@ -531,28 +531,22 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
-/// 插件卡片右侧的图标按钮。统一尺寸与间距，[danger] 标记危险操作。
+/// 插件卡片右侧的图标按钮。统一尺寸与间距。
 class _IconAction extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
-  final bool danger;
 
   const _IconAction({
     required this.icon,
     required this.tooltip,
     required this.onTap,
-    this.danger = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = danger
-        ? Colors.redAccent
-        : Colors.black.withValues(alpha: 0.6);
-    final bg = danger
-        ? Colors.red.withValues(alpha: 0.08)
-        : Colors.black.withValues(alpha: 0.05);
+    final color = Colors.black.withValues(alpha: 0.6);
+    final bg = Colors.black.withValues(alpha: 0.05);
     return Tooltip(
       message: tooltip,
       child: GestureDetector(

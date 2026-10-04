@@ -435,7 +435,7 @@ class MacroProgramParser {
         result = Map<String, dynamic>.from(step);
     }
 
-    if (color != null && result != null) {
+    if (color != null) {
       result.remove('color');
       final cx = (color['x'] as num).toInt();
       final cy = (color['y'] as num).toInt();

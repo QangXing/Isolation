@@ -387,28 +387,6 @@ ball(deputy, "helper") {
   }
 }
 
-class _IndentGuidePainter extends CustomPainter {
-  final double indentWidth;
-  final Color color;
-
-  _IndentGuidePainter({required this.indentWidth, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1;
-    final maxLevels = (size.width / indentWidth).ceil();
-    for (int i = 1; i < maxLevels; i++) {
-      final x = i * indentWidth;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
 class _ActionButton extends StatelessWidget {
   final String label;
   final bool filled;
