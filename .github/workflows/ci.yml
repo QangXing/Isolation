@@ -82,4 +82,7 @@ jobs:
 
       - name: Run Android unit tests
         working-directory: android
-        run: gradle testDebugUnitTest --no-daemon
+        # 只跑 :app 自身的测试；根任务的 testDebugUnitTest 会连带执行
+        # Flutter 插件模块（如 shared_preferences_android）的测试，
+        # 其中有依赖设备环境的用例在 CI 上必然失败。
+        run: gradle :app:testDebugUnitTest --no-daemon
