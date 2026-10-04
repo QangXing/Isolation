@@ -8,9 +8,10 @@ internal object ColorParser {
             is String -> {
                 val s = value.removePrefix("#")
                 if (s.startsWith("0x") || s.startsWith("0X")) {
-                    s.substring(2).toInt(16)
+                    // 8 位 ARGB 超过 Int.MAX_VALUE，按无符号解析再截断为 Int
+                    s.substring(2).toLong(16).toInt()
                 } else if (s.length == 6 || s.length == 8) {
-                    s.toInt(16)
+                    s.toLong(16).toInt()
                 } else {
                     s.toIntOrNull() ?: 0
                 }

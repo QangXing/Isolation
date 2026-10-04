@@ -21,7 +21,7 @@ class ExpressionEvaluatorTest {
             ),
             "right" to mapOf("op" to "literal", "value" to 5)
         )
-        val variables = mapOf("score" to Variable.Number(3.0))
+        val variables = mapOf("score" to Variable.Number(5.0))
 
         val result = ExpressionEvaluator.evaluate(expr, variables)
 
