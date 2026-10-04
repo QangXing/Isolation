@@ -27,7 +27,7 @@
 |----|------|
 | UI 层 | Flutter 3.x（Dart 3） |
 | 原生层 | Kotlin（Android） |
-| 通信 | MethodChannel `com.example.isolation/native` |
+| 通信 | MethodChannel `com.qangxing.isolation/native` |
 | 状态管理 | `provider` |
 | 持久化 | `shared_preferences` + 应用私有目录 |
 | 图像处理 | OpenCV（Android）、`image` 包（Flutter） |
@@ -305,7 +305,7 @@ my_floater/
 
 ```json
 {
-  "id": "com.example.isolation.macro.daily-checkin",
+  "id": "com.qangxing.isolation.macro.daily-checkin",
   "name": "每日签到宏",
   "version": "1.0.0",
   "description": "打开目标 App 后自动点击签到按钮",

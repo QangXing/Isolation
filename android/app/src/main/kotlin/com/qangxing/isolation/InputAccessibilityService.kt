@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription

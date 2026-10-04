@@ -308,7 +308,7 @@ my_floater/
 
 ```json
 {
-  "id": "com.example.isolation.floater.my",
+  "id": "com.qangxing.isolation.floater.my",
   "type": "floaterPlugin",
   "name": "我的悬浮球",
   "version": "1.0.0",

@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 import android.Manifest
 import android.app.Activity
@@ -28,7 +28,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private val CHANNEL = "com.example.isolation"
+    private val CHANNEL = "com.qangxing.isolation"
     private var pendingResult: MethodChannel.Result? = null
 
     companion object {

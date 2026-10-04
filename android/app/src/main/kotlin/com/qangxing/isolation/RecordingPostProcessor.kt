@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 /**
  * 录制指令后处理器：把 [RecordingSession] 收集的原始步骤按录制模式转换为最终 DSL 指令。

@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 object ExpressionEvaluator {
 

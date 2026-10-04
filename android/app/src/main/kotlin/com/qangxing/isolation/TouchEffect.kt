@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 /**
  * 宏执行时在屏幕上显示的触摸反馈效果。

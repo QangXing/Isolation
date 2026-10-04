@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 sealed class Variable {
     data class Number(val value: Double) : Variable()

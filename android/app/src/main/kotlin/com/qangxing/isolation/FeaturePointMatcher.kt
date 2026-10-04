@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 import android.graphics.Point
 import android.util.Log

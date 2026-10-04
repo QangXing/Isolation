@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 import android.app.Activity
 import android.content.Context

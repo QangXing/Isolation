@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 class NativeChannel {
-  static const MethodChannel _channel = MethodChannel('com.example.isolation');
+  /// Must match `MainActivity.CHANNEL` on the Android side.
+  static const String channelName = 'com.qangxing.isolation';
+  static const MethodChannel _channel = MethodChannel(channelName);
 
   static Future<bool> checkOverlayPermission() async {
     try {

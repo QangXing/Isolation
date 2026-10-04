@@ -6,4 +6,4 @@
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
     android:canRequestFilterKeyEvents="true"
-    android:settingsActivity="com.example.isolation.MainActivity" />
+    android:settingsActivity="com.qangxing.isolation.MainActivity" />

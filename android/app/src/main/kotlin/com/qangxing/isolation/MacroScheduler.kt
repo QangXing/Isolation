@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -19,7 +19,7 @@ import java.util.Calendar
  */
 object MacroScheduler {
 
-    const val ACTION_MACRO_SCHEDULE = "com.example.isolation.MACRO_SCHEDULE"
+    const val ACTION_MACRO_SCHEDULE = "com.qangxing.isolation.MACRO_SCHEDULE"
 
     private const val TAG = "MacroScheduler"
     private const val PREF_NAME = "isolation_macro_schedules"

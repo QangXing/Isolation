@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 /** 把 DSL 中的颜色字面量解析为 0xRRGGBB 整数。支持 0xFF0000 / #FF0000 / 16711680 */
 internal object ColorParser {

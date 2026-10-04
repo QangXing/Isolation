@@ -581,7 +581,7 @@ class PluginProvider extends ChangeNotifier {
   }) async {
     if (steps.isEmpty) return false;
 
-    final id = pluginId ?? 'com.example.isolation.macro.${DateTime.now().millisecondsSinceEpoch}';
+    final id = pluginId ?? 'com.qangxing.isolation.macro.${DateTime.now().millisecondsSinceEpoch}';
     final pluginDir = await _pluginDirectory();
     final targetDir = Directory('${pluginDir.path}/$id');
 
@@ -682,7 +682,7 @@ class PluginProvider extends ChangeNotifier {
     required String source,
     String? pluginId,
   }) async {
-    final id = pluginId ?? 'com.example.isolation.floater.${DateTime.now().millisecondsSinceEpoch}';
+    final id = pluginId ?? 'com.qangxing.isolation.floater.${DateTime.now().millisecondsSinceEpoch}';
     final pluginDir = await _pluginDirectory();
     final targetDir = Directory('${pluginDir.path}/$id');
 

@@ -1,4 +1,4 @@
-package com.example.isolation
+package com.qangxing.isolation
 
 class FloaterRegistry {
     data class Handler(val event: String, val children: List<Map<String, Any>>, val elseChildren: List<Map<String, Any>>?)
