@@ -179,7 +179,7 @@ class FloaterV2Engine(
             }
             "visible" -> {
                 if (value is FloaterValue.Bool) {
-                    service.updatePluginBallVisibility(ballName, value.value)
+                    service.setPluginBallVisible(ballName, value.value)
                 }
             }
             "opacity" -> {

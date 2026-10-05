@@ -1575,7 +1575,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
                         val expr = msg as Map<String, Any>
                         when (val result = ExpressionEvaluator.evaluate(expr, pluginVariables)) {
                             is Variable.Number -> result.value.toString()
-                            is Variable.Text -> result.value
+                            is Variable.Point -> "(${result.x}, ${result.y})"
+                            is Variable.Color -> "#${Integer.toHexString(result.value)}"
                             else -> return
                         }
                     }

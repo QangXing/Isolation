@@ -37,7 +37,7 @@ data class FloaterV2Variable(
         fun fromJson(json: Map<String, Any?>): FloaterV2Variable {
             return FloaterV2Variable(
                 name = json["name"] as? String ?: "",
-                type = (json["type"] as? Map<String, Any?>)?.get("kind") as? String ?: "Unknown".toFloaterType(),
+                type = ((json["type"] as? Map<String, Any?>)?.get("kind") as? String ?: "Unknown").toFloaterType(),
                 value = floaterValueFromJson(json["value"] as? Map<String, Any?> ?: emptyMap()),
                 mutable = json["mutable"] as? Boolean ?: false
             )
@@ -55,13 +55,13 @@ data class FloaterV2Ball(
         fun fromJson(json: Map<String, Any?>): FloaterV2Ball {
             val properties = (json["properties"] as? Map<*, *>)?.map { (k, v) ->
                 k as String to FloaterV2Property.fromJson(v as Map<String, Any?>)
-            } ?: emptyMap()
+            }?.toMap() ?: emptyMap<String, FloaterV2Property>()
 
             val eventHandlers = (json["eventHandlers"] as? Map<*, *>)?.map { (k, v) ->
                 k as String to (v as List<*>).map {
                     FloaterV2Statement.fromJson(it as Map<String, Any?>)
                 }
-            } ?: emptyMap()
+            }?.toMap() ?: emptyMap<String, List<FloaterV2Statement>>()
 
             return FloaterV2Ball(
                 name = json["name"] as? String ?: "",
@@ -81,7 +81,7 @@ data class FloaterV2Property(
     companion object {
         fun fromJson(json: Map<String, Any?>): FloaterV2Property {
             return FloaterV2Property(
-                declaredType = (json["declaredType"] as? Map<String, Any?>)?.get("kind") as? String ?: "Unknown".toFloaterType(),
+                declaredType = ((json["declaredType"] as? Map<String, Any?>)?.get("kind") as? String ?: "Unknown").toFloaterType(),
                 expression = FloaterV2Expression.fromJson(json["expression"] as? Map<String, Any?> ?: emptyMap()),
                 line = (json["line"] as? Number)?.toInt() ?: 0
             )
@@ -208,7 +208,7 @@ sealed class FloaterV2Expression {
                     args = (json["args"] as? List<*>)?.map { fromJson(it as Map<String, Any?>) } ?: emptyList(),
                     namedArgs = (json["namedArgs"] as? Map<*, *>)?.map { (k, v) ->
                         k as String to fromJson(v as Map<String, Any?>)
-                    } ?: emptyMap()
+                    }?.toMap() ?: emptyMap<String, FloaterV2Expression>()
                 )
                 else -> LiteralExpression(FloaterValue.Unknown)
             }
