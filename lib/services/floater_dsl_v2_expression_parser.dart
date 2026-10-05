@@ -60,7 +60,6 @@ class FloaterExpressionParser {
       skipWhitespace();
       if (i >= chars.length) break;
 
-      final start = i;
       final c = chars[i];
 
       // 数字 + 单位

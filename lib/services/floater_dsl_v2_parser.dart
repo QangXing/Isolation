@@ -168,7 +168,6 @@ class _BlockParser {
     // 处理批量声明 sub1..4
     final rangeMatch = RegExp(r'^(\w+)(\.\.(\d+))$').firstMatch(nameSpec);
     if (rangeMatch != null) {
-      final prefix = rangeMatch.group(1)!;
       final end = int.parse(rangeMatch.group(3)!);
       if (end < 1) throw _error('批量声明结束序号必须 >=1', lineNo);
       // 批量声明返回第一个球，外部需要展开。这里为了简化，先不支持批量。
@@ -360,6 +359,15 @@ class _BlockParser {
     if (key == "radius") return FloaterType.dp;
     if (expr is LiteralExpression) return expr.value.type;
     return FloaterType.unknown;
+  }
+
+  /// 从表达式推断字面量值。变量初始化只支持字面量表达式。
+  FloaterValue _inferLiteralValue(FloaterExpression expr) {
+    if (expr is LiteralExpression) return expr.value;
+    if (expr is VarExpression) {
+      return FloaterValue(type: FloaterType.unknown, value: expr.name);
+    }
+    return FloaterValue(type: FloaterType.unknown, value: expr.toJson());
   }
 
   FloaterParseError _error(String message, int line) {

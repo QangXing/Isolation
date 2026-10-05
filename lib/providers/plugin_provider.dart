@@ -6,7 +6,6 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/floater_config.dart';
-import '../models/floater_program.dart';
 import '../models/macro.dart';
 import '../models/macro_log.dart';
 import '../models/plugin.dart';

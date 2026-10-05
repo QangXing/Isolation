@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
 import '../screens/professional_editor_screen.dart';
+import '../services/floater_dsl_v2_expression_parser.dart';
 import '../services/floater_dsl_v2_parser.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
