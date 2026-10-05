@@ -5,7 +5,7 @@ package com.qangxing.isolation
  *
  * - 简单模式（simple）：只产出确定性最高的基础指令 click / longPressAt / swipe / back / home；
  * - 复杂模式（complex）：对有点击节点补全的步骤保留为 clickNode（Flutter 侧 convertLegacySteps
- *   会自动转换为 findText / ifColorAt 增强指令），并对系统键补充 wait 等待步骤，让宏更稳健。
+ *   会自动转换为 waitForColor + findText 增强指令），并对系统键补充 wait 等待步骤，让宏更稳健。
  */
 object RecordingPostProcessor {
 

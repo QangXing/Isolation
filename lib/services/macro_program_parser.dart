@@ -4,6 +4,7 @@
 /// - 查找：findText / findColor / findImage
 /// - 等待命中：waitForText / waitForColor / waitForImage
 /// - 颜色：colorAt / ifColorAt
+/// - 录制颜色确认：waitForColor（由复杂模式的 clickNode 自动转换）
 /// - 条件：ifText / ifColor / ifImage / if
 /// - 循环：for / loop
 /// - 动作：click / swipe / input / wait / print / back / home / recents / launch
@@ -350,7 +351,7 @@ class MacroProgramParser {
   /// 把录制产生的旧格式 step 列表转换成新的指令格式 step 列表。
   ///
   /// 支持：clickNode / clickPoint / swipe → findText+click / click(x,y) / swipe。
-  /// 智能识别捕获的 color 字段会转换为 ifColorAt(...) 条件块。
+  /// 复杂模式下若 clickNode 携带 color，会转换为 waitForColor(...) 等待块以稳健确认目标颜色。
   static List<Map<String, dynamic>> convertLegacySteps(
       List<Map<String, dynamic>> steps) {
     return steps.map(_convertLegacyStep).whereType<Map<String, dynamic>>().toList();
@@ -463,13 +464,22 @@ class MacroProgramParser {
       final cx = (color['x'] as num).toInt();
       final cy = (color['y'] as num).toInt();
       final c = (color['color'] as num).toInt();
+      // 复杂模式：用 waitForColor 在点击位置附近等待目标颜色出现，
+      // 比 ifColorAt 更稳健，能处理页面加载或动画导致的短暂颜色变化。
+      final half = 24;
       return {
-        'type': 'ifColorAt',
-        'x': cx,
-        'y': cy,
+        'type': 'waitForColor',
         'color': c,
         'tolerance': 30,
-        'then': [result],
+        'step': 4,
+        'region': [
+          cx - half < 0 ? 0 : cx - half,
+          cy - half < 0 ? 0 : cy - half,
+          cx + half,
+          cy + half,
+        ],
+        'timeout': 5000,
+        'children': [result],
       };
     }
     return result;

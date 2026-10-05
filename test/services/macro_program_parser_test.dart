@@ -191,6 +191,27 @@ waitForText("加载完成") {
     expect(serialized, code);
   });
 
+  test('clickNode with color becomes waitForColor block', () {
+    final step = {
+      'type': 'clickNode',
+      'target': {'text': '签到'},
+      'color': {'x': 540, 'y': 960, 'color': 0xFF3366},
+    };
+    final converted = MacroProgramParser.convertLegacySteps([step]);
+    expect(converted.length, 1);
+    final waitForColor = converted.first;
+    expect(waitForColor['type'], 'waitForColor');
+    expect(waitForColor['color'], 0xFF3366);
+    expect(waitForColor['tolerance'], 30);
+    expect(waitForColor['timeout'], 5000);
+    expect(waitForColor['region'], isA<List>());
+    final children = waitForColor['children'] as List;
+    expect(children.length, 1);
+    expect(children.first['type'], 'findText');
+    expect(children.first['text'], '签到');
+    expect(children.first['children'], isA<List>());
+  });
+
   test('waitForColor round-trip', () {
     final code = '''
 waitForColor(0xFFFA40, tolerance=30, step=1) {
