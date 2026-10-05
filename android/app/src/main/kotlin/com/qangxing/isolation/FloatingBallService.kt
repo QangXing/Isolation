@@ -25,6 +25,9 @@ import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
 import android.animation.ValueAnimator
+import android.content.ComponentCallbacks
+import android.content.res.Configuration
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -360,6 +363,18 @@ class FloatingBallService : Service(), MacroExecutorListener {
     /** 编程球启用后，禁用默认悬浮球的那一套点击事件，避免与球文件内置事件冲突。 */
     private var pluginModeActive = false
 
+    /** 批量收集插件球位置变更，在下一帧 vsync 统一提交，避免多次 updateViewLayout 与屏幕刷新错位。 */
+    private val pendingBallUpdates = mutableMapOf<String, PluginBall>()
+    private val ballUpdateFrameCallback = Choreographer.FrameCallback { applyPendingPluginBallUpdates() }
+
+    /** 屏幕方向/尺寸变化监听，用于实时重新 clamp 编程球位置。 */
+    private val pluginConfigCallback = object : ComponentCallbacks {
+        override fun onConfigurationChanged(newConfig: Configuration) {
+            applyConfigurationChangeToPluginBalls()
+        }
+        override fun onLowMemory() {}
+    }
+
     private fun dpToPx(dp: Int): Int {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics).toInt()
     }
@@ -383,6 +398,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
         MacroExecutor.addListener(this)
         MacroStatusNotifier.refreshState(this)
+        registerComponentCallbacks(pluginConfigCallback)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -942,6 +958,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
             }
         }
         pluginBalls.clear()
+        pendingBallUpdates.clear()
+        try { Choreographer.getInstance().removeFrameCallback(ballUpdateFrameCallback) } catch (_: Exception) {}
         pluginModeActive = false
     }
 
@@ -1179,11 +1197,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
         ball.params.x = x
         ball.params.y = y
         clampPluginBallToScreen(ball)
-        try {
-            windowManager?.updateViewLayout(ball.view, ball.params)
-        } catch (e: Exception) {
-            Log.w(TAG, "移动插件球失败: $name", e)
-        }
+        pendingBallUpdates[name] = ball
+        schedulePluginBallFrameUpdate()
 
         // 该球被移动后，同步更新所有以它为目标的跟随球
         for ((followerName, follower) in pluginBalls) {
@@ -1191,6 +1206,37 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 updatePluginBallPosition(followerName, ball.params.x + follower.followDx, ball.params.y + follower.followDy, visited)
             }
         }
+    }
+
+    /** 将 pending 的插件球位置变更统一提交到 WindowManager，跟随 Choreographer 帧刷新。 */
+    private fun schedulePluginBallFrameUpdate() {
+        val choreographer = try { Choreographer.getInstance() } catch (_: Exception) { return }
+        choreographer.removeFrameCallback(ballUpdateFrameCallback)
+        choreographer.postFrameCallback(ballUpdateFrameCallback)
+    }
+
+    private fun applyPendingPluginBallUpdates() {
+        if (pendingBallUpdates.isEmpty()) return
+        for ((name, ball) in pendingBallUpdates) {
+            try {
+                if (ball.view.parent != null) {
+                    windowManager?.updateViewLayout(ball.view, ball.params)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "移动插件球失败: $name", e)
+            }
+        }
+        pendingBallUpdates.clear()
+    }
+
+    /** 配置变化（转屏、分屏、折叠展开）后重新 clamp 所有插件球并刷新。 */
+    private fun applyConfigurationChangeToPluginBalls() {
+        if (pluginBalls.isEmpty()) return
+        for ((name, ball) in pluginBalls) {
+            clampPluginBallToScreen(ball)
+            pendingBallUpdates[name] = ball
+        }
+        schedulePluginBallFrameUpdate()
     }
 
     private fun setPluginBallVisible(name: String, visible: Boolean) {
@@ -1548,19 +1594,24 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     /**
-     * 返回应用可用区域（不含系统状态栏/导航栏），用于 clamp 悬浮球位置。
-     * 用 getDisplayMetrics 而非 getRealMetrics：后者包含物理屏幕全区域，
-     * 会让悬浮球被拖到状态栏或导航栏下方被系统 UI 遮挡。
+     * 返回当前应用可用区域（不含系统状态栏/导航栏），用于 clamp 悬浮球位置。
+     * Android R+ 使用 WindowMetrics 获取最新可用区域；旧设备回退到 getMetrics。
      */
     private fun screenSize(): Point {
         val out = Point()
         val wm = windowManager ?: return out
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm.defaultDisplay.getMetrics(metrics)
-        out.x = metrics.widthPixels
-        out.y = metrics.heightPixels
-        return out
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            out.set(bounds.width(), bounds.height())
+            out
+        } else {
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getMetrics(metrics)
+            out.x = metrics.widthPixels
+            out.y = metrics.heightPixels
+            out
+        }
     }
 
     // ── 录制悬浮球内部实现 ──
@@ -2331,6 +2382,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         hideFloatingBall()
         hideKeyboard()
         MacroExecutor.removeListener(this)
+        unregisterComponentCallbacks(pluginConfigCallback)
         instance = null
         MacroStatusNotifier.refreshState(this)
         super.onDestroy()
