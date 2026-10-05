@@ -51,6 +51,7 @@ object RecordingSession {
     private val rawSteps = mutableListOf<RawStep>()
     private var lastClickStep: RawStep? = null
     private var lastRawTimestamp = 0L
+    private var pauseStartedAt = 0L
     private var defaultBallVisibleBefore = false
 
     private var contextRef: Context? = null
@@ -82,6 +83,7 @@ object RecordingSession {
         rawSteps.clear()
         lastClickStep = null
         lastRawTimestamp = 0L
+        pauseStartedAt = 0L
 
         // 确保悬浮球服务在运行（录制参数页发起时服务可能尚未启动），用于承载录制球
         FloatingBallService.ensureServiceRunning(ctx)
@@ -99,6 +101,7 @@ object RecordingSession {
     fun pause() {
         if (state != State.RECORDING) return
         state = State.PAUSED
+        pauseStartedAt = SystemClock.elapsedRealtime()
         // 暂停时移除捕获层，避免干扰用户在其他 App 的正常操作
         RecordingCaptureOverlay.hide()
         FloatingBallService.updateRecordingBallState()
@@ -109,6 +112,11 @@ object RecordingSession {
         if (state != State.PAUSED) return
         val ctx = contextRef ?: return
         state = State.RECORDING
+        // 暂停时长不计入步骤间隔：把计时基准整体后移
+        if (pauseStartedAt > 0L) {
+            lastRawTimestamp += SystemClock.elapsedRealtime() - pauseStartedAt
+            pauseStartedAt = 0L
+        }
         RecordingCaptureOverlay.show(ctx)
         FloatingBallService.updateRecordingBallState()
         Log.d(TAG, "录制继续")
@@ -203,13 +211,26 @@ object RecordingSession {
 
     // ── 结束 / 取消 ──
 
-    /** 结束录制：指令后处理 → 持久化待处理结果 → 收起悬浮球 → 打开主界面跳转结果编辑页 */
+    /** 结束录制：指令后处理 → 补齐收尾 wait → 持久化待处理结果 → 收起悬浮球 → 打开主界面跳转结果编辑页 */
     fun finish() {
         if (state == State.IDLE) return
         val ctx = contextRef ?: return
+        val wasPaused = state == State.PAUSED
         state = State.FINISHED
         RecordingCaptureOverlay.hide()
-        val steps = RecordingPostProcessor.process(rawSteps, mode, captureColors)
+        val steps = RecordingPostProcessor.process(rawSteps, mode, captureColors).toMutableList()
+        // 收尾等待：最后一步到点"结束"的间隔没有任何步骤承载，补为 wait，
+        // 否则宏循环播放时最后一轮到第一轮之间的节拍会丢失
+        if (rawSteps.isNotEmpty() && lastRawTimestamp > 0L) {
+            val now = SystemClock.elapsedRealtime()
+            // 从暂停状态直接结束时，暂停时长不计入收尾等待
+            val reference = if (wasPaused && pauseStartedAt > 0L) pauseStartedAt else now
+            val trailing = (reference - lastRawTimestamp).coerceIn(0L, 600_000L)
+            // 过短的收尾间隔视为"录完即停"，不生成 wait 噪音
+            if (trailing >= 500L) {
+                steps.add(mapOf("type" to "wait", "duration" to trailing))
+            }
+        }
         persistResult(ctx, steps)
         FloatingBallService.endRecordingMode(restoreDefaultBall = defaultBallVisibleBefore)
         Log.d(TAG, "录制结束，共 ${steps.size} 步")
