@@ -263,8 +263,9 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
                 )
 
                 if (RecordingSession.isRecording()) {
-                    if (RecordingSession.gestureMode) {
-                        // 手势模式：捕获层回放的点击，补全最近一次坐标点击为 clickNode
+                    if (RecordingSession.gestureMode || RecordingSession.shizukuMode) {
+                        // 手势/Shizuku 模式：由捕获层/Shizuku 记录原始坐标点击，
+                        // 这里用真实节点信息补全最近一次坐标点击为 clickNode
                         RecordingSession.enrichLastClick(
                             target.filterValues { it != null },
                             centerX,
@@ -287,7 +288,7 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
                 source.getBoundsInScreen(bounds)
                 val centerX = (bounds.left + bounds.right) / 2
                 val centerY = (bounds.top + bounds.bottom) / 2
-                if (RecordingSession.isRecording() && !RecordingSession.gestureMode) {
+                if (RecordingSession.isRecording() && !RecordingSession.gestureMode && !RecordingSession.shizukuMode) {
                     RecordingSession.onLongPressCaptured(centerX, centerY, 600L)
                 }
             }
@@ -299,7 +300,7 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
                 val centerY = (bounds.top + bounds.bottom) / 2
                 val deltaX = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) event.scrollDeltaX else 0
                 val deltaY = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) event.scrollDeltaY else 0
-                if (RecordingSession.isRecording() && !RecordingSession.gestureMode) {
+                if (RecordingSession.isRecording() && !RecordingSession.gestureMode && !RecordingSession.shizukuMode) {
                     RecordingSession.onScrollCaptured(centerX, centerY, deltaX, deltaY, packageName)
                 }
             }

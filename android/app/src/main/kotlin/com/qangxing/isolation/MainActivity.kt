@@ -232,10 +232,22 @@ class MainActivity : FlutterFragmentActivity() {
                     val minClickIntervalMs = (call.argument<Int>("minClickIntervalMs") ?: 100).toLong()
                     val replayGestures = call.argument<Boolean>("replayGestures") ?: true
                     val gestureMode = call.argument<Boolean>("gestureMode") ?: false
+                    val shizukuMode = call.argument<Boolean>("shizukuMode") ?: false
                     val started = RecordingSession.start(
-                        this, mode, captureColors, recordSystemKeys, minClickIntervalMs, replayGestures, gestureMode
+                        this, mode, captureColors, recordSystemKeys, minClickIntervalMs, replayGestures, gestureMode, shizukuMode
                     )
                     result.success(started)
+                }
+                "checkShizukuState" -> {
+                    result.success(ShizukuHelper.currentState(this).code)
+                }
+                "requestShizukuPermission" -> {
+                    ShizukuHelper.requestPermission()
+                    result.success(true)
+                }
+                "openShizuku" -> {
+                    ShizukuHelper.openShizuku(this)
+                    result.success(true)
                 }
                 "pauseRecording" -> {
                     RecordingSession.pause()

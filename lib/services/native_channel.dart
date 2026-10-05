@@ -201,7 +201,8 @@ class NativeChannel {
   /// 开始录制会话。返回是否成功启动。
   ///
   /// [gestureMode] 为 true 时挂载全屏手势捕获层，背景不可直接点击，但能录滑动/拖拽；
-  /// 为 false 时通过辅助服务监听节点事件，背景可正常交互。
+  /// [shizukuMode] 为 true 时通过 Shizuku 读取系统输入事件，背景可正常交互且能录滑动。
+  /// 两者同时开启时 Shizuku 模式优先。
   static Future<bool> startRecordingSession({
     String mode = 'simple',
     bool captureColors = false,
@@ -209,6 +210,7 @@ class NativeChannel {
     int minClickIntervalMs = 100,
     bool replayGestures = true,
     bool gestureMode = false,
+    bool shizukuMode = false,
   }) async {
     try {
       final result = await _channel.invokeMethod<bool>('startRecordingSession', {
@@ -218,10 +220,39 @@ class NativeChannel {
         'minClickIntervalMs': minClickIntervalMs,
         'replayGestures': replayGestures,
         'gestureMode': gestureMode,
+        'shizukuMode': shizukuMode,
       });
       return result ?? false;
     } catch (e) {
       return false;
+    }
+  }
+
+  /// 检查 Shizuku 状态。
+  /// 返回 0=就绪，1=未安装，2=服务未运行，3=未授权。
+  static Future<int> checkShizukuState() async {
+    try {
+      return await _channel.invokeMethod<int>('checkShizukuState') ?? 1;
+    } catch (e) {
+      return 1;
+    }
+  }
+
+  /// 请求 Shizuku 授权。
+  static Future<void> requestShizukuPermission() async {
+    try {
+      await _channel.invokeMethod('requestShizukuPermission');
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  /// 打开 Shizuku 应用（未安装时跳转到官网）。
+  static Future<void> openShizuku() async {
+    try {
+      await _channel.invokeMethod('openShizuku');
+    } catch (e) {
+      // Ignore
     }
   }
 

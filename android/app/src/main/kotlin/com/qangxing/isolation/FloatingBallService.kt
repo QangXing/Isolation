@@ -13,6 +13,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.util.TypedValue
@@ -96,6 +97,27 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
         /** 获取当前运行的服务实例，用于在前台服务上下文中初始化屏幕录制。 */
         fun getInstance(): FloatingBallService? = instance
+
+        /**
+         * 返回当前录制悬浮球的屏幕排除区域（主球 + 已展开的副球）。
+         * Shizuku 高级录制模式读取系统输入事件时，需要过滤掉落在录制球上的触摸，
+         * 避免把暂停/结束等操作误录为宏步骤。
+         */
+        fun getRecordingBallExclusionRects(): List<Rect> {
+            val svc = instance ?: return emptyList()
+            val out = mutableListOf<Rect>()
+            svc.recordingMainBall.params?.let { p ->
+                out.add(Rect(p.x, p.y, p.x + p.width, p.y + p.height))
+            }
+            if (svc.recordingSubBallsVisible) {
+                svc.recordingSubViews.forEach { ball ->
+                    ball.params?.let { p ->
+                        out.add(Rect(p.x, p.y, p.x + p.width, p.y + p.height))
+                    }
+                }
+            }
+            return out
+        }
 
         /**
          * 当前是否存在可显示气泡的悬浮球 overlay。

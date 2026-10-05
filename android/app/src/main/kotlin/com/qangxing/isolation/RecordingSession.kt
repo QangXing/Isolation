@@ -46,6 +46,10 @@ object RecordingSession {
     var gestureMode: Boolean = false
         private set
 
+    /** 是否使用 Shizuku 高级录制（读取系统输入事件）。与手势捕获层互斥。 */
+    var shizukuMode: Boolean = false
+        private set
+
     /** 录制的原始步骤（含时间戳，供 [RecordingPostProcessor] 按模式产出 DSL 指令） */
     data class RawStep(
         val timestamp: Long,
@@ -75,7 +79,8 @@ object RecordingSession {
         recordSystemKeys: Boolean,
         minClickIntervalMs: Long,
         replayGestures: Boolean,
-        gestureMode: Boolean = false
+        gestureMode: Boolean = false,
+        shizukuMode: Boolean = false
     ): Boolean {
         if (state == State.RECORDING || state == State.PAUSED) return false
         contextRef = ctx.applicationContext
@@ -85,7 +90,9 @@ object RecordingSession {
         this.recordSystemKeys = recordSystemKeys
         this.minClickIntervalMs = minClickIntervalMs.coerceAtLeast(0L)
         this.replayGestures = replayGestures
-        this.gestureMode = gestureMode
+        // Shizuku 模式与手势捕获层互斥：优先使用 Shizuku 系统输入事件
+        this.shizukuMode = shizukuMode
+        this.gestureMode = gestureMode && !shizukuMode
         rawSteps.clear()
         lastClickStep = null
         lastRawTimestamp = 0L
@@ -95,14 +102,20 @@ object RecordingSession {
         FloatingBallService.ensureServiceRunning(ctx)
         // 先收起可能存在的默认悬浮球，避免与录制球重叠，结束后再恢复
         defaultBallVisibleBefore = FloatingBallService.hideDefaultBallForRecording()
-        // 手势模式下挂载全屏捕获层（录制滑动/拖拽等原始坐标），否则靠辅助服务监听节点事件
-        if (gestureMode) {
+        // 手势模式下挂载全屏捕获层；Shizuku 模式下直接读取系统输入事件，不需要覆盖层
+        if (shizukuMode) {
+            if (!ShizukuInputRecorder.start(ctx)) {
+                // Shizuku 未就绪，恢复默认悬浮球并放弃本次录制
+                FloatingBallService.endRecordingMode(restoreDefaultBall = defaultBallVisibleBefore)
+                return false
+            }
+        } else if (gestureMode) {
             RecordingCaptureOverlay.show(ctx)
         }
         FloatingBallService.ensureRecordingBalls(ctx)
 
         state = State.RECORDING
-        Log.d(TAG, "录制开始 mode=$mode captureColors=$captureColors gestureMode=$gestureMode")
+        Log.d(TAG, "录制开始 mode=$mode captureColors=$captureColors gestureMode=$gestureMode shizukuMode=$shizukuMode")
         return true
     }
 
@@ -110,9 +123,10 @@ object RecordingSession {
         if (state != State.RECORDING) return
         state = State.PAUSED
         pauseStartedAt = SystemClock.elapsedRealtime()
-        // 手势模式暂停时移除捕获层，避免干扰用户在其他 App 的正常操作
-        if (gestureMode) {
-            RecordingCaptureOverlay.hide()
+        // 手势模式暂停时移除捕获层；Shizuku 模式暂停时停止输入事件监听
+        when {
+            shizukuMode -> ShizukuInputRecorder.stop()
+            gestureMode -> RecordingCaptureOverlay.hide()
         }
         FloatingBallService.updateRecordingBallState()
         Log.d(TAG, "录制暂停")
@@ -127,8 +141,9 @@ object RecordingSession {
             lastRawTimestamp += SystemClock.elapsedRealtime() - pauseStartedAt
             pauseStartedAt = 0L
         }
-        if (gestureMode) {
-            RecordingCaptureOverlay.show(ctx)
+        when {
+            shizukuMode -> ShizukuInputRecorder.start(ctx)
+            gestureMode -> RecordingCaptureOverlay.show(ctx)
         }
         FloatingBallService.updateRecordingBallState()
         Log.d(TAG, "录制继续")
@@ -285,6 +300,8 @@ object RecordingSession {
         val ctx = contextRef ?: return
         val wasPaused = state == State.PAUSED
         state = State.FINISHED
+        // 统一清理：Shizuku 输入监听 / 全屏手势捕获层
+        ShizukuInputRecorder.stop()
         RecordingCaptureOverlay.hide()
         val steps = RecordingPostProcessor.process(rawSteps, mode, captureColors).toMutableList()
         // 收尾等待：最后一步到点"结束"的间隔没有任何步骤承载，补为 wait，
@@ -309,6 +326,7 @@ object RecordingSession {
     fun cancel() {
         if (state == State.IDLE && rawSteps.isEmpty()) return
         state = State.IDLE
+        ShizukuInputRecorder.stop()
         RecordingCaptureOverlay.hide()
         FloatingBallService.endRecordingMode(restoreDefaultBall = defaultBallVisibleBefore)
         rawSteps.clear()
@@ -321,7 +339,9 @@ object RecordingSession {
         return mapOf(
             "state" to state.name.lowercase(),
             "stepCount" to rawSteps.size,
-            "mode" to mode.name.lowercase()
+            "mode" to mode.name.lowercase(),
+            "shizukuMode" to shizukuMode,
+            "gestureMode" to gestureMode
         )
     }
 

@@ -29,12 +29,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
   double _minClickIntervalMs = 100;
   bool _replayGestures = true;
   bool _gestureMode = false;
+  bool _shizukuMode = false;
 
   // ── 录制状态（由 getRecordingState 轮询） ──
   String _sessionState = 'idle'; // idle | recording | paused | finished
   int _stepCount = 0;
   Timer? _pollTimer;
   bool _resultHandled = false;
+
+  // ── Shizuku 状态 ──
+  /// 0=就绪，1=未安装，2=服务未运行，3=未授权
+  int _shizukuState = 1;
 
   // ── 结果编辑 ──
   bool _showEditor = false;
@@ -49,6 +54,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   void initState() {
     super.initState();
     _codeController = TextEditingController();
+    _refreshShizukuState();
     final initial = widget.initialSteps;
     if (initial != null && initial.isNotEmpty) {
       _steps = List.from(initial);
@@ -62,6 +68,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
     if (!_showEditor) {
       _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) => _pollSession());
     }
+  }
+
+  Future<void> _refreshShizukuState() async {
+    final state = await NativeChannel.checkShizukuState();
+    if (mounted) setState(() => _shizukuState = state);
   }
 
   @override
@@ -140,6 +151,13 @@ class _RecordingScreenState extends State<RecordingScreen> {
       await NativeChannel.requestAccessibilityPermission();
       return;
     }
+    if (_shizukuMode) {
+      await _refreshShizukuState();
+      if (_shizukuState != 0) {
+        _showShizukuGuide(_shizukuState);
+        return;
+      }
+    }
     final started = await NativeChannel.startRecordingSession(
       mode: _complexMode ? 'complex' : 'simple',
       captureColors: _captureColors,
@@ -147,6 +165,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       minClickIntervalMs: _minClickIntervalMs.round(),
       replayGestures: _replayGestures,
       gestureMode: _gestureMode,
+      shizukuMode: _shizukuMode,
     );
     if (!mounted) return;
     if (started) {
@@ -165,11 +184,65 @@ class _RecordingScreenState extends State<RecordingScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('无法开始录制，请检查悬浮窗与辅助功能权限'),
+          content: Text('无法开始录制，请检查悬浮窗、辅助功能与 Shizuku 授权'),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.redAccent,
         ),
       );
+    }
+  }
+
+  void _showShizukuGuide(int state) {
+    String message;
+    String actionLabel;
+    VoidCallback action;
+    switch (state) {
+      case 1:
+        message = 'Shizuku 未安装，需要它来读取系统输入事件';
+        actionLabel = '去安装';
+        action = () { NativeChannel.openShizuku(); };
+      case 2:
+        message = 'Shizuku 服务未运行，请先启动';
+        actionLabel = '打开 Shizuku';
+        action = () { NativeChannel.openShizuku(); };
+      case 3:
+        message = 'Shizuku 未授权，请在弹窗中允许';
+        actionLabel = '授权';
+        action = () { NativeChannel.requestShizukuPermission(); };
+      default:
+        message = 'Shizuku 状态异常';
+        actionLabel = '打开 Shizuku';
+        action = () { NativeChannel.openShizuku(); };
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.redAccent,
+        action: SnackBarAction(
+          label: actionLabel,
+          textColor: Colors.white,
+          onPressed: action,
+        ),
+      ),
+    );
+  }
+
+  void _showShizukuGuideFromTile() => _showShizukuGuide(_shizukuState);
+
+  String _shizukuStateLabel(int state) {
+    switch (state) {
+      case 0:
+        return 'Shizuku 已就绪';
+      case 1:
+        return 'Shizuku 未安装';
+      case 2:
+        return 'Shizuku 服务未运行';
+      case 3:
+        return 'Shizuku 未授权';
+      default:
+        return 'Shizuku 状态未知';
     }
   }
 
@@ -344,8 +417,62 @@ class _RecordingScreenState extends State<RecordingScreen> {
                 title: '手势模式',
                 subtitle: '开启后挂载全屏捕获层，可录滑动/拖拽，但背景无法直接点击',
                 value: _gestureMode,
-                onChanged: (v) => setState(() => _gestureMode = v),
+                onChanged: (v) => setState(() {
+                  _gestureMode = v;
+                  if (v) _shizukuMode = false;
+                }),
               ),
+              const Divider(height: 1),
+              _SwitchRow(
+                title: 'Shizuku 高级模式',
+                subtitle: '通过 Shizuku 读取系统输入事件，背景可正常点击且能录滑动（需安装并授权 Shizuku）',
+                value: _shizukuMode,
+                onChanged: (v) => setState(() {
+                  _shizukuMode = v;
+                  if (v) {
+                    _gestureMode = false;
+                    _refreshShizukuState();
+                  }
+                }),
+              ),
+              if (_shizukuMode)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 16, bottom: 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _shizukuState == 0 ? Colors.green : Colors.orange,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _shizukuStateLabel(_shizukuState),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.black.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
+                      if (_shizukuState != 0)
+                        GestureDetector(
+                          onTap: _showShizukuGuideFromTile,
+                          child: Text(
+                            '去处理',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.redAccent.withValues(alpha: 0.9),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               const Divider(height: 1),
               _SwitchRow(
                 title: '颜色捕获',
