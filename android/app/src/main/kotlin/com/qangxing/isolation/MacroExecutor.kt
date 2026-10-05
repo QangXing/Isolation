@@ -421,25 +421,34 @@ class MacroExecutor(
             return false
         }
 
-        if (timeout <= 0) {
-            if (assignTo != null) variables[assignTo] = Variable.Number(1.0)
-            return true
+        val launched = if (timeout <= 0) {
+            // 不等待：发出启动 Intent 即视为成功
+            true
+        } else {
+            val start = SystemClock.elapsedRealtime()
+            var appeared = false
+            while (!stopRequested) {
+                if (service.rootInActiveWindow?.packageName?.toString() == packageName) {
+                    appeared = true
+                    break
+                }
+                Thread.sleep(200)
+                if (SystemClock.elapsedRealtime() - start >= timeout) {
+                    break
+                }
+            }
+            appeared
         }
+        if (assignTo != null) variables[assignTo] = Variable.Number(if (launched) 1.0 else 0.0)
 
-        val start = SystemClock.elapsedRealtime()
-        var success = false
-        while (!stopRequested) {
-            if (service.rootInActiveWindow?.packageName?.toString() == packageName) {
-                success = true
-                break
-            }
-            Thread.sleep(200)
-            if (SystemClock.elapsedRealtime() - start >= timeout) {
-                break
+        // launch(...) { children }：启动成功（或等待命中）后执行子指令，与 findText 命中进块一致
+        if (launched) {
+            val children = (step["children"] as? List<*>)?.mapNotNull { it as? Map<String, Any> }
+            if (!children.isNullOrEmpty()) {
+                executeSteps(children)
             }
         }
-        if (assignTo != null) variables[assignTo] = Variable.Number(if (success) 1.0 else 0.0)
-        return success
+        return launched
     }
 
     /**
