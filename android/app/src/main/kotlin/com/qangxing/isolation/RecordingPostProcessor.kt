@@ -21,6 +21,8 @@ object RecordingPostProcessor {
             val delay = (step["delay"] as? Number)?.toLong() ?: 0L
             when (type) {
                 "click", "clickNode" -> out.add(buildClickStep(step, delay, mode, captureColors))
+                // 录制中的"标记"落为一条 print 注释步骤，便于在编辑页定位；不带 delay，不打乱后续节奏
+                "mark" -> out.add(mapOf("type" to "print", "message" to "▶ ${step["name"] ?: "标记"}"))
                 "longPressAt", "swipe" -> out.add(nonNull(step))
                 "back", "home" -> {
                     out.add(nonNull(step))

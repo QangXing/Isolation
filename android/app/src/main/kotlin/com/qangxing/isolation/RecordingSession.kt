@@ -156,6 +156,16 @@ object RecordingSession {
         addStep(step, now)
     }
 
+    /** 录制悬浮球"标记"按钮：在脚本中插入一个 print 标记步骤，便于后期在编辑页定位关键节点。 */
+    fun addMark() {
+        if (!isRecording()) return
+        val now = SystemClock.elapsedRealtime()
+        val step = newStep(now)
+        step["type"] = "mark"
+        step["name"] = "标记 ${rawSteps.count { it.step["type"] == "mark" } + 1}"
+        addStep(step, now)
+    }
+
     /** 系统键（back/home）：由辅助服务检测到返回键 / Home 键按下时调用 */
     fun onSystemKey(type: String) {
         if (!isRecording()) return
@@ -259,9 +269,9 @@ object RecordingSession {
 
     // ── 内部 ──
 
-    /** 生成步骤并计算与上一步的间隔（delay，即回放时等待的毫秒数） */
+    /** 生成步骤并计算与上一步的间隔（delay，即回放时等待的毫秒数）。上限放宽到 10 分钟，确保长等待被精确记录。 */
     private fun newStep(now: Long): MutableMap<String, Any?> {
-        val delay = if (lastRawTimestamp == 0L) 0L else (now - lastRawTimestamp).coerceIn(0L, 60_000L)
+        val delay = if (lastRawTimestamp == 0L) 0L else (now - lastRawTimestamp).coerceIn(0L, 600_000L)
         lastRawTimestamp = now
         return mutableMapOf("type" to "", "delay" to delay)
     }
