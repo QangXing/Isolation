@@ -345,4 +345,48 @@ audio("ding.mp3")'''.trim();
     final serialized = MacroProgramParser.serialize(parsed).trim();
     expect(serialized, code);
   });
+
+  test('ball animation presets round-trip', () {
+    final code = '''bounce("main")
+shake("main", 24, 500)
+pulse("helper", 1.2)'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 3);
+    expect(parsed[0]['type'], 'bounce');
+    expect(parsed[0]['name'], 'main');
+    expect(parsed[0].containsKey('height'), isFalse);
+    expect(parsed[1]['type'], 'shake');
+    expect(parsed[1]['amplitude'], 24);
+    expect(parsed[1]['duration'], 500);
+    expect(parsed[2]['type'], 'pulse');
+    expect(parsed[2]['name'], 'helper');
+    expect(parsed[2]['scale'], 1.2);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('animate command round-trip', () {
+    final code = 'animate("main", "x", 500, 300, "overshoot")';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    final step = parsed.first;
+    expect(step['type'], 'animate');
+    expect(step['name'], 'main');
+    expect(step['property'], 'x');
+    expect(step['to'], 500);
+    expect(step['duration'], 300);
+    expect(step['easing'], 'overshoot');
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('animate with expression target round-trip', () {
+    final code = 'animate("helper", "y", y + 100, 200)';
+    final parsed = MacroProgramParser.parse(code);
+    final step = parsed.first;
+    expect(step['type'], 'animate');
+    expect(step['easing'], '');
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
 }

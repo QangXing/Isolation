@@ -147,6 +147,49 @@ location("helper", found("mainBall", x) + 100, found("mainBall", y))
 - 第二个参数只能是字面量 `x` 或 `y`。
 - 返回值可赋值给变量，也可直接用于表达式。
 
+### 5.4 动画指令
+
+与录制悬浮球同一套视觉语言，可在事件块或全局流程中对任意球播放动画。
+
+#### bounce —— 弹跳
+
+```dsl
+bounce("mainBall")
+bounce("mainBall", 60, 600)
+```
+
+垂直上移 `height`（默认 48px）后落回原位，正弦曲线，两端速度为零。
+
+#### shake —— 抖动
+
+```dsl
+shake("mainBall")
+shake("mainBall", 24, 500)
+```
+
+水平方向 3 个周期的衰减振荡，`amplitude`（默认 20px）为起始摆幅。
+
+#### pulse —— 脉冲
+
+```dsl
+pulse("mainBall")
+pulse("mainBall", 1.2, 300)
+```
+
+放大到 `scale`（默认 1.15）再恢复原状，即录制球展开时主球的提示动作。
+
+#### animate —— 通用属性动画
+
+```dsl
+animate("mainBall", "x", 500, 300, "overshoot")
+animate("helper", "alpha", 0.5, 300, "linear")
+```
+
+- 第 2 个参数为属性名：`x` / `y`（位置，跟随球会随动）、`alpha`、`scale` / `scaleX` / `scaleY`、`rotation`。
+- 第 3 个参数为目标值，支持变量与表达式。
+- 第 4 个参数为时长（毫秒，默认 300）。
+- 第 5 个参数为缓动：`linear` / `accelerate` / `decelerate` / `bounce` / `overshoot`（默认，带回弹）。
+
 ---
 
 ## 6. 事件触发指令

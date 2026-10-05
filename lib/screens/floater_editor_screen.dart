@@ -32,6 +32,7 @@ class _FloaterEditorScreenState extends State<FloaterEditorScreen> {
     status(show, "mainBall")
 
     singleClick {
+        pulse("mainBall")
         toggle("helper")
     }
 
@@ -43,6 +44,7 @@ class _FloaterEditorScreenState extends State<FloaterEditorScreen> {
     tripleClick(Turn_off_macros)
 
     longPress {
+        shake("mainBall")
         print("长按主球")
     }
 }
@@ -58,6 +60,10 @@ ball(deputy, "helper") {
     follow("mainBall", 80, 0)
 
     singleClick(Launch_macro)
+
+    doubleClick {
+        bounce("helper")
+    }
 }
 ''';
 

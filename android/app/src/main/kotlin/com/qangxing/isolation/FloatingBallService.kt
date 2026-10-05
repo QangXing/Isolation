@@ -29,7 +29,12 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.BounceInterpolator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
+import kotlin.math.sin
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.widget.FrameLayout
@@ -1225,9 +1230,127 @@ class FloatingBallService : Service(), MacroExecutorListener {
             }
             "launch_macro" -> runEnabledMacro()
             "turn_off_macros" -> MacroExecutor.stopActive()
+            "bounce", "shake", "pulse", "animate" -> executeBallAnimation(step)
             "for" -> executeFloaterFor(step)
             "if" -> executeFloaterIf(step)
             else -> Log.w(TAG, "未支持的球步骤类型: ${step["type"]}")
+        }
+    }
+
+    /**
+     * 球动画指令：bounce / shake / pulse / animate。
+     * 与录制悬浮球的径向展开同一套视觉语言（ValueAnimator + Overshoot 回弹）。
+     * 位移类动画逐帧更新 WindowManager.LayoutParams，跟随球会随动；缩放类直接作用于 view。
+     */
+    private fun executeBallAnimation(step: Map<String, Any>) {
+        val name = step["name"] as? String ?: return
+        val ball = pluginBalls[name] ?: return
+        val view = ball.view
+        val type = step["type"] as? String ?: return
+        val defaultDuration = when (type) {
+            "bounce" -> 600
+            "shake" -> 500
+            else -> 300
+        }
+        val duration = resolveIntValue(step["duration"], defaultDuration).coerceAtLeast(0).toLong()
+        when (type) {
+            // 弹跳：垂直上移 height 后落回原位（正弦曲线，两端速度为零）
+            "bounce" -> {
+                val height = resolveFloatValue(step["height"], 48f)
+                val startY = ball.params.y
+                ValueAnimator.ofFloat(0f, 1f).apply {
+                    this.duration = duration
+                    interpolator = LinearInterpolator()
+                    addUpdateListener { anim ->
+                        val f = anim.animatedValue as Float
+                        val offset = (-height * sin(Math.PI * f)).toInt()
+                        updatePluginBallPosition(name, ball.params.x, startY + offset)
+                    }
+                    start()
+                }
+            }
+            // 抖动：水平方向 3 个周期的衰减振荡
+            "shake" -> {
+                val amplitude = resolveFloatValue(step["amplitude"], 20f)
+                val startX = ball.params.x
+                ValueAnimator.ofFloat(0f, 1f).apply {
+                    this.duration = duration
+                    interpolator = LinearInterpolator()
+                    addUpdateListener { anim ->
+                        val f = anim.animatedValue as Float
+                        val offset = (amplitude * (1f - f) * sin(6 * Math.PI * f)).toInt()
+                        updatePluginBallPosition(name, startX + offset, ball.params.y)
+                    }
+                    start()
+                }
+            }
+            // 脉冲：放大到 scale 再恢复（录制球展开时主球的提示动作）
+            "pulse" -> {
+                val target = resolveFloatValue(step["scale"], 1.15f)
+                ValueAnimator.ofFloat(0f, 1f).apply {
+                    this.duration = duration
+                    interpolator = LinearInterpolator()
+                    addUpdateListener { anim ->
+                        val f = anim.animatedValue as Float
+                        val s = 1f + (target - 1f) * sin(Math.PI * f).toFloat()
+                        view.scaleX = s
+                        view.scaleY = s
+                    }
+                    start()
+                }
+            }
+            // 通用属性动画：animate("球名", "属性", 目标值, 时长, 缓动)
+            "animate" -> {
+                val property = (step["property"] as? String)?.lowercase() ?: return
+                val interpolator = when ((step["easing"] as? String)?.lowercase()) {
+                    "linear" -> LinearInterpolator()
+                    "accelerate" -> AccelerateInterpolator()
+                    "decelerate" -> DecelerateInterpolator()
+                    "bounce" -> BounceInterpolator()
+                    else -> OvershootInterpolator(1.6f)
+                }
+                when (property) {
+                    "x", "y" -> {
+                        val from = if (property == "x") ball.params.x else ball.params.y
+                        val to = resolveIntValue(step["to"], from)
+                        ValueAnimator.ofInt(from, to).apply {
+                            this.duration = duration
+                            this.interpolator = interpolator
+                            addUpdateListener { anim ->
+                                val v = anim.animatedValue as Int
+                                if (property == "x") updatePluginBallPosition(name, v, ball.params.y)
+                                else updatePluginBallPosition(name, ball.params.x, v)
+                            }
+                            start()
+                        }
+                    }
+                    "alpha" -> view.animate().alpha(resolveFloatValue(step["to"], 1f))
+                        .setDuration(duration).setInterpolator(interpolator).start()
+                    "scale", "scalex", "scaley" -> {
+                        val to = resolveFloatValue(step["to"], 1f)
+                        val animator = view.animate().setDuration(duration).setInterpolator(interpolator)
+                        if (property != "scaley") animator.scaleX(to)
+                        if (property != "scalex") animator.scaleY(to)
+                        animator.start()
+                    }
+                    "rotation" -> view.animate().rotation(resolveFloatValue(step["to"], 0f))
+                        .setDuration(duration).setInterpolator(interpolator).start()
+                    else -> Log.w(TAG, "不支持的球动画属性: $property")
+                }
+            }
+        }
+    }
+
+    private fun resolveFloatValue(value: Any?, defaultValue: Float): Float {
+        return when (value) {
+            is Number -> value.toFloat()
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val expr = value as Map<String, Any>
+                val result = ExpressionEvaluator.evaluate(expr, pluginVariables)
+                (result as? Variable.Number)?.value?.toFloat() ?: defaultValue
+            }
+            else -> defaultValue
         }
     }
 

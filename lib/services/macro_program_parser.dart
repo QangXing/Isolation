@@ -178,6 +178,29 @@ class MacroProgramParser {
         step['name'] = keyword(0) ?? '';
         step['axis'] = keyword(1) ?? '';
         break;
+      // ── 球动画指令（与录制悬浮球同一套视觉语言） ──
+      case 'bounce':
+        step['name'] = keyword(0) ?? '';
+        if (positional.length > 1) step['height'] = positional[1];
+        if (positional.length > 2) step['duration'] = positional[2];
+        break;
+      case 'shake':
+        step['name'] = keyword(0) ?? '';
+        if (positional.length > 1) step['amplitude'] = positional[1];
+        if (positional.length > 2) step['duration'] = positional[2];
+        break;
+      case 'pulse':
+        step['name'] = keyword(0) ?? '';
+        if (positional.length > 1) step['scale'] = positional[1];
+        if (positional.length > 2) step['duration'] = positional[2];
+        break;
+      case 'animate':
+        step['name'] = keyword(0) ?? '';
+        step['property'] = keyword(1) ?? '';
+        if (positional.length > 2) step['to'] = positional[2];
+        if (positional.length > 3) step['duration'] = positional[3];
+        step['easing'] = keyword(4) ?? '';
+        break;
     }
 
     if (step['children'] is List) {
@@ -694,9 +717,44 @@ class MacroProgramParser {
       case 'found':
         buffer.writeln('${indent}found(${_serializeArgValue(step['name'])}, ${_serializeArgValue(step['axis'])})');
         break;
+      case 'bounce':
+        _serializeBallAnim(step, indent, buffer, 'bounce', 'height');
+        break;
+      case 'shake':
+        _serializeBallAnim(step, indent, buffer, 'shake', 'amplitude');
+        break;
+      case 'pulse':
+        _serializeBallAnim(step, indent, buffer, 'pulse', 'scale');
+        break;
+      case 'animate':
+        final animArgs = <String>[
+          _serializeArgValue(step['name']),
+          _serializeArgValue(step['property']),
+        ];
+        if (step['to'] != null) animArgs.add(_serializeExprValue(step['to']));
+        if (step['duration'] != null) {
+          animArgs.add(_serializeExprValue(step['duration']));
+        }
+        final easing = step['easing'] as String?;
+        if (easing != null && easing.isNotEmpty) {
+          animArgs.add(_serializeArgValue(easing));
+        }
+        buffer.writeln('${indent}animate(${animArgs.join(', ')})');
+        break;
       default:
         buffer.writeln('${indent}// 未知指令: $type');
     }
+  }
+
+  /// 序列化 bounce / shake / pulse 这类 "球名 + 可选幅度 + 可选时长" 的动画指令。
+  static void _serializeBallAnim(Map<String, dynamic> step, String indent,
+      StringBuffer buffer, String type, String amountKey) {
+    final args = <String>[_serializeArgValue(step['name'])];
+    if (step[amountKey] != null) args.add(_serializeExprValue(step[amountKey]));
+    if (step['duration'] != null) {
+      args.add(_serializeExprValue(step['duration']));
+    }
+    buffer.writeln('$indent$type(${args.join(', ')})');
   }
 
   static void _serializeFindLike(
