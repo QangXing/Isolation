@@ -80,6 +80,9 @@ class MacroProgramParser {
       case 'swipeRel':
         assign(['fromX', 'fromY', 'dx', 'dy', 'duration']);
         break;
+      case 'scroll':
+        assign(['x', 'y', 'deltaX', 'deltaY']);
+        break;
       case 'longPressAt':
         if (positional.length == 1) {
           throw MacroParseError('longPressAt 需要 0、2 或 3 个参数', 0);
@@ -446,6 +449,21 @@ class MacroProgramParser {
         }
         break;
 
+      case 'scroll':
+        // 录制产生的 scroll 暂转为 swipe 执行：从滚动中心按 delta 反方向滑动
+        final x = (step['x'] as num?)?.toInt() ?? 0;
+        final y = (step['y'] as num?)?.toInt() ?? 0;
+        final deltaX = (step['deltaX'] as num?)?.toInt() ?? 0;
+        final deltaY = (step['deltaY'] as num?)?.toInt() ?? 0;
+        result = {
+          'type': 'swipe',
+          'start': {'x': x, 'y': y},
+          'end': {'x': x - deltaX, 'y': y - deltaY},
+          'duration': step['duration'] ?? 300,
+          if (delay != null) 'delay': delay,
+        };
+        break;
+
       default:
         result = Map<String, dynamic>.from(step);
     }
@@ -561,6 +579,15 @@ class MacroProgramParser {
         break;
       case 'longPressAt':
         _serializeLongPressAt(step, indent, buffer);
+        break;
+      case 'scroll':
+        final args = <String>[
+          'x=${step['x']}',
+          'y=${step['y']}',
+          'deltaX=${step['deltaX']}',
+          'deltaY=${step['deltaY']}',
+        ];
+        buffer.writeln('${indent}scroll(${args.join(', ')})');
         break;
       case 'input':
         buffer.writeln('${indent}input(${_serializeArgValue(step['text'])})');

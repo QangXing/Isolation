@@ -231,8 +231,9 @@ class MainActivity : FlutterFragmentActivity() {
                     val recordSystemKeys = call.argument<Boolean>("recordSystemKeys") ?: true
                     val minClickIntervalMs = (call.argument<Int>("minClickIntervalMs") ?: 100).toLong()
                     val replayGestures = call.argument<Boolean>("replayGestures") ?: true
+                    val gestureMode = call.argument<Boolean>("gestureMode") ?: false
                     val started = RecordingSession.start(
-                        this, mode, captureColors, recordSystemKeys, minClickIntervalMs, replayGestures
+                        this, mode, captureColors, recordSystemKeys, minClickIntervalMs, replayGestures, gestureMode
                     )
                     result.success(started)
                 }

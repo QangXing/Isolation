@@ -29,6 +29,7 @@ class MacroSyntaxHighlighter {
     'click',
     'swipe',
     'swipeRel',
+    'scroll',
     'input',
     'back',
     'home',

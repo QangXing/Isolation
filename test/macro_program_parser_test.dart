@@ -179,5 +179,37 @@ ball(main, "mainBall") {
       expect(step['size'], 80);
       expect(step['opacity'], 0.8);
     });
+
+    test('scroll parse and serialize', () {
+      const code = 'scroll(x=100, y=200, deltaX=0, deltaY=-300)';
+      final parsed = MacroProgramParser.parse(code);
+      expect(parsed.length, 1);
+      final step = parsed.first;
+      expect(step['type'], 'scroll');
+      expect(step['x'], 100);
+      expect(step['y'], 200);
+      expect(step['deltaX'], 0);
+      expect(step['deltaY'], -300);
+      expect(MacroProgramParser.serialize(parsed).trim(), code);
+    });
+
+    test('convertLegacySteps converts scroll to swipe', () {
+      final steps = [
+        {
+          'type': 'scroll',
+          'x': 500,
+          'y': 800,
+          'deltaX': 0,
+          'deltaY': 400,
+          'duration': 300,
+        }
+      ];
+      final converted = MacroProgramParser.convertLegacySteps(steps);
+      expect(converted.length, 1);
+      final step = converted.first;
+      expect(step['type'], 'swipe');
+      expect(step['start'], {'x': 500, 'y': 800});
+      expect(step['end'], {'x': 500, 'y': 400});
+    });
   });
 }

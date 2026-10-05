@@ -243,29 +243,66 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
-        if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) return
-
-        val source = event.source ?: return
         val packageName = event.packageName?.toString() ?: return
         if (packageName == this@InputAccessibilityService.packageName) return
 
-        val bounds = Rect()
-        source.getBoundsInScreen(bounds)
-        val centerX = (bounds.left + bounds.right) / 2
-        val centerY = (bounds.top + bounds.bottom) / 2
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                val source = event.source ?: return
+                val bounds = Rect()
+                source.getBoundsInScreen(bounds)
+                val centerX = (bounds.left + bounds.right) / 2
+                val centerY = (bounds.top + bounds.bottom) / 2
+                val target = mutableMapOf<String, Any?>(
+                    "resourceId" to source.viewIdResourceName,
+                    "text" to (source.text?.toString()),
+                    "contentDescription" to (source.contentDescription?.toString()),
+                    "className" to (source.className?.toString()),
+                    "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                    "packageName" to packageName
+                )
 
-        // 录制会话进行中：捕获层点击回放产生的节点事件，用于补全最近一次点击（复杂模式升级为 clickNode）
-        if (RecordingSession.isRecording()) {
-            val target = mutableMapOf<String, Any?>(
-                "resourceId" to source.viewIdResourceName,
-                "text" to (source.text?.toString()),
-                "contentDescription" to (source.contentDescription?.toString()),
-                "className" to (source.className?.toString()),
-                "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
-                "packageName" to packageName
-            )
-            RecordingSession.enrichLastClick(target.filterValues { it != null }, centerX, centerY)
-            return
+                if (RecordingSession.isRecording()) {
+                    if (RecordingSession.gestureMode) {
+                        // 手势模式：捕获层回放的点击，补全最近一次坐标点击为 clickNode
+                        RecordingSession.enrichLastClick(
+                            target.filterValues { it != null },
+                            centerX,
+                            centerY
+                        )
+                    } else {
+                        // 普通模式：直接由节点事件生成点击步骤
+                        RecordingSession.onAccessibilityClickCaptured(
+                            centerX,
+                            centerY,
+                            target.filterValues { it != null },
+                            packageName
+                        )
+                    }
+                }
+            }
+            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
+                val source = event.source ?: return
+                val bounds = Rect()
+                source.getBoundsInScreen(bounds)
+                val centerX = (bounds.left + bounds.right) / 2
+                val centerY = (bounds.top + bounds.bottom) / 2
+                if (RecordingSession.isRecording() && !RecordingSession.gestureMode) {
+                    RecordingSession.onLongPressCaptured(centerX, centerY, 600L)
+                }
+            }
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                val source = event.source ?: return
+                val bounds = Rect()
+                source.getBoundsInScreen(bounds)
+                val centerX = (bounds.left + bounds.right) / 2
+                val centerY = (bounds.top + bounds.bottom) / 2
+                val deltaX = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) event.scrollDeltaX else 0
+                val deltaY = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) event.scrollDeltaY else 0
+                if (RecordingSession.isRecording() && !RecordingSession.gestureMode) {
+                    RecordingSession.onScrollCaptured(centerX, centerY, deltaX, deltaY, packageName)
+                }
+            }
         }
     }
 

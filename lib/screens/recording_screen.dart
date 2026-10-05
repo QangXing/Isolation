@@ -28,6 +28,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   bool _recordSystemKeys = true;
   double _minClickIntervalMs = 100;
   bool _replayGestures = true;
+  bool _gestureMode = false;
 
   // ── 录制状态（由 getRecordingState 轮询） ──
   String _sessionState = 'idle'; // idle | recording | paused | finished
@@ -145,6 +146,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
       recordSystemKeys: _recordSystemKeys,
       minClickIntervalMs: _minClickIntervalMs.round(),
       replayGestures: _replayGestures,
+      gestureMode: _gestureMode,
     );
     if (!mounted) return;
     if (started) {
@@ -333,9 +335,16 @@ class _RecordingScreenState extends State<RecordingScreen> {
               const Divider(height: 1),
               _SwitchRow(
                 title: '手势回放',
-                subtitle: '录制时把操作原样回放给目标 App，便于查看录制效果',
+                subtitle: '录制时把操作原样回放给目标 App，便于查看录制效果（仅手势模式生效）',
                 value: _replayGestures,
                 onChanged: (v) => setState(() => _replayGestures = v),
+              ),
+              const Divider(height: 1),
+              _SwitchRow(
+                title: '手势模式',
+                subtitle: '开启后挂载全屏捕获层，可录滑动/拖拽，但背景无法直接点击',
+                value: _gestureMode,
+                onChanged: (v) => setState(() => _gestureMode = v),
               ),
               const Divider(height: 1),
               _SwitchRow(
@@ -680,6 +689,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
         return '长按 (${step['x']}, ${step['y']})';
       case 'swipe':
         return '滑动 (${step['start']} → ${step['end']})';
+      case 'scroll':
+        final deltaX = step['deltaX'] ?? 0;
+        final deltaY = step['deltaY'] ?? 0;
+        return '滚动 @(${step['x']}, ${step['y']}) Δ($deltaX, $deltaY)';
       case 'back':
         return '返回';
       case 'home':

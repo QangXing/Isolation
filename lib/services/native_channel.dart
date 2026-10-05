@@ -198,13 +198,17 @@ class NativeChannel {
     }
   }
 
-  /// 开始录制会话（悬浮球 + 全屏手势捕获层）。返回是否成功启动。
+  /// 开始录制会话。返回是否成功启动。
+  ///
+  /// [gestureMode] 为 true 时挂载全屏手势捕获层，背景不可直接点击，但能录滑动/拖拽；
+  /// 为 false 时通过辅助服务监听节点事件，背景可正常交互。
   static Future<bool> startRecordingSession({
     String mode = 'simple',
     bool captureColors = false,
     bool recordSystemKeys = true,
     int minClickIntervalMs = 100,
     bool replayGestures = true,
+    bool gestureMode = false,
   }) async {
     try {
       final result = await _channel.invokeMethod<bool>('startRecordingSession', {
@@ -213,6 +217,7 @@ class NativeChannel {
         'recordSystemKeys': recordSystemKeys,
         'minClickIntervalMs': minClickIntervalMs,
         'replayGestures': replayGestures,
+        'gestureMode': gestureMode,
       });
       return result ?? false;
     } catch (e) {

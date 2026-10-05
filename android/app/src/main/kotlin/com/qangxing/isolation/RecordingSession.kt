@@ -42,6 +42,10 @@ object RecordingSession {
     var replayGestures: Boolean = true
         private set
 
+    /** 是否使用全屏手势捕获层。true 时背景不可直接点击，但能录滑动/拖拽等原始手势。 */
+    var gestureMode: Boolean = false
+        private set
+
     /** 录制的原始步骤（含时间戳，供 [RecordingPostProcessor] 按模式产出 DSL 指令） */
     data class RawStep(
         val timestamp: Long,
@@ -70,7 +74,8 @@ object RecordingSession {
         captureColors: Boolean,
         recordSystemKeys: Boolean,
         minClickIntervalMs: Long,
-        replayGestures: Boolean
+        replayGestures: Boolean,
+        gestureMode: Boolean = false
     ): Boolean {
         if (state == State.RECORDING || state == State.PAUSED) return false
         contextRef = ctx.applicationContext
@@ -80,6 +85,7 @@ object RecordingSession {
         this.recordSystemKeys = recordSystemKeys
         this.minClickIntervalMs = minClickIntervalMs.coerceAtLeast(0L)
         this.replayGestures = replayGestures
+        this.gestureMode = gestureMode
         rawSteps.clear()
         lastClickStep = null
         lastRawTimestamp = 0L
@@ -89,12 +95,14 @@ object RecordingSession {
         FloatingBallService.ensureServiceRunning(ctx)
         // 先收起可能存在的默认悬浮球，避免与录制球重叠，结束后再恢复
         defaultBallVisibleBefore = FloatingBallService.hideDefaultBallForRecording()
-        // 捕获层先挂载，录制球后挂载，保证触摸球时球窗口优先响应、不会落入捕获层
-        RecordingCaptureOverlay.show(ctx)
+        // 手势模式下挂载全屏捕获层（录制滑动/拖拽等原始坐标），否则靠辅助服务监听节点事件
+        if (gestureMode) {
+            RecordingCaptureOverlay.show(ctx)
+        }
         FloatingBallService.ensureRecordingBalls(ctx)
 
         state = State.RECORDING
-        Log.d(TAG, "录制开始 mode=$mode captureColors=$captureColors")
+        Log.d(TAG, "录制开始 mode=$mode captureColors=$captureColors gestureMode=$gestureMode")
         return true
     }
 
@@ -102,8 +110,10 @@ object RecordingSession {
         if (state != State.RECORDING) return
         state = State.PAUSED
         pauseStartedAt = SystemClock.elapsedRealtime()
-        // 暂停时移除捕获层，避免干扰用户在其他 App 的正常操作
-        RecordingCaptureOverlay.hide()
+        // 手势模式暂停时移除捕获层，避免干扰用户在其他 App 的正常操作
+        if (gestureMode) {
+            RecordingCaptureOverlay.hide()
+        }
         FloatingBallService.updateRecordingBallState()
         Log.d(TAG, "录制暂停")
     }
@@ -117,7 +127,9 @@ object RecordingSession {
             lastRawTimestamp += SystemClock.elapsedRealtime() - pauseStartedAt
             pauseStartedAt = 0L
         }
-        RecordingCaptureOverlay.show(ctx)
+        if (gestureMode) {
+            RecordingCaptureOverlay.show(ctx)
+        }
         FloatingBallService.updateRecordingBallState()
         Log.d(TAG, "录制继续")
     }
@@ -161,6 +173,62 @@ object RecordingSession {
         step["start"] = mapOf("x" to startX, "y" to startY)
         step["end"] = mapOf("x" to endX, "y" to endY)
         step["duration"] = duration.coerceAtLeast(50L)
+        addStep(step, now)
+    }
+
+    /**
+     * 辅助服务捕获到节点点击事件（非手势模式时使用）。
+     * 复杂模式下直接升级为 clickNode；简单模式退化为坐标 click。
+     */
+    fun onAccessibilityClickCaptured(
+        centerX: Int,
+        centerY: Int,
+        target: Map<String, Any?>,
+        sourcePackage: String
+    ) {
+        if (!isRecording()) return
+        // 避免录到自己 App 的界面
+        val ctx = contextRef ?: return
+        if (sourcePackage == ctx.packageName) return
+        val now = SystemClock.elapsedRealtime()
+        val last = lastClickStep
+        if (last != null && now - last.timestamp < minClickIntervalMs) return
+        val step = newStep(now)
+        if (mode == Mode.COMPLEX) {
+            step["type"] = "clickNode"
+            step["target"] = target.filterValues { it != null }
+            if (captureColors) {
+                val color = ScreenCaptureHelper.captureColor(ctx, centerX, centerY)
+                if (color != null) {
+                    step["color"] = mapOf("x" to centerX, "y" to centerY, "color" to color)
+                }
+            }
+        } else {
+            step["type"] = "click"
+            step["x"] = centerX
+            step["y"] = centerY
+        }
+        lastClickStep = addStep(step, now)
+    }
+
+    /** 辅助服务捕获到滚动事件，记录为 scroll 步骤。 */
+    fun onScrollCaptured(
+        centerX: Int,
+        centerY: Int,
+        deltaX: Int,
+        deltaY: Int,
+        sourcePackage: String
+    ) {
+        if (!isRecording()) return
+        val ctx = contextRef ?: return
+        if (sourcePackage == ctx.packageName) return
+        val now = SystemClock.elapsedRealtime()
+        val step = newStep(now)
+        step["type"] = "scroll"
+        step["x"] = centerX
+        step["y"] = centerY
+        step["deltaX"] = deltaX
+        step["deltaY"] = deltaY
         addStep(step, now)
     }
 
