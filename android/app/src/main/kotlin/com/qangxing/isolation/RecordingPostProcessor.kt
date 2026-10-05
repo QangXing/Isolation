@@ -15,14 +15,11 @@ object RecordingPostProcessor {
         captureColors: Boolean
     ): List<Map<String, Any>> {
         val out = mutableListOf<Map<String, Any>>()
-        for (rs in raw) {
+        for ((index, rs) in raw.withIndex()) {
             val step = rs.step
             val type = step["type"] as? String ?: continue
-            val delay = (step["delay"] as? Number)?.toLong() ?: 0L
-            // 把步骤间延迟抽成独立的 wait 步骤，让每个子指令执行前都显式有一次等待
-            if (delay > 0) {
-                out.add(mapOf("type" to "wait", "duration" to delay))
-            }
+
+            // 输出当前步骤本身（不再携带 delay 字段）
             when (type) {
                 "click", "clickNode" -> out.add(buildClickStep(step, mode, captureColors))
                 // 录制中的"标记"落为一条 print 注释步骤，便于在编辑页定位；不带 delay，不打乱后续节奏
@@ -35,6 +32,13 @@ object RecordingPostProcessor {
                         out.add(mapOf("type" to "wait", "duration" to 800L))
                     }
                 }
+            }
+
+            // 把步骤间延迟作为后置 wait：当前步骤与下一步之间的间隔，跟在当步骤后面。
+            // 最后一步到结束录制的间隔由 RecordingSession.finish 单独补齐，避免重复。
+            val nextDelay = (raw.getOrNull(index + 1)?.step?.get("delay") as? Number)?.toLong() ?: 0L
+            if (nextDelay > 0) {
+                out.add(mapOf("type" to "wait", "duration" to nextDelay))
             }
         }
         return out
