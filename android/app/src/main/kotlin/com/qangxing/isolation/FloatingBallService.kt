@@ -712,13 +712,12 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 // 动画 Drawable（GIF/WebP）与 clipToOutline 兼容性差，加载自定义图时先关闭裁剪
                 container?.clipToOutline = false
                 clearFloaterBackground(container)
-                val request = Glide.with(imageView.context)
-                    .load(File(path))
+                val glide = Glide.with(imageView.context)
                 // 对 GIF 显式按 GIF 加载，避免 Glide 尝试转成 Bitmap 导致透明/动画异常
                 if (path.lowercase().endsWith(".gif")) {
-                    request.asGif().into(imageView)
+                    glide.asGif().load(File(path)).into(imageView)
                 } else {
-                    request.into(imageView)
+                    glide.load(File(path)).into(imageView)
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "Glide 加载图片失败: $path", e)
