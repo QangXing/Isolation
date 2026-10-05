@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Path
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -76,8 +77,15 @@ class RecordingCaptureOverlay private constructor(context: Context) : View(conte
     private var downX = 0f
     private var downY = 0f
     private var downTime = 0L
+    /** 回放手势期间屏蔽本层触摸，避免把注入的手势再次录制成新步骤。 */
+    private var suppressUntil = 0L
+
+    private fun suppressDuringReplay(duration: Long) {
+        suppressUntil = SystemClock.elapsedRealtime() + duration + 150L
+    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (SystemClock.elapsedRealtime() < suppressUntil) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
@@ -101,12 +109,15 @@ class RecordingCaptureOverlay private constructor(context: Context) : View(conte
                         // 长按
                         RecordingSession.onLongPressCaptured(x, y, duration)
                         if (RecordingSession.replayGestures) {
-                            replayLongPress(x, y, duration.coerceAtMost(MAX_LONG_PRESS_REPLAY_MS))
+                            val replay = duration.coerceAtMost(MAX_LONG_PRESS_REPLAY_MS)
+                            suppressDuringReplay(replay)
+                            replayLongPress(x, y, replay)
                         }
                     } else {
                         // 点击：记录坐标点击；回放产生的 TYPE_VIEW_CLICKED 事件会补全节点信息
                         RecordingSession.onTapCaptured(x, y)
                         if (RecordingSession.replayGestures) {
+                            suppressDuringReplay(100L)
                             replayTap(x, y)
                         }
                     }
@@ -116,6 +127,7 @@ class RecordingCaptureOverlay private constructor(context: Context) : View(conte
                     val sy = downY.toInt()
                     RecordingSession.onSwipeCaptured(sx, sy, endX.toInt(), endY.toInt(), duration)
                     if (RecordingSession.replayGestures) {
+                        suppressDuringReplay(duration.coerceAtMost(2000L))
                         replaySwipe(sx, sy, endX.toInt(), endY.toInt(), duration)
                     }
                 }
