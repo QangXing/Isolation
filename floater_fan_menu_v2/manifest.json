@@ -1,0 +1,10 @@
+{
+  "id": "com.qangxing.isolation.floater.fan-menu-v2",
+  "type": "floaterPlugin",
+  "name": "扇形菜单 v2",
+  "version": "2.0.0",
+  "description": "使用 Floater DSL v2 编写的扇形展开菜单示例",
+  "author": "user",
+  "iconName": "apps",
+  "dslVersion": 2
+}

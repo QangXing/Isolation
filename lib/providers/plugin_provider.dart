@@ -10,6 +10,7 @@ import '../models/floater_program.dart';
 import '../models/macro.dart';
 import '../models/macro_log.dart';
 import '../models/plugin.dart';
+import '../services/floater_dsl_v2_parser.dart';
 import '../services/macro_program_parser.dart';
 import '../services/native_channel.dart';
 import '../services/plugin_manager.dart';
@@ -239,7 +240,7 @@ class PluginProvider extends ChangeNotifier {
         final pluginDir = await _pluginDirectory();
         final assetsDir = '${pluginDir.path}/${plugin.id}/assets';
         await NativeChannel.registerFloaters(
-          program.toJson(),
+          program,
           plugin.id,
           assetsDir: assetsDir,
         );
@@ -691,13 +692,27 @@ class PluginProvider extends ChangeNotifier {
       await targetDir.create(recursive: true);
     }
 
-    // 优先按多球 DSL 解析；若解析失败则回退为旧步骤列表以兼容。
-    FloaterProgram? program;
+    // 检测 DSL 版本：以 floater "..." { 开头为 v2，否则为 v1。
+    final dslVersion = source.trim().startsWith('floater ') ? 2 : 1;
+
+    Map<String, dynamic>? programJson;
     List<Map<String, dynamic>> fallbackSteps = [];
-    try {
-      program = MacroProgramParser.parseFloaterProgram(source);
-    } catch (_) {
-      fallbackSteps = MacroProgramParser.parse(source);
+    if (dslVersion == 2) {
+      try {
+        final program = FloaterDslV2Parser.parse(source);
+        programJson = program.toJson();
+      } catch (_) {
+        // v2 解析失败时回退到 v1 解析器，兼容旧写法
+      }
+    }
+    if (programJson == null) {
+      try {
+        final program = MacroProgramParser.parseFloaterProgram(source);
+        programJson = program.toJson();
+      } catch (_) {
+        fallbackSteps = MacroProgramParser.parse(source);
+        programJson = {'dslVersion': 1, 'balls': [], 'steps': fallbackSteps};
+      }
     }
 
     // 保留原插件的启用状态与图标设置，避免保存后设置被清空。
@@ -721,13 +736,12 @@ class PluginProvider extends ChangeNotifier {
       'description': description,
       'author': 'user',
       'iconName': oldPlugin.iconName ?? 'favorite',
+      'dslVersion': dslVersion,
     };
 
     await File('${targetDir.path}/manifest.json').writeAsString(jsonEncode(manifest));
     await File('${targetDir.path}/floater.dsl').writeAsString(source);
-    await File('${targetDir.path}/floater.json').writeAsString(
-      jsonEncode(program?.toJson() ?? fallbackSteps),
-    );
+    await File('${targetDir.path}/floater.json').writeAsString(jsonEncode(programJson));
     await Directory('${targetDir.path}/assets').create(recursive: true);
 
     _plugins.removeWhere((p) => p.id == id);
@@ -753,45 +767,28 @@ class PluginProvider extends ChangeNotifier {
     return null;
   }
 
-  Future<FloaterProgram?> loadFloaterProgram(String pluginId) async {
+  Future<Map<String, dynamic>?> loadFloaterProgram(String pluginId) async {
     final pluginDir = await _pluginDirectory();
     final file = File('${pluginDir.path}/$pluginId/floater.json');
     if (!await file.exists()) return null;
     final content = await file.readAsString();
     final decoded = jsonDecode(content);
     if (decoded is Map<String, dynamic>) {
-      try {
-        final program = FloaterProgram.fromJson(decoded);
-        // 兼容旧格式或未声明 ball 的文件：把全局步骤退化为默认主球
-        if (program.balls.isEmpty && program.steps.isNotEmpty) {
-          return FloaterProgram(
-            balls: [
-              FloaterBall(
-                role: 'main',
-                name: 'main',
-                steps: program.steps,
-              ),
-            ],
-            steps: [],
-          );
-        }
-        return program;
-      } catch (_) {
-        return null;
-      }
+      return decoded;
     }
-    // 旧格式：floater.json 是纯步骤列表，包装成单个默认主球
+    // 旧格式：floater.json 是纯步骤列表，包装成 v1 默认主球
     if (decoded is List) {
-      return FloaterProgram(
-        balls: [
-          FloaterBall(
-            role: 'main',
-            name: 'main',
-            steps: decoded.cast<Map<String, dynamic>>(),
-          ),
+      return {
+        'dslVersion': 1,
+        'balls': [
+          {
+            'role': 'main',
+            'name': 'main',
+            'steps': decoded.cast<Map<String, dynamic>>(),
+          }
         ],
-        steps: [],
-      );
+        'steps': <Map<String, dynamic>>[],
+      };
     }
     return null;
   }
@@ -799,9 +796,16 @@ class PluginProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>?> loadFloaterSteps(String pluginId) async {
     final program = await loadFloaterProgram(pluginId);
     if (program == null) return null;
+    final dslVersion = program['dslVersion'] as int? ?? 1;
+    if (dslVersion == 2) return [];
+    final balls = (program['balls'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>();
+    final steps = (program['steps'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>();
     return [
-      ...program.balls.expand((b) => b.steps),
-      ...program.steps,
+      ...balls.expand((b) => (b['steps'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>()),
+      ...steps,
     ];
   }
 

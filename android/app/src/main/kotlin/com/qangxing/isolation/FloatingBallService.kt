@@ -318,7 +318,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private var ballSizePx: Int = 0
 
     // ── 多球插件支持 ──
-    private data class PluginBall(
+    internal data class PluginBall(
         val name: String,
         var view: View,
         var params: WindowManager.LayoutParams,
@@ -328,7 +328,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
         var visible: Boolean,
         var followTarget: String? = null,
         var followDx: Int = 0,
-        var followDy: Int = 0
+        var followDy: Int = 0,
+        var draggable: Boolean = false,
+        var opacity: Float = 1f,
+        var eventHandlers: MutableMap<String, () -> Unit> = mutableMapOf()
     ) {
         /** 是否为主球 */
         val isMain: Boolean
@@ -341,7 +344,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
         val sizePx: Int
     )
 
-    private val pluginBalls = mutableMapOf<String, PluginBall>()
+    internal val pluginBalls = mutableMapOf<String, PluginBall>()
+    private var floaterV2Engine: com.qangxing.isolation.floater.FloaterV2Engine? = null
 
     private fun bubbleAnchor(): BallAnchor? {
         // 优先使用可见的主球
@@ -867,6 +871,14 @@ class FloatingBallService : Service(), MacroExecutorListener {
             // 启用编程球前先隐藏默认悬浮球，避免默认球与主/副球重叠显示
             hideDefaultFloatingBall()
 
+            val dslVersion = (program["dslVersion"] as? Number)?.toInt() ?: 1
+            if (dslVersion == 2) {
+                val engine = com.qangxing.isolation.floater.FloaterV2Engine(this)
+                floaterV2Engine = engine
+                engine.load(program)
+                return true
+            }
+
             // 加载默认悬浮球配置，供未声明外观参数的球回退使用
             val config = loadDefaultFloaterConfig()
 
@@ -961,7 +973,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
         )
     }
 
-    private fun clearAllPluginBalls() {
+    internal fun clearAllPluginBalls() {
+        floaterV2Engine?.unload()
+        floaterV2Engine = null
+
         val wm = windowManager
         for ((_, ball) in pluginBalls) {
             try {
@@ -1063,6 +1078,114 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
+    /**
+     * v2 DSL 专用：直接通过参数创建或更新插件球。
+     */
+    internal fun createOrUpdatePluginBall(
+        name: String,
+        role: String,
+        sizeDp: Int,
+        cornerRadiusDp: Int,
+        imagePath: String?,
+        initialX: Int,
+        initialY: Int,
+        visible: Boolean,
+        draggable: Boolean,
+        opacity: Float
+    ) {
+        val wm = windowManager ?: (getSystemService(Context.WINDOW_SERVICE) as WindowManager).also {
+            windowManager = it
+        }
+
+        val existing = pluginBalls[name]
+        if (existing != null) {
+            existing.sizeDp = sizeDp
+            existing.cornerRadiusDp = cornerRadiusDp
+            existing.imagePath = imagePath
+            existing.visible = visible
+            existing.draggable = draggable
+            existing.opacity = opacity
+            existing.view.alpha = opacity
+            applyPluginBallConfig(existing)
+            updatePluginBallPosition(name, initialX, initialY)
+            setPluginBallVisible(name, visible)
+            return
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = initialX
+            y = initialY
+        }
+
+        val view = LayoutInflater.from(this).inflate(R.layout.floating_ball, null)
+        val pluginBall = PluginBall(
+            name, view, params, sizeDp, cornerRadiusDp, imagePath, visible,
+            draggable = draggable, opacity = opacity
+        )
+        applyPluginBallConfig(pluginBall)
+        setupPluginBallTouch(pluginBall)
+        view.alpha = opacity
+
+        try {
+            wm.addView(view, params)
+            pluginBalls[name] = pluginBall
+            if (!visible) view.visibility = View.GONE
+        } catch (e: Exception) {
+            Log.e(TAG, "v2 创建插件球失败: $name", e)
+        }
+    }
+
+    internal fun removePluginBall(name: String) {
+        val ball = pluginBalls.remove(name) ?: return
+        try {
+            if (ball.view.parent != null) {
+                windowManager?.removeView(ball.view)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "移除插件球失败: $name", e)
+        }
+        pendingBallUpdates.remove(name)
+    }
+
+    internal fun setPluginBallEventHandler(name: String, event: String, handler: () -> Unit) {
+        pluginBalls[name]?.eventHandlers?.put(event, handler)
+    }
+
+    internal fun getPluginBallParams(name: String): Map<String, Any>? {
+        val ball = pluginBalls[name] ?: return null
+        return mapOf(
+            "x" to ball.params.x,
+            "y" to ball.params.y,
+            "width" to ball.params.width,
+            "height" to ball.params.height,
+            "visible" to ball.visible
+        )
+    }
+
+    internal fun updatePluginBallOpacity(name: String, opacity: Float) {
+        pluginBalls[name]?.let { ball ->
+            ball.opacity = opacity
+            ball.view.alpha = opacity
+        }
+    }
+
+    internal fun updatePluginBallSize(name: String, sizeDp: Int) {
+        pluginBalls[name]?.let { ball ->
+            ball.sizeDp = sizeDp
+            applyPluginBallConfig(ball)
+        }
+    }
+
     private fun applyPluginBallConfig(ball: PluginBall) {
         val sizePx = dpToPx(ball.sizeDp)
         ball.params.width = sizePx
@@ -1144,6 +1267,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    if (!ball.draggable) {
+                        // 不可拖拽时忽略移动，但仍消费事件以保留点击识别
+                        return@setOnTouchListener true
+                    }
                     val dx = event.rawX - touchState.initialTouchX
                     val dy = event.rawY - touchState.initialTouchY
                     if (kotlin.math.abs(dx) > CLICK_SLOP_PX || kotlin.math.abs(dy) > CLICK_SLOP_PX) {
@@ -1194,9 +1321,14 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
-    private fun dispatchPluginBallEvent(name: String, event: String) {
+    internal fun dispatchPluginBallEvent(name: String, event: String) {
+        // v2 事件处理器
+        pluginBalls[name]?.eventHandlers?.get(event)?.let { handler ->
+            mainHandler.post(handler)
+        }
+
+        // v1 事件注册表
         val handlers = pluginFloaterRegistry.getBallEvent(name, event)
-        if (handlers.isEmpty()) return
         for (handler in handlers) {
             // 事件步骤包含 UI 操作（Toast、startActivity、showBubble、executeMacro 等），
             // 必须在主线程执行，否则会导致新建编程球点击闪退。
@@ -1206,7 +1338,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
-    private fun updatePluginBallPosition(name: String, x: Int, y: Int, visited: MutableSet<String> = mutableSetOf()) {
+    internal fun updatePluginBallPosition(name: String, x: Int, y: Int, visited: MutableSet<String> = mutableSetOf()) {
         if (!visited.add(name)) return
         val ball = pluginBalls[name] ?: return
         ball.params.x = x
@@ -1254,7 +1386,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         schedulePluginBallFrameUpdate()
     }
 
-    private fun setPluginBallVisible(name: String, visible: Boolean) {
+    internal fun setPluginBallVisible(name: String, visible: Boolean) {
         val ball = pluginBalls[name] ?: return
         ball.visible = visible
         ball.view.visibility = if (visible) View.VISIBLE else View.GONE
@@ -1708,6 +1840,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
             out.y = metrics.heightPixels
             out
         }
+    }
+
+    internal fun getScreenUsableSize(): android.util.Size {
+        val point = screenSize()
+        return android.util.Size(point.x, point.y)
     }
 
     // ── 录制悬浮球内部实现 ──
@@ -2303,7 +2440,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
      * 在悬浮球附近显示气泡。自动选择左右方向，水平/垂直方向均做边界裁剪，
      * 确保 print 消息不会被截断或跑到屏幕外。
      */
-    private fun showBubble(message: String) {
+    internal fun showBubble(message: String) {
         if (windowManager == null) return
 
         val density = resources.displayMetrics.density

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
 import '../screens/professional_editor_screen.dart';
+import '../services/floater_dsl_v2_parser.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
 import '../widgets/code_editor.dart';
@@ -226,23 +227,36 @@ ball(deputy, "helper") {
 
   void _validate() {
     try {
-      final program = MacroProgramParser.parseFloaterProgram(_codeController.text);
-      final ballCount = program.balls.length;
-      final hasMain = program.mainBall != null;
-      final formatted = _formatDsl(_codeController.text);
-      if (formatted != _codeController.text) {
+      final source = _codeController.text;
+      final isV2 = source.trim().startsWith('floater ');
+      final ballCount = isV2
+          ? FloaterDslV2Parser.parse(source).balls.length
+          : MacroProgramParser.parseFloaterProgram(source).balls.length;
+      final hasMain = isV2
+          ? FloaterDslV2Parser.parse(source).balls.any((b) => b.role == 'Main')
+          : MacroProgramParser.parseFloaterProgram(source).mainBall != null;
+      final formatted = _formatDsl(source);
+      if (formatted != source) {
         _codeController.text = formatted;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '校验通过：$ballCount 个球（主球 ${hasMain ? "√" : "×"}）',
+            '校验通过（${isV2 ? "v2" : "v1"}）：$ballCount 个球（主球 ${hasMain ? "√" : "×"}）',
           ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.black87,
         ),
       );
     } on MacroParseError catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } on FloaterParseError catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString()),
@@ -290,8 +304,24 @@ ball(deputy, "helper") {
     final descController = TextEditingController(text: _initialDescription);
 
     try {
-      MacroProgramParser.parseFloaterProgram(_codeController.text);
+      final source = _codeController.text;
+      if (source.trim().startsWith('floater ')) {
+        FloaterDslV2Parser.parse(source);
+      } else {
+        MacroProgramParser.parseFloaterProgram(source);
+      }
     } on MacroParseError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    } on FloaterParseError catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
