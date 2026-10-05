@@ -45,6 +45,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.resource.gif.GifDrawable
+import com.bumptech.glide.request.target.CustomTarget
+import com.bumptech.glide.request.transition.Transition
+import android.graphics.drawable.Drawable
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -750,15 +754,32 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     /** 指定容器的图片加载，插件球在 addView 前 parent 为空时使用显式传入的根布局。 */
     private fun loadImageInto(imageView: ImageView, path: String?, container: View?) {
+        // 替换图片前停掉旧 GIF，避免多个 GifDrawable 同时跑帧
+        stopGif(imageView)
         if (path != null && File(path).exists()) {
             try {
                 // 动画 Drawable（GIF/WebP）与 clipToOutline 兼容性差，加载自定义图时先关闭裁剪
                 container?.clipToOutline = false
                 clearFloaterBackground(container)
-                val glide = Glide.with(imageView.context)
+                // 悬浮球是长期存在的悬浮窗，使用 applicationContext 加载，
+                // 避免请求被绑到易销毁的 Context 上
+                val glide = Glide.with(imageView.context.applicationContext)
                 // 对 GIF 显式按 GIF 加载，避免 Glide 尝试转成 Bitmap 导致透明/动画异常
                 if (path.lowercase().endsWith(".gif")) {
-                    glide.asGif().load(File(path)).into(imageView)
+                    // 不用 into(ImageView)：ViewTarget 会让动画随 View/生命周期暂停，
+                    // 导致切到其他 App 后悬浮球 GIF 静止。改为拿到 GifDrawable 后自行 start，
+                    // 动画帧循环由 GifDrawable 自己驱动，不受前后台切换影响。
+                    glide.asGif().load(File(path)).into(object : CustomTarget<GifDrawable>() {
+                        override fun onResourceReady(resource: GifDrawable, transition: Transition<in GifDrawable>?) {
+                            resource.setLoopCount(GifDrawable.LOOP_FOREVER)
+                            imageView.setImageDrawable(resource)
+                            resource.start()
+                        }
+
+                        override fun onLoadCleared(placeholder: Drawable?) {
+                            imageView.setImageDrawable(placeholder)
+                        }
+                    })
                 } else {
                     glide.load(File(path)).into(imageView)
                 }
@@ -771,6 +792,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
             imageView.setImageDrawable(null)
             restoreDefaultFloaterBackground(container)
         }
+    }
+
+    /** 停止 ImageView 上正在播放的 GIF（若有），释放其帧回调。 */
+    private fun stopGif(imageView: ImageView) {
+        (imageView.drawable as? GifDrawable)?.stop()
     }
 
     /** 设置悬浮球容器背景为透明，避免 PNG 的透明部分被白色底填充。 */
