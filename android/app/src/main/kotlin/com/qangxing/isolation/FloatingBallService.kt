@@ -445,6 +445,27 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
+    /**
+     * 用缓存的系统授权静默恢复屏幕录制（不弹系统授权框）。
+     * 供宏执行前调用；恢复失败（授权被撤销/系统不支持复用）返回 false，由调用方走正常授权流程。
+     */
+    fun tryRestoreScreenCapture(): Boolean {
+        return try {
+            val ok = ScreenCaptureHelper.tryRestore(this) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    startForegroundNotification(SCREEN_CAPTURE_FGS_TYPES)
+                }
+            }
+            if (!ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForegroundNotification(NORMAL_FGS_TYPES)
+            }
+            ok
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "静默恢复屏幕录制失败", e)
+            false
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(

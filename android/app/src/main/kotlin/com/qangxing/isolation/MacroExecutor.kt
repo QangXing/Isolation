@@ -783,12 +783,31 @@ class MacroExecutor(
 
     private fun ensureScreenCapturePermission(): Boolean {
         if (ScreenCaptureHelper.isGranted(service)) return true
+        // 先用缓存的系统授权静默恢复（Android 14+ 支持复用授权 Intent，进程被杀后也无需再次弹窗）
+        if (tryRestoreScreenCaptureSilently()) return true
         postStatus("需要屏幕录制权限，请在弹窗中点击开始")
         val granted = ScreenCapturePermissionRequester.request(service)
         if (!granted) {
             postStatus("未获得屏幕录制权限（Android 14+ 需悬浮球前台服务保持运行）")
         }
         return granted
+    }
+
+    /**
+     * 尝试静默恢复屏幕录制权限，不弹系统授权框。
+     * 仅当存在缓存授权时才尝试；Android 14+ 要求 VirtualDisplay 由带 mediaProjection 类型的
+     * 前台服务承载，因此优先通过 FloatingBallService 完成恢复。
+     */
+    private fun tryRestoreScreenCaptureSilently(): Boolean {
+        if (!ScreenCaptureHelper.hasPersistedConsent(service)) return false
+        FloatingBallService.ensureServiceRunning(service)
+        val deadline = SystemClock.elapsedRealtime() + 3000
+        var fbs = FloatingBallService.getInstance()
+        while (fbs == null && SystemClock.elapsedRealtime() < deadline) {
+            try { Thread.sleep(100) } catch (_: InterruptedException) { break }
+            fbs = FloatingBallService.getInstance()
+        }
+        return fbs?.tryRestoreScreenCapture() ?: ScreenCaptureHelper.tryRestore(service)
     }
 
     // ---------- 查找、等待、颜色、条件 ----------

@@ -19,6 +19,12 @@ import android.view.WindowManager
 
 object ScreenCaptureHelper {
     private const val TAG = "ScreenCaptureHelper"
+
+    /** 缓存系统屏幕录制授权（consent Intent），用于静默恢复 */
+    private const val PREFS_NAME = "isolation_screen_capture"
+    private const val KEY_RESULT_CODE = "resultCode"
+    private const val KEY_CONSENT_URI = "consentUri"
+
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
@@ -63,14 +69,90 @@ object ScreenCaptureHelper {
     fun onActivityResult(context: Context, resultCode: Int, data: Intent?, beforeVirtualDisplay: (() -> Unit)? = null): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
         if (resultCode != Activity.RESULT_OK || data == null) return false
+        val ok = initProjection(context, resultCode, data, beforeVirtualDisplay)
+        // 授权成功后缓存 consent：Android 14+ 支持复用该 Intent 静默重建 MediaProjection，
+        // 即使 App 进程被杀也无需再次弹系统授权框（直至重启或用户撤销）
+        if (ok) persistConsent(context, resultCode, data)
+        return ok
+    }
+
+    /**
+     * 用缓存的系统授权静默恢复屏幕录制，不弹系统授权框。
+     * Android 14+ 复用授权 Intent 创建新的 MediaProjection；更早版本 token 只能使用一次，
+     * 复用会抛 SecurityException，此时清除缓存并返回 false，由调用方走正常授权弹窗。
+     */
+    fun tryRestore(context: Context, beforeVirtualDisplay: (() -> Unit)? = null): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
+        if (isGranted(context)) return true
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val uri = prefs.getString(KEY_CONSENT_URI, null) ?: return false
+        val resultCode = prefs.getInt(KEY_RESULT_CODE, Activity.RESULT_CANCELED)
+        if (resultCode != Activity.RESULT_OK) return false
+        val data = try {
+            Intent.parseUri(uri, Intent.URI_INTENT_SCHEME)
+        } catch (e: Exception) {
+            Log.w(TAG, "解析缓存的屏幕录制授权失败", e)
+            clearPersistedConsent(context)
+            return false
+        }
+        val ok = try {
+            initProjection(context, resultCode, data, beforeVirtualDisplay)
+        } catch (e: Exception) {
+            Log.w(TAG, "静默恢复屏幕录制失败（授权可能已被系统撤销）", e)
+            false
+        }
+        if (ok) {
+            // initProjection 内部 release() 触发旧实例 onStop 可能已清掉缓存，成功后再写回
+            persistConsent(context, resultCode, data)
+        } else {
+            clearPersistedConsent(context)
+        }
+        return ok
+    }
+
+    /** 是否存在可尝试静默恢复的缓存授权。 */
+    fun hasPersistedConsent(context: Context): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_CONSENT_URI, null) != null
+    }
+
+    private fun persistConsent(context: Context, resultCode: Int, data: Intent) {
+        try {
+            context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_RESULT_CODE, resultCode)
+                .putString(KEY_CONSENT_URI, data.toUri(Intent.URI_INTENT_SCHEME))
+                .apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "缓存屏幕录制授权失败", e)
+        }
+    }
+
+    private fun clearPersistedConsent(context: Context) {
+        try {
+            context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().clear().apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "清除屏幕录制授权缓存失败", e)
+        }
+    }
+
+    private fun initProjection(context: Context, resultCode: Int, data: Intent, beforeVirtualDisplay: (() -> Unit)?): Boolean {
         val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         // Android 14+ 禁止复用旧 projection 实例，先释放旧的再获取新的
         release()
-        mediaProjection = manager.getMediaProjection(resultCode, data)
-        mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+        val projection = manager.getMediaProjection(resultCode, data)
+        mediaProjection = projection
+        val appContext = context.applicationContext
+        projection.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
+                // 仅清理当前实例：旧实例 stop() 的回调是异步派发的，
+                // 若不校验实例会误清掉刚创建的新投影，导致下次执行又要重新弹授权框
+                if (mediaProjection !== projection) return
                 clearCaptureResources()
                 mediaProjection = null
+                // 用户/系统主动撤销（通知栏停止等），缓存的授权已失效
+                clearPersistedConsent(appContext)
             }
         }, null)
         // 给调用方机会在创建 VirtualDisplay 前升级前台服务类型（mediaProjection）
