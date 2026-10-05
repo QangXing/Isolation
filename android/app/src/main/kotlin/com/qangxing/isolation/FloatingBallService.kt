@@ -1328,8 +1328,71 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     private fun executeFloaterSteps(steps: List<Map<String, Any>>, currentBall: String? = null) {
-        for (step in steps) {
-            executeFloaterStep(step, currentBall)
+        var i = 0
+        while (i < steps.size) {
+            val merge = tryMergeXYAnimation(steps, i)
+            if (merge != null) {
+                executeXYAnimationMerged(merge.first, currentBall)
+                i = merge.second
+            } else {
+                executeFloaterStep(steps[i], currentBall)
+                i++
+            }
+        }
+    }
+
+    /**
+     * 检测连续两条 animate 是否是对同一个球的 x/y 位移动画，如果是则合并为一条 animate_xy，
+     * 让 x 和 y 在同一个 ValueAnimator 中同步更新，避免两轴不同步导致的路径扭曲。
+     */
+    private fun tryMergeXYAnimation(steps: List<Map<String, Any>>, index: Int): Pair<Map<String, Any>, Int>? {
+        if (index + 1 >= steps.size) return null
+        val a = steps[index]
+        val b = steps[index + 1]
+        if (a["type"] != "animate" || b["type"] != "animate") return null
+        val nameA = a["name"] as? String ?: return null
+        val nameB = b["name"] as? String ?: return null
+        if (nameA != nameB) return null
+        val propA = (a["property"] as? String)?.lowercase() ?: return null
+        val propB = (b["property"] as? String)?.lowercase() ?: return null
+        if (!((propA == "x" && propB == "y") || (propA == "y" && propB == "x"))) return null
+        val xStep = if (propA == "x") a else b
+        val yStep = if (propA == "y") a else b
+        return mapOf(
+            "type" to "animate_xy",
+            "name" to nameA,
+            "x" to (xStep["to"] ?: 0),
+            "y" to (yStep["to"] ?: 0),
+            "duration" to (a["duration"] as? Number ?: b["duration"] as? Number ?: 300),
+            "easing" to (a["easing"] as? String ?: b["easing"] as? String ?: "linear")
+        ) to (index + 2)
+    }
+
+    private fun executeXYAnimationMerged(step: Map<String, Any>, currentBall: String?) {
+        val name = step["name"] as? String ?: return
+        val ball = pluginBalls[name] ?: return
+        val fromX = ball.params.x
+        val fromY = ball.params.y
+        val toX = resolveIntValue(step["x"], fromX)
+        val toY = resolveIntValue(step["y"], fromY)
+        val duration = resolveIntValue(step["duration"], 300).coerceAtLeast(0).toLong()
+        val interpolator = when ((step["easing"] as? String)?.lowercase()) {
+            "linear" -> LinearInterpolator()
+            "accelerate" -> AccelerateInterpolator()
+            "decelerate" -> DecelerateInterpolator()
+            "bounce" -> BounceInterpolator()
+            else -> OvershootInterpolator(1.6f)
+        }
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            this.duration = duration
+            this.interpolator = interpolator
+            addUpdateListener { anim ->
+                val t = anim.animatedValue as Float
+                val x = (fromX + (toX - fromX) * t).toInt()
+                val y = (fromY + (toY - fromY) * t).toInt()
+                updatePluginBallPosition(name, x, y)
+            }
+            start()
         }
     }
 
@@ -1389,6 +1452,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
             "launch_macro" -> runEnabledMacro()
             "turn_off_macros" -> MacroExecutor.stopActive()
             "bounce", "shake", "pulse", "animate" -> executeBallAnimation(step)
+            "animate_xy" -> executeXYAnimationMerged(step, currentBall)
             "for" -> executeFloaterFor(step, currentBall)
             "if" -> executeFloaterIf(step, currentBall)
             else -> Log.w(TAG, "未支持的球步骤类型: ${step["type"]}")
