@@ -397,19 +397,29 @@ class MacroExecutor(
     }
 
     private fun executeLaunchStep(step: Map<String, Any>): Boolean {
-        val packageName = step["packageName"] as? String
+        // 去掉首尾空白与引号，避免从别处复制包名时带入不可见字符
+        val packageName = (step["packageName"] as? String)
+            ?.trim()
+            ?.trim('"', '\'')
         if (packageName.isNullOrEmpty()) return false
         val timeout = evaluateNumber(step["timeout"])?.toLong() ?: 0L
         val assignTo = step["assignTo"] as? String
 
-        val intent = service.packageManager.getLaunchIntentForPackage(packageName)
+        val intent = buildLaunchIntent(packageName)
         if (intent == null) {
             postStatus("launch: 无法启动 $packageName")
             if (assignTo != null) variables[assignTo] = Variable.Number(0.0)
             return false
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        service.startActivity(intent)
+        try {
+            service.startActivity(intent)
+        } catch (e: Exception) {
+            postStatus("launch: 启动失败 $packageName: ${e.javaClass.simpleName}")
+            Log.w(TAG, "launch startActivity 失败: $packageName", e)
+            if (assignTo != null) variables[assignTo] = Variable.Number(0.0)
+            return false
+        }
 
         if (timeout <= 0) {
             if (assignTo != null) variables[assignTo] = Variable.Number(1.0)
@@ -430,6 +440,30 @@ class MacroExecutor(
         }
         if (assignTo != null) variables[assignTo] = Variable.Number(if (success) 1.0 else 0.0)
         return success
+    }
+
+    /**
+     * 构造目标应用的启动 Intent。
+     *
+     * 优先用 [PackageManager.getLaunchIntentForPackage]；但很多游戏（厂商渠道包、
+     * 带独立引导页、或入口为 Activity 别名）没有标准 CATEGORY_LAUNCHER 入口，
+     * 该 API 会返回 null。此时退回 queryIntentActivities 全量查 MAIN+LAUNCHER，
+     * 取该包名下第一个可启动的 Activity 显式构造 Intent。
+     */
+    private fun buildLaunchIntent(packageName: String): Intent? {
+        service.packageManager.getLaunchIntentForPackage(packageName)?.let { return it }
+
+        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = service.packageManager.queryIntentActivities(main, 0)
+        val target = resolveInfos.firstOrNull { it.activityInfo.packageName == packageName }
+            ?: run {
+                Log.w(TAG, "launch: $packageName 无 LAUNCHER 入口（包未安装或无启动页）")
+                return null
+            }
+        return Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            setClassName(target.activityInfo.packageName, target.activityInfo.name)
+        }
     }
 
     private fun executeLetStep(step: Map<String, Any>) {
