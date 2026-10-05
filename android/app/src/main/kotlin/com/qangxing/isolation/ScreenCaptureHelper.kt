@@ -142,6 +142,7 @@ object ScreenCaptureHelper {
         // Android 14+ 禁止复用旧 projection 实例，先释放旧的再获取新的
         release()
         val projection = manager.getMediaProjection(resultCode, data)
+            ?: throw IllegalStateException("getMediaProjection returned null")
         mediaProjection = projection
         val appContext = context.applicationContext
         projection.registerCallback(object : MediaProjection.Callback() {
