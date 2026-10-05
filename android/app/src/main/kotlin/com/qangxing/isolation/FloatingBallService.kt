@@ -709,11 +709,18 @@ class FloatingBallService : Service(), MacroExecutorListener {
     private fun loadImageInto(imageView: ImageView, path: String?, container: View?) {
         if (path != null && File(path).exists()) {
             try {
+                // 动画 Drawable（GIF/WebP）与 clipToOutline 兼容性差，加载自定义图时先关闭裁剪
+                container?.clipToOutline = false
                 clearFloaterBackground(container)
-                Glide.with(imageView.context)
+                val request = Glide.with(imageView.context)
                     .load(File(path))
-                    .into(imageView)
-            } catch (e: Exception) {
+                // 对 GIF 显式按 GIF 加载，避免 Glide 尝试转成 Bitmap 导致透明/动画异常
+                if (path.lowercase().endsWith(".gif")) {
+                    request.asGif().into(imageView)
+                } else {
+                    request.into(imageView)
+                }
+            } catch (e: Throwable) {
                 Log.w(TAG, "Glide 加载图片失败: $path", e)
                 imageView.setImageDrawable(null)
                 restoreDefaultFloaterBackground(container)
@@ -734,9 +741,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     /** 恢复默认悬浮球的白色圆角底（无自定义图片时使用）。 */
     private fun restoreDefaultFloaterBackground(container: View?) {
+        container?.clipToOutline = true
         val background = container?.background as? GradientDrawable ?: return
         background.setColor(0xE6FFFFFF.toInt())
-        background.setStroke(1, 0xB3FFFFFF.toInt())
+        background.setStroke(dpToPx(1), 0xB3FFFFFF.toInt())
         container.invalidate()
     }
 
