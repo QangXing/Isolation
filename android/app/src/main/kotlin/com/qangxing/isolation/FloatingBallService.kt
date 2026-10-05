@@ -1436,7 +1436,19 @@ class FloatingBallService : Service(), MacroExecutorListener {
             }
             "change" -> executeChange(step, currentBall)
             "print" -> {
-                val message = step["message"] as? String ?: return
+                val message = when (val msg = step["message"]) {
+                    is String -> msg
+                    is Map<*, *> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val expr = msg as Map<String, Any>
+                        when (val result = ExpressionEvaluator.evaluate(expr, pluginVariables)) {
+                            is Variable.Number -> result.value.toString()
+                            is Variable.Text -> result.value
+                            else -> return
+                        }
+                    }
+                    else -> return
+                }
                 showBubble(message)
             }
             "launch" -> {
