@@ -13,22 +13,29 @@ ball(main, "mainBall") {
     status(show, "mainBall")
 
     singleClick {
-        // 当前主球左上角与中心点
+        // 当前主球左上角与真实中心点（像素级，自动适配屏幕密度）
         mainX = found("mainBall", x)
         mainY = found("mainBall", y)
-        mainCx = mainX + 28
-        mainCy = mainY + 28
+        mainSize = found("mainBall", width)
+        mainCx = mainX + mainSize / 2
+        mainCy = mainY + mainSize / 2
+
+        // 副球真实像素尺寸
+        subSize = found("sub1", width)
 
         if (expanded == 1) {
             // 收起：所有副球回到主球中心后隐藏
-            animate("sub1", "x", mainX, 200, "decelerate")
-            animate("sub1", "y", mainY, 200, "decelerate")
-            animate("sub2", "x", mainX, 200, "decelerate")
-            animate("sub2", "y", mainY, 200, "decelerate")
-            animate("sub3", "x", mainX, 200, "decelerate")
-            animate("sub3", "y", mainY, 200, "decelerate")
-            animate("sub4", "x", mainX, 200, "decelerate")
-            animate("sub4", "y", mainY, 200, "decelerate")
+            homeX = mainCx - subSize / 2
+            homeY = mainCy - subSize / 2
+
+            animate("sub1", "x", homeX, 200, "decelerate")
+            animate("sub1", "y", homeY, 200, "decelerate")
+            animate("sub2", "x", homeX, 200, "decelerate")
+            animate("sub2", "y", homeY, 200, "decelerate")
+            animate("sub3", "x", homeX, 200, "decelerate")
+            animate("sub3", "y", homeY, 200, "decelerate")
+            animate("sub4", "x", homeX, 200, "decelerate")
+            animate("sub4", "y", homeY, 200, "decelerate")
 
             wait(200)
             status(hide, "sub1")
@@ -63,8 +70,7 @@ ball(main, "mainBall") {
             }
 
             PI = 3.14159265
-            radius = 140
-            subSize = 48
+            radius = dp(140)
 
             // 副球 1：扇形起点
             t1 = 0.0
@@ -102,11 +108,13 @@ ball(main, "mainBall") {
             tx4 = tcx4 - subSize / 2
             ty4 = tcy4 - subSize / 2
 
-            // 先把副球叠到主球位置，再显示，再动画展开
-            location("sub1", mainX, mainY)
-            location("sub2", mainX, mainY)
-            location("sub3", mainX, mainY)
-            location("sub4", mainX, mainY)
+            // 先把副球中心叠到主球中心，再显示，再动画展开
+            homeX = mainCx - subSize / 2
+            homeY = mainCy - subSize / 2
+            location("sub1", homeX, homeY)
+            location("sub2", homeX, homeY)
+            location("sub3", homeX, homeY)
+            location("sub4", homeX, homeY)
 
             status(show, "sub1")
             status(show, "sub2")

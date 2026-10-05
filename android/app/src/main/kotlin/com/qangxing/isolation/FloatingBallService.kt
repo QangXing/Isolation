@@ -870,8 +870,8 @@ class FloatingBallService : Service(), MacroExecutorListener {
             // 加载默认悬浮球配置，供未声明外观参数的球回退使用
             val config = loadDefaultFloaterConfig()
 
-            // 注册 found / screen 函数，用于表达式中获取球坐标与屏幕尺寸
-            val foundHandler: (String, List<Map<String, Any>>, Map<String, Variable>) -> Variable? = { name, args, variables ->
+            // 注册 found / screen / dp 函数，用于表达式中获取球坐标、屏幕尺寸与 dp 转 px。
+            val callHandler: (String, List<Map<String, Any>>, Map<String, Variable>) -> Variable? = { name, args, variables ->
                 when (name) {
                     "found" -> {
                         val ballName = extractStringFromArg(args.getOrNull(0), variables)
@@ -879,7 +879,12 @@ class FloatingBallService : Service(), MacroExecutorListener {
                         val pos = ballName?.let { getPluginBallPosition(it) }
                         if (pos == null) null
                         else {
-                            val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
+                            val value = when (axis.lowercase()) {
+                                "y" -> pos["y"] ?: 0
+                                "width", "w" -> pos["width"] ?: 0
+                                "height", "h" -> pos["height"] ?: 0
+                                else -> pos["x"] ?: 0
+                            }
                             Variable.Number(value.toDouble())
                         }
                     }
@@ -895,10 +900,15 @@ class FloatingBallService : Service(), MacroExecutorListener {
                         }
                         Variable.Number(value.toDouble())
                     }
+                    "dp", "dp2px" -> {
+                        val dp = args.getOrNull(0)?.let { ExpressionEvaluator.evaluate(it, variables) }
+                            ?.let { if (it is Variable.Number) it.value else null } ?: 0.0
+                        Variable.Number(dpToPx(dp.toInt()).toDouble())
+                    }
                     else -> null
                 }
             }
-            ExpressionEvaluator.callHandler = foundHandler
+            ExpressionEvaluator.callHandler = callHandler
 
             @Suppress("UNCHECKED_CAST")
             val balls = program["balls"] as? List<Map<String, Any>> ?: emptyList()
@@ -943,7 +953,12 @@ class FloatingBallService : Service(), MacroExecutorListener {
 
     private fun getPluginBallPosition(name: String): Map<String, Int>? {
         val ball = pluginBalls[name] ?: return null
-        return mapOf("x" to ball.params.x, "y" to ball.params.y)
+        return mapOf(
+            "x" to ball.params.x,
+            "y" to ball.params.y,
+            "width" to ball.params.width,
+            "height" to ball.params.height
+        )
     }
 
     private fun clearAllPluginBalls() {
@@ -1332,7 +1347,12 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 val name = step["name"] as? String ?: return
                 val axis = step["axis"] as? String ?: return
                 val pos = getPluginBallPosition(name) ?: return
-                val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
+                val value = when (axis.lowercase()) {
+                    "y" -> pos["y"] ?: 0
+                    "width", "w" -> pos["width"] ?: 0
+                    "height", "h" -> pos["height"] ?: 0
+                    else -> pos["x"] ?: 0
+                }
                 pluginVariables[assignTo] = Variable.Number(value.toDouble())
             }
             "location" -> {
