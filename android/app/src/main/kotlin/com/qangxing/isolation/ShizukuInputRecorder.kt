@@ -46,6 +46,19 @@ object ShizukuInputRecorder {
 
     private var contextRef: Context? = null
 
+    /** 录制失败回调（如发现不到触摸设备、getevent 异常退出）。统一在主线程触发。 */
+    fun interface OnErrorListener {
+        fun onRecorderError(message: String)
+    }
+
+    @Volatile
+    private var errorListener: OnErrorListener? = null
+
+    /** 注册失败回调；传 null 清除。 */
+    fun setOnErrorListener(listener: OnErrorListener?) {
+        errorListener = listener
+    }
+
     data class TouchDevice(
         val path: String,
         val name: String,
@@ -100,16 +113,31 @@ object ShizukuInputRecorder {
     private fun recordLoop() {
         try {
             val device = discoverTouchDevice() ?: run {
-                Log.e(TAG, "未发现可读的触摸屏设备")
+                notifyError("未发现可读的触摸屏设备，getevent 可能无权限读取 /dev/input（请检查开发者选项中的权限监控相关设置）")
                 return
             }
             Log.d(TAG, "使用触摸设备: ${device.path} (${device.name}), max=${device.maxX}x${device.maxY}")
-            readEvents(device)
+            val stderr = readEvents(device)
+            // readEvents 返回时 running 仍为 true，说明 getevent 进程非用户主动停止而退出
+            if (running.get()) {
+                val detail = stderr?.let { "：${it.trim()}" } ?: ""
+                notifyError("getevent 进程意外退出，无法继续读取输入事件$detail")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Shizuku 录制循环异常", e)
+            if (running.get()) {
+                notifyError("Shizuku 录制异常：${e.message ?: e.javaClass.simpleName}")
+            }
         } finally {
             running.set(false)
         }
+    }
+
+    /** 上报失败：打日志并在主线程回调（若已注册）。 */
+    private fun notifyError(message: String) {
+        Log.e(TAG, message)
+        val listener = errorListener ?: return
+        mainHandler.post { listener.onRecorderError(message) }
     }
 
     /** 运行 `getevent -il` 并解析出第一个支持多点触摸的输入设备。 */
@@ -164,8 +192,8 @@ object ShizukuInputRecorder {
         }
     }
 
-    /** 读取指定设备的输入事件并识别手势。 */
-    private fun readEvents(device: TouchDevice) {
+    /** 读取指定设备的输入事件并识别手势。返回进程 stderr（无输出时为 null）。 */
+    private fun readEvents(device: TouchDevice): String? {
         val proc = Shizuku.newProcess(arrayOf("/system/bin/getevent", device.path), null, null)
         currentProcess = proc
         val reader = BufferedReader(InputStreamReader(proc.inputStream))
@@ -235,6 +263,7 @@ object ShizukuInputRecorder {
         }
         val err = errReader.readText().takeIf { it.isNotBlank() }
         if (err != null) Log.e(TAG, "getevent 错误: $err")
+        return err
     }
 
     private fun finalizeGesture(device: TouchDevice, slot: SlotState?) {

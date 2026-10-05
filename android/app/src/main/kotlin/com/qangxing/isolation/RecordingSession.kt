@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -104,10 +105,15 @@ object RecordingSession {
         defaultBallVisibleBefore = FloatingBallService.hideDefaultBallForRecording()
         // 手势模式下挂载全屏捕获层；Shizuku 模式下直接读取系统输入事件，不需要覆盖层
         if (shizukuMode) {
+            // 注册失败回调：getevent 读不到输入事件时提示用户并降级为手势捕获层
+            ShizukuInputRecorder.setOnErrorListener { message -> onShizukuRecorderError(message) }
             if (!ShizukuInputRecorder.start(ctx)) {
-                // Shizuku 未就绪，恢复默认悬浮球并放弃本次录制
-                FloatingBallService.endRecordingMode(restoreDefaultBall = defaultBallVisibleBefore)
-                return false
+                // Shizuku 未就绪（未安装/未运行/未授权），toastIfNotReady 已提示原因，
+                // 此处不再整体放弃录制，而是降级为手势捕获层保证本次录制可用
+                ShizukuInputRecorder.setOnErrorListener(null)
+                this.shizukuMode = false
+                this.gestureMode = true
+                RecordingCaptureOverlay.show(ctx)
             }
         } else if (gestureMode) {
             RecordingCaptureOverlay.show(ctx)
@@ -142,7 +148,16 @@ object RecordingSession {
             pauseStartedAt = 0L
         }
         when {
-            shizukuMode -> ShizukuInputRecorder.start(ctx)
+            shizukuMode -> {
+                // 恢复时 Shizuku 可能已不可用（如服务被杀），启动失败则降级为手势捕获层
+                ShizukuInputRecorder.setOnErrorListener { message -> onShizukuRecorderError(message) }
+                if (!ShizukuInputRecorder.start(ctx)) {
+                    ShizukuInputRecorder.setOnErrorListener(null)
+                    shizukuMode = false
+                    gestureMode = true
+                    RecordingCaptureOverlay.show(ctx)
+                }
+            }
             gestureMode -> RecordingCaptureOverlay.show(ctx)
         }
         FloatingBallService.updateRecordingBallState()
@@ -150,6 +165,22 @@ object RecordingSession {
     }
 
     fun isRecording(): Boolean = state == State.RECORDING
+
+    /**
+     * Shizuku 输入监听失败（在主线程回调）：Toast 告知原因，并把本次录制降级为
+     * 手势捕获层模式继续，避免录制球显示中但触摸完全无记录的"假死"状态。
+     */
+    private fun onShizukuRecorderError(message: String) {
+        if (!isRecording() || !shizukuMode) return
+        val ctx = contextRef ?: return
+        Log.w(TAG, "Shizuku 录制失败，降级为手势捕获模式: $message")
+        ShizukuInputRecorder.stop()
+        ShizukuInputRecorder.setOnErrorListener(null)
+        shizukuMode = false
+        gestureMode = true
+        RecordingCaptureOverlay.show(ctx)
+        Toast.makeText(ctx, "Shizuku 录制不可用，已降级为手势捕获模式\n$message", Toast.LENGTH_LONG).show()
+    }
 
     // ── 步骤收集 ──
 
@@ -301,6 +332,7 @@ object RecordingSession {
         val wasPaused = state == State.PAUSED
         state = State.FINISHED
         // 统一清理：Shizuku 输入监听 / 全屏手势捕获层
+        ShizukuInputRecorder.setOnErrorListener(null)
         ShizukuInputRecorder.stop()
         RecordingCaptureOverlay.hide()
         val steps = RecordingPostProcessor.process(rawSteps, mode, captureColors).toMutableList()
@@ -326,6 +358,7 @@ object RecordingSession {
     fun cancel() {
         if (state == State.IDLE && rawSteps.isEmpty()) return
         state = State.IDLE
+        ShizukuInputRecorder.setOnErrorListener(null)
         ShizukuInputRecorder.stop()
         RecordingCaptureOverlay.hide()
         FloatingBallService.endRecordingMode(restoreDefaultBall = defaultBallVisibleBefore)
