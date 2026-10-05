@@ -367,61 +367,49 @@ class MacroProgramParser {
     switch (type) {
       case 'clickNode':
         final target = step['target'] as Map<String, dynamic>?;
+        String? findableText;
         if (target != null) {
           final text = target['text'] as String?;
           final contentDescription = target['contentDescription'] as String?;
           final resourceId = target['resourceId'] as String?;
-
           if (text != null && text.isNotEmpty) {
-            result = {
-              'type': 'findText',
-              'text': text,
-              if (delay != null) 'delay': delay,
-              'children': [
-                {'type': 'click'},
-              ],
-            };
-            break;
-          }
-
-          if (contentDescription != null && contentDescription.isNotEmpty) {
-            result = {
-              'type': 'findText',
-              'text': contentDescription,
-              if (delay != null) 'delay': delay,
-              'children': [
-                {'type': 'click'},
-              ],
-            };
-            break;
-          }
-
-          if (resourceId != null && resourceId.isNotEmpty) {
-            result = {
-              'type': 'findText',
-              'text': resourceId,
-              if (delay != null) 'delay': delay,
-              'children': [
-                {'type': 'click'},
-              ],
-            };
-            break;
-          }
-
-          final bounds = target['bounds'] as List?;
-          if (bounds != null && bounds.length == 4) {
-            final cx = ((bounds[0] as num) + (bounds[2] as num)) ~/ 2;
-            final cy = ((bounds[1] as num) + (bounds[3] as num)) ~/ 2;
-            result = {
-              'type': 'click',
-              'x': cx,
-              'y': cy,
-              if (delay != null) 'delay': delay,
-            };
-            break;
+            findableText = text;
+          } else if (contentDescription != null && contentDescription.isNotEmpty) {
+            findableText = contentDescription;
+          } else if (resourceId != null && resourceId.isNotEmpty) {
+            findableText = resourceId;
           }
         }
-        result = Map<String, dynamic>.from(step);
+
+        if (findableText != null) {
+          // 标准 Accessibility 文本可用：用 findText + click
+          result = {
+            'type': 'findText',
+            'text': findableText,
+            if (delay != null) 'delay': delay,
+            'children': [
+              {'type': 'click'},
+            ],
+          };
+        } else {
+          // 游戏或自定义绘制控件：Accessibility 文本无效，回退为坐标 click
+          final bounds = target?['bounds'] as List?;
+          if (bounds != null && bounds.length == 4) {
+            result = {
+              'type': 'click',
+              'x': ((bounds[0] as num) + (bounds[2] as num)) ~/ 2,
+              'y': ((bounds[1] as num) + (bounds[3] as num)) ~/ 2,
+              if (delay != null) 'delay': delay,
+            };
+          } else {
+            result = {
+              'type': 'click',
+              'x': step['x'],
+              'y': step['y'],
+              if (delay != null) 'delay': delay,
+            };
+          }
+        }
         break;
 
       case 'clickPoint':

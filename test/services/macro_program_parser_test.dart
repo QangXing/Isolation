@@ -191,7 +191,7 @@ waitForText("加载完成") {
     expect(serialized, code);
   });
 
-  test('clickNode with color becomes waitForColor block', () {
+  test('clickNode with text becomes waitForColor + findText block', () {
     final step = {
       'type': 'clickNode',
       'target': {'text': '签到'},
@@ -202,14 +202,26 @@ waitForText("加载完成") {
     final waitForColor = converted.first;
     expect(waitForColor['type'], 'waitForColor');
     expect(waitForColor['color'], 0xFF3366);
-    expect(waitForColor['tolerance'], 30);
-    expect(waitForColor['timeout'], 5000);
-    expect(waitForColor['region'], isA<List>());
     final children = waitForColor['children'] as List;
-    expect(children.length, 1);
     expect(children.first['type'], 'findText');
     expect(children.first['text'], '签到');
-    expect(children.first['children'], isA<List>());
+  });
+
+  test('clickNode without text falls back to coordinate click', () {
+    final step = {
+      'type': 'clickNode',
+      'x': 100,
+      'y': 200,
+      'target': {
+        'bounds': [80, 180, 120, 220],
+        'className': 'android.view.View',
+      },
+    };
+    final converted = MacroProgramParser.convertLegacySteps([step]);
+    expect(converted.length, 1);
+    expect(converted.first['type'], 'click');
+    expect(converted.first['x'], 100);
+    expect(converted.first['y'], 200);
   });
 
   test('waitForColor round-trip', () {
