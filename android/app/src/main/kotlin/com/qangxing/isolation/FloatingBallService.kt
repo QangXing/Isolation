@@ -854,18 +854,32 @@ class FloatingBallService : Service(), MacroExecutorListener {
             // 加载默认悬浮球配置，供未声明外观参数的球回退使用
             val config = loadDefaultFloaterConfig()
 
-            // 注册 found 函数，用于表达式中获取球坐标
+            // 注册 found / screen 函数，用于表达式中获取球坐标与屏幕尺寸
             val foundHandler: (String, List<Map<String, Any>>, Map<String, Variable>) -> Variable? = { name, args, variables ->
-                if (name != "found") null
-                else {
-                    val ballName = extractStringFromArg(args.getOrNull(0), variables)
-                    val axis = extractStringFromArg(args.getOrNull(1), variables) ?: "x"
-                    val pos = ballName?.let { getPluginBallPosition(it) }
-                    if (pos == null) null
-                    else {
-                        val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
+                when (name) {
+                    "found" -> {
+                        val ballName = extractStringFromArg(args.getOrNull(0), variables)
+                        val axis = extractStringFromArg(args.getOrNull(1), variables) ?: "x"
+                        val pos = ballName?.let { getPluginBallPosition(it) }
+                        if (pos == null) null
+                        else {
+                            val value = if (axis == "y") pos["y"] ?: 0 else pos["x"] ?: 0
+                            Variable.Number(value.toDouble())
+                        }
+                    }
+                    "screen" -> {
+                        val axis = extractStringFromArg(args.getOrNull(0), variables) ?: "width"
+                        val size = screenSize()
+                        val value = when (axis) {
+                            "width", "w" -> size.x
+                            "height", "h" -> size.y
+                            "centerX", "cx" -> size.x / 2
+                            "centerY", "cy" -> size.y / 2
+                            else -> 0
+                        }
                         Variable.Number(value.toDouble())
                     }
+                    else -> null
                 }
             }
             ExpressionEvaluator.callHandler = foundHandler
