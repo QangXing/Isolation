@@ -1086,7 +1086,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
             // 事件步骤包含 UI 操作（Toast、startActivity、showBubble、executeMacro 等），
             // 必须在主线程执行，否则会导致新建编程球点击闪退。
             mainHandler.post {
-                executeFloaterSteps(handler.children)
+                executeFloaterSteps(handler.children, currentBall = name)
             }
         }
     }
@@ -1184,13 +1184,13 @@ class FloatingBallService : Service(), MacroExecutorListener {
         return null
     }
 
-    private fun executeFloaterSteps(steps: List<Map<String, Any>>) {
+    private fun executeFloaterSteps(steps: List<Map<String, Any>>, currentBall: String? = null) {
         for (step in steps) {
-            executeFloaterStep(step)
+            executeFloaterStep(step, currentBall)
         }
     }
 
-    private fun executeFloaterStep(step: Map<String, Any>) {
+    private fun executeFloaterStep(step: Map<String, Any>, currentBall: String? = null) {
         when (step["type"]) {
             "assign", "let", "var" -> {
                 val name = step["name"] as? String ?: return
@@ -1223,6 +1223,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 val ball = pluginBalls[name] ?: return
                 setPluginBallVisible(name, !ball.visible)
             }
+            "change" -> executeChange(step, currentBall)
             "print" -> {
                 val message = step["message"] as? String ?: return
                 showBubble(message)
@@ -1240,9 +1241,49 @@ class FloatingBallService : Service(), MacroExecutorListener {
             "launch_macro" -> runEnabledMacro()
             "turn_off_macros" -> MacroExecutor.stopActive()
             "bounce", "shake", "pulse", "animate" -> executeBallAnimation(step)
-            "for" -> executeFloaterFor(step)
-            "if" -> executeFloaterIf(step)
+            "for" -> executeFloaterFor(step, currentBall)
+            "if" -> executeFloaterIf(step, currentBall)
             else -> Log.w(TAG, "未支持的球步骤类型: ${step["type"]}")
+        }
+    }
+
+    /**
+     * 运行时修改插件球外观参数：size / cornerRadius / image / opacity。
+     * 未显式指定球名时，使用 currentBall（即触发当前事件的球）。
+     */
+    private fun executeChange(step: Map<String, Any>, currentBall: String?) {
+        val explicitName = step["name"] as? String
+        val targetName = if (!explicitName.isNullOrEmpty()) explicitName else currentBall
+        if (targetName == null || targetName.isEmpty()) {
+            Log.w(TAG, "change 指令未指定球名，且无当前球上下文")
+            return
+        }
+        val ball = pluginBalls[targetName] ?: run {
+            Log.w(TAG, "change 指令目标球不存在: $targetName")
+            return
+        }
+
+        var needsConfigApply = false
+        if (step.containsKey("size")) {
+            ball.sizeDp = resolveIntValue(step["size"], ball.sizeDp)
+            needsConfigApply = true
+        }
+        if (step.containsKey("cornerRadius")) {
+            ball.cornerRadiusDp = resolveIntValue(step["cornerRadius"], ball.cornerRadiusDp)
+            needsConfigApply = true
+        }
+        if (step.containsKey("image")) {
+            val imageName = step["image"] as? String
+            ball.imagePath = imageName?.let { resolveAssetPath(it) }
+            needsConfigApply = true
+        }
+        if (step.containsKey("opacity")) {
+            val opacity = resolveFloatValue(step["opacity"], ball.view.alpha)
+            ball.view.alpha = opacity.coerceIn(0f, 1f)
+        }
+
+        if (needsConfigApply) {
+            applyPluginBallConfig(ball)
         }
     }
 
@@ -1363,7 +1404,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
-    private fun executeFloaterFor(step: Map<String, Any>) {
+    private fun executeFloaterFor(step: Map<String, Any>, currentBall: String? = null) {
         @Suppress("UNCHECKED_CAST")
         val condition = step["condition"] as? Map<String, Any>
         if (condition != null) {
@@ -1373,10 +1414,10 @@ class FloatingBallService : Service(), MacroExecutorListener {
             val update = step["update"] as? Map<String, Any>
             @Suppress("UNCHECKED_CAST")
             val children = (step["children"] as? List<Map<String, Any>>) ?: return
-            init?.let { executeFloaterStep(it) }
+            init?.let { executeFloaterStep(it, currentBall) }
             while (ExpressionEvaluator.toBoolean(ExpressionEvaluator.evaluate(condition, pluginVariables))) {
-                executeFloaterSteps(children)
-                update?.let { executeFloaterStep(it) }
+                executeFloaterSteps(children, currentBall)
+                update?.let { executeFloaterStep(it, currentBall) }
             }
             return
         }
@@ -1384,11 +1425,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
         @Suppress("UNCHECKED_CAST")
         val children = (step["children"] as? List<Map<String, Any>>) ?: return
         for (i in 1..count) {
-            executeFloaterSteps(children)
+            executeFloaterSteps(children, currentBall)
         }
     }
 
-    private fun executeFloaterIf(step: Map<String, Any>) {
+    private fun executeFloaterIf(step: Map<String, Any>, currentBall: String? = null) {
         @Suppress("UNCHECKED_CAST")
         val condition = step["condition"] as? Map<String, Any>
         @Suppress("UNCHECKED_CAST")
@@ -1401,9 +1442,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
         @Suppress("UNCHECKED_CAST")
         val elseChildren = (step["else"] as? List<Map<String, Any>>)
         if (bool) {
-            thenChildren?.let { executeFloaterSteps(it) }
+            thenChildren?.let { executeFloaterSteps(it, currentBall) }
         } else {
-            elseChildren?.let { executeFloaterSteps(it) }
+            elseChildren?.let { executeFloaterSteps(it, currentBall) }
         }
     }
 

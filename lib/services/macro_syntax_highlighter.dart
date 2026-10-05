@@ -69,6 +69,7 @@ class MacroSyntaxHighlighter {
     'shake',
     'pulse',
     'animate',
+    'change',
   ];
 
   static const Color _keywordColor = Color(0xFFBB86FC); // 紫色

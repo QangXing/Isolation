@@ -179,6 +179,9 @@ class MacroProgramParser {
         step['name'] = keyword(0) ?? '';
         step['axis'] = keyword(1) ?? '';
         break;
+      case 'change':
+        step['name'] = keyword(0) ?? '';
+        break;
       // ── 球动画指令（与录制悬浮球同一套视觉语言） ──
       case 'bounce':
         step['name'] = keyword(0) ?? '';
@@ -714,6 +717,20 @@ class MacroProgramParser {
         break;
       case 'found':
         buffer.writeln('${indent}found(${_serializeArgValue(step['name'])}, ${_serializeArgValue(step['axis'])})');
+        break;
+      case 'change':
+        final changeArgs = <String>[];
+        final changeName = step['name'] as String?;
+        if (changeName != null && changeName.isNotEmpty) {
+          changeArgs.add(_serializeArgValue(changeName));
+        }
+        for (final key in ['size', 'cornerRadius', 'image', 'opacity']) {
+          final value = step[key];
+          if (value != null) {
+            changeArgs.add('$key=${_serializeArgValue(value)}');
+          }
+        }
+        buffer.writeln('${indent}change(${changeArgs.join(', ')})');
         break;
       case 'bounce':
         _serializeBallAnim(step, indent, buffer, 'bounce', 'height');
