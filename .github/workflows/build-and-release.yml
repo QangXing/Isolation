@@ -41,7 +41,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.6'
+          flutter-version: '3.47.6'
           channel: 'stable'
           cache: true
 
@@ -66,7 +66,7 @@ jobs:
           # 仓库内的 gradle-wrapper.properties 指向国内镜像供本地开发使用；
           # CI 环境改写为官方源，由 wrapper 在线下载。
           PROPS="${{ github.workspace }}/android/gradle/wrapper/gradle-wrapper.properties"
-          sed -i 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-9.1.0-all.zip|' "$PROPS"
+          sed -i 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-all.zip|' "$PROPS"
           cat "$PROPS"
 
       - name: Build APK

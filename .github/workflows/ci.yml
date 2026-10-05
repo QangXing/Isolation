@@ -32,7 +32,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.6'
+          flutter-version: '3.47.6'
           channel: 'stable'
           cache: true
 
@@ -63,7 +63,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.44.6'
+          flutter-version: '3.47.6'
           channel: 'stable'
           cache: true
 
@@ -78,7 +78,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.1.0'
+          gradle-version: '9.3.1'
 
       - name: Run Android unit tests
         working-directory: android
