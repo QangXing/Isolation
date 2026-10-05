@@ -68,14 +68,31 @@ class InputAccessibilityService : AccessibilityService(), MacroExecutorListener 
          * 通过辅助服务向系统派发一次手势回放（录制捕获层原样回放给目标 App）。
          * [suppressEvents] 为 false 时（点击回放），系统产生的 TYPE_VIEW_CLICKED
          * 事件会回调 onAccessibilityEvent 用于补全最近一次点击的节点信息。
+         * [onResult] 在回放完成或取消时回调，可用于提前结束本地屏蔽窗口。
          */
-        fun dispatchReplayGesture(path: Path, duration: Long, suppressEvents: Boolean): Boolean {
-            val svc = instance ?: return false
-            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return false
+        fun dispatchReplayGesture(
+            path: Path,
+            duration: Long,
+            suppressEvents: Boolean,
+            onResult: ((Boolean) -> Unit)? = null
+        ): Boolean {
+            val svc = instance ?: return false.also { onResult?.invoke(false) }
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
+                onResult?.invoke(false)
+                return false
+            }
             val gesture = GestureDescription.Builder()
                 .addStroke(GestureDescription.StrokeDescription(path, 0, duration.coerceAtLeast(1L)))
                 .build()
-            return svc.dispatchGesture(gesture, null, null)
+            return svc.dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    onResult?.invoke(true)
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    onResult?.invoke(false)
+                }
+            }, null)
         }
 
         fun executeMacro(
