@@ -19,13 +19,17 @@ object RecordingPostProcessor {
             val step = rs.step
             val type = step["type"] as? String ?: continue
             val delay = (step["delay"] as? Number)?.toLong() ?: 0L
+            // 把步骤间延迟抽成独立的 wait 步骤，让每个子指令执行前都显式有一次等待
+            if (delay > 0) {
+                out.add(mapOf("type" to "wait", "duration" to delay))
+            }
             when (type) {
-                "click", "clickNode" -> out.add(buildClickStep(step, delay, mode, captureColors))
+                "click", "clickNode" -> out.add(buildClickStep(step, mode, captureColors))
                 // 录制中的"标记"落为一条 print 注释步骤，便于在编辑页定位；不带 delay，不打乱后续节奏
                 "mark" -> out.add(mapOf("type" to "print", "message" to "▶ ${step["name"] ?: "标记"}"))
-                "longPressAt", "swipe" -> out.add(nonNull(step))
+                "longPressAt", "swipe" -> out.add(nonNull(step).minus("delay"))
                 "back", "home" -> {
-                    out.add(nonNull(step))
+                    out.add(nonNull(step).minus("delay"))
                     if (mode == RecordingSession.Mode.COMPLEX) {
                         // 系统键后等待页面稳定，避免下一操作落在转场动画上
                         out.add(mapOf("type" to "wait", "duration" to 800L))
@@ -38,15 +42,13 @@ object RecordingPostProcessor {
 
     private fun buildClickStep(
         step: Map<String, Any?>,
-        delay: Long,
         mode: RecordingSession.Mode,
         captureColors: Boolean
     ): Map<String, Any> {
         // 复杂模式下辅助服务已把点击补全为 clickNode（含 target / color）
         if (mode == RecordingSession.Mode.COMPLEX && step["type"] == "clickNode") {
             val clickNode = mutableMapOf<String, Any>(
-                "type" to "clickNode",
-                "delay" to delay
+                "type" to "clickNode"
             )
             step["target"]?.let { clickNode["target"] = it }
             if (captureColors) step["color"]?.let { clickNode["color"] = it }
@@ -56,8 +58,7 @@ object RecordingPostProcessor {
         return nonNull(mapOf(
             "type" to "click",
             "x" to step["x"],
-            "y" to step["y"],
-            "delay" to delay
+            "y" to step["y"]
         ))
     }
 
