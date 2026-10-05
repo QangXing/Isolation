@@ -100,7 +100,12 @@ class RecordingCaptureOverlay private constructor(context: Context) : View(conte
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (SystemClock.elapsedRealtime() < suppressUntil) return true
+        val now = SystemClock.elapsedRealtime()
+        if (now < suppressUntil) {
+            // 回放期间把事件透传下去，避免捕获层把 dispatchGesture 注入的手势再次吃掉
+            Log.d(TAG, "回放屏蔽窗口中，透传事件: ${event.actionMasked}")
+            return false
+        }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
@@ -155,6 +160,7 @@ class RecordingCaptureOverlay private constructor(context: Context) : View(conte
 
     private fun onReplayResult(success: Boolean, action: String) {
         endSuppressReplay()
+        Log.d(TAG, "$action 回放结果: success=$success")
         if (!success) {
             Log.w(TAG, "$action 回放被系统取消，目标应用可能未响应")
             mainHandler.post {
@@ -166,11 +172,13 @@ class RecordingCaptureOverlay private constructor(context: Context) : View(conte
     // ── 回放：把捕获到的手势原样派发给系统 ──
 
     private fun replayTap(x: Int, y: Int) {
+        Log.d(TAG, "回放点击: ($x, $y)")
         val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
         // 点击回放不抑制辅助事件：需要 TYPE_VIEW_CLICKED 补全节点信息
         val dispatched = InputAccessibilityService.dispatchReplayGesture(path, 100L, suppressEvents = false) { success ->
             onReplayResult(success, "点击")
         }
+        Log.d(TAG, "点击 dispatchGesture 是否入队: $dispatched")
         if (!dispatched) {
             // 服务未就绪时 dispatchGesture 直接返回 false，不会触发回调，需要手动解除屏蔽
             endSuppressReplay()
@@ -181,14 +189,17 @@ class RecordingCaptureOverlay private constructor(context: Context) : View(conte
     }
 
     private fun replayLongPress(x: Int, y: Int, duration: Long) {
+        Log.d(TAG, "回放长按: ($x, $y), duration=$duration")
         val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
         val dispatched = InputAccessibilityService.dispatchReplayGesture(path, duration, suppressEvents = true) { success ->
             onReplayResult(success, "长按")
         }
+        Log.d(TAG, "长按 dispatchGesture 是否入队: $dispatched")
         if (!dispatched) endSuppressReplay()
     }
 
     private fun replaySwipe(sx: Int, sy: Int, ex: Int, ey: Int, duration: Long) {
+        Log.d(TAG, "回放滑动: ($sx, $sy) -> ($ex, $ey), duration=$duration")
         val path = Path().apply {
             moveTo(sx.toFloat(), sy.toFloat())
             lineTo(ex.toFloat(), ey.toFloat())
@@ -197,6 +208,7 @@ class RecordingCaptureOverlay private constructor(context: Context) : View(conte
         val dispatched = InputAccessibilityService.dispatchReplayGesture(path, replayDuration, suppressEvents = true) { success ->
             onReplayResult(success, "滑动")
         }
+        Log.d(TAG, "滑动 dispatchGesture 是否入队: $dispatched")
         if (!dispatched) endSuppressReplay()
     }
 }
