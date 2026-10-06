@@ -40,26 +40,18 @@ floater "fan-menu-v2" {
         anchor = topLeft
     }
 
-    val expanded: Bool = false
-
-    on mainBall.click {
-        if (!expanded) {
-            expanded = true
-            sub1.visible = true
-            sub2.visible = true
-            sub3.visible = true
-            sub4.visible = true
-            val fan = Fan(center: mainBall.center, radius: 140dp, startAngle: 0deg, sweep: 90deg, count: 4)
-            await animate [sub1, sub2, sub3, sub4] to fan[].topLeft duration 260ms easing overshoot
-        } else {
-            expanded = false
-            await animate [sub1, sub2, sub3, sub4] to mainBall.center duration 200ms easing decelerate
-            sub1.visible = false
-            sub2.visible = false
-            sub3.visible = false
-            sub4.visible = false
-        }
+    state collapsed {
+        sub1..4.visible = false
     }
+
+    state expanded {
+        let fan: Fan = Fan(center: mainBall.center, radius: 140dp, startAngle: 0deg, sweep: 90deg, count: 4)
+        sub1..4.visible = true
+        await animate [sub1..4] to fan[].topLeft duration 260ms easing overshoot
+    }
+
+    transition collapsed -> expanded on mainBall.click
+    transition expanded -> collapsed on mainBall.click
 
     on sub1.click { print("功能 1") }
     on sub2.click { print("功能 2") }

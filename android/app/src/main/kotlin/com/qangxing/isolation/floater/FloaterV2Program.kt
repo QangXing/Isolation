@@ -7,7 +7,9 @@ data class FloaterV2Program(
     val pluginId: String,
     val variables: List<FloaterV2Variable>,
     val balls: List<FloaterV2Ball>,
-    val events: List<FloaterV2Event>
+    val events: List<FloaterV2Event>,
+    val states: List<FloaterV2StateBlock>,
+    val transitions: List<FloaterV2Transition>
 ) {
     companion object {
         fun fromJson(json: Map<String, Any?>): FloaterV2Program {
@@ -21,6 +23,12 @@ data class FloaterV2Program(
                 } ?: emptyList(),
                 events = (json["events"] as? List<*>)?.map {
                     FloaterV2Event.fromJson(it as Map<String, Any?>)
+                } ?: emptyList(),
+                states = (json["states"] as? List<*>)?.map {
+                    FloaterV2StateBlock.fromJson(it as Map<String, Any?>)
+                } ?: emptyList(),
+                transitions = (json["transitions"] as? List<*>)?.map {
+                    FloaterV2Transition.fromJson(it as Map<String, Any?>)
                 } ?: emptyList()
             )
         }
@@ -32,7 +40,8 @@ data class FloaterV2Variable(
     val type: FloaterType,
     val value: FloaterValue,
     val rawValue: Map<String, Any?>,
-    val mutable: Boolean
+    val mutable: Boolean,
+    val local: Boolean
 ) {
     companion object {
         fun fromJson(json: Map<String, Any?>): FloaterV2Variable {
@@ -42,7 +51,8 @@ data class FloaterV2Variable(
                 type = ((json["type"] as? Map<String, Any?>)?.get("kind") as? String ?: "Unknown").toFloaterType(),
                 value = floaterValueFromJson(rawValue),
                 rawValue = rawValue,
-                mutable = json["mutable"] as? Boolean ?: false
+                mutable = json["mutable"] as? Boolean ?: false,
+                local = json["local"] as? Boolean ?: false
             )
         }
     }
@@ -110,6 +120,42 @@ data class FloaterV2Event(
     }
 }
 
+data class FloaterV2StateBlock(
+    val name: String,
+    val body: List<FloaterV2Statement>,
+    val localVariables: List<String>
+) {
+    companion object {
+        fun fromJson(json: Map<String, Any?>): FloaterV2StateBlock {
+            return FloaterV2StateBlock(
+                name = json["name"] as? String ?: "",
+                body = (json["body"] as? List<*>)?.map {
+                    FloaterV2Statement.fromJson(it as Map<String, Any?>)
+                } ?: emptyList(),
+                localVariables = (json["localVariables"] as? List<*>)?.map { it as String } ?: emptyList()
+            )
+        }
+    }
+}
+
+data class FloaterV2Transition(
+    val from: String,
+    val to: String,
+    val ballName: String,
+    val event: String
+) {
+    companion object {
+        fun fromJson(json: Map<String, Any?>): FloaterV2Transition {
+            return FloaterV2Transition(
+                from = json["from"] as? String ?: "",
+                to = json["to"] as? String ?: "",
+                ballName = json["ballName"] as? String ?: "",
+                event = json["event"] as? String ?: ""
+            )
+        }
+    }
+}
+
 /**
  * v2 语句 AST。
  */
@@ -151,6 +197,16 @@ sealed class FloaterV2Statement {
                     easing = json["easing"] as? String ?: "linear",
                     await = json["await"] as? Boolean ?: false
                 )
+                "let" -> LetStatement(
+                    name = json["name"] as? String ?: "",
+                    type = ((json["typeInfo"] as? Map<String, Any?>)?.get("kind") as? String ?: "Unknown").toFloaterType(),
+                    value = FloaterV2Expression.fromJson(json["value"] as Map<String, Any?>)
+                )
+                "multiSetProperty" -> MultiSetPropertyStatement(
+                    ballNames = (json["ballNames"] as? List<*>)?.map { it as String } ?: emptyList(),
+                    property = json["property"] as? String ?: "",
+                    value = FloaterV2Expression.fromJson(json["value"] as Map<String, Any?>)
+                )
                 else -> UnknownStatement
             }
         }
@@ -166,6 +222,18 @@ data class AssignStatement(
 data class SetPropertyStatement(
     val ballName: String,
     val property: String,
+    val value: FloaterV2Expression
+) : FloaterV2Statement()
+
+data class MultiSetPropertyStatement(
+    val ballNames: List<String>,
+    val property: String,
+    val value: FloaterV2Expression
+) : FloaterV2Statement()
+
+data class LetStatement(
+    val name: String,
+    val type: FloaterType,
     val value: FloaterV2Expression
 ) : FloaterV2Statement()
 

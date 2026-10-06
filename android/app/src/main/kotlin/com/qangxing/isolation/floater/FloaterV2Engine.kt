@@ -19,6 +19,7 @@ class FloaterV2Engine(
 ) {
     private var program: FloaterV2Program? = null
     private val variables = mutableMapOf<String, FloaterValue>()
+    private var currentState: String? = null
     private val uiHandler = Handler(Looper.getMainLooper())
 
     /**
@@ -51,6 +52,31 @@ class FloaterV2Engine(
                 }
             }
         }
+
+        // 绑定状态转换（transition 优先级高于 on 事件）
+        parsed.transitions.forEach { transition ->
+            service.setPluginBallEventHandler(transition.ballName, transition.event) {
+                if (currentState == transition.from) {
+                    enterState(transition.to)
+                }
+            }
+        }
+
+        // 进入第一个 state（如果声明了状态机）
+        parsed.states.firstOrNull()?.let { enterState(it.name) }
+    }
+
+    /**
+     * 进入指定状态，执行 state body，并清理上一个状态的局部变量。
+     */
+    private fun enterState(stateName: String) {
+        val program = this.program ?: return
+        val previous = program.states.find { it.name == currentState }
+        previous?.localVariables?.forEach { variables.remove(it) }
+
+        currentState = stateName
+        val state = program.states.find { it.name == stateName } ?: return
+        executeStatements(state.body)
     }
 
     /**
@@ -130,9 +156,18 @@ class FloaterV2Engine(
             is AssignStatement -> {
                 variables[statement.target] = evaluateExpression(statement.value)
             }
+            is LetStatement -> {
+                variables[statement.name] = evaluateExpression(statement.value)
+            }
             is SetPropertyStatement -> {
                 val value = evaluateExpression(statement.value)
                 applyBallProperty(statement.ballName, statement.property, value)
+            }
+            is MultiSetPropertyStatement -> {
+                val value = evaluateExpression(statement.value)
+                statement.ballNames.forEach { ballName ->
+                    applyBallProperty(ballName, statement.property, value)
+                }
             }
             is PrintStatement -> {
                 val value = evaluateExpression(statement.expression)

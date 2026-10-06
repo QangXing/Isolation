@@ -9,12 +9,16 @@ class FloaterProgramV2 {
   final List<FloaterVariable> variables;
   final List<FloaterBallV2> balls;
   final List<FloaterEvent> events;
+  final List<FloaterStateBlock> states;
+  final List<FloaterTransition> transitions;
 
   const FloaterProgramV2({
     required this.pluginId,
     required this.variables,
     required this.balls,
     required this.events,
+    this.states = const [],
+    this.transitions = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -23,21 +27,25 @@ class FloaterProgramV2 {
         'variables': variables.map((v) => v.toJson()).toList(),
         'balls': balls.map((b) => b.toJson()).toList(),
         'events': events.map((e) => e.toJson()).toList(),
+        'states': states.map((s) => s.toJson()).toList(),
+        'transitions': transitions.map((t) => t.toJson()).toList(),
       };
 }
 
-/// 变量声明：val 不可变，var 可变。
+/// 变量声明：val 不可变，var 可变，let 为状态内局部变量。
 class FloaterVariable {
   final String name;
   final FloaterType type;
   final FloaterValue value;
   final bool mutable;
+  final bool local;
 
   const FloaterVariable({
     required this.name,
     required this.type,
     required this.value,
     required this.mutable,
+    this.local = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -45,6 +53,7 @@ class FloaterVariable {
         'type': type.toJson(),
         'value': value.toJson(),
         'mutable': mutable,
+        'local': local,
       };
 }
 
@@ -111,6 +120,47 @@ class FloaterEvent {
       };
 }
 
+/// 状态块。
+class FloaterStateBlock {
+  final String name;
+  final List<FloaterStatement> body;
+  final List<String> localVariables;
+
+  const FloaterStateBlock({
+    required this.name,
+    required this.body,
+    this.localVariables = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'body': body.map((s) => s.toJson()).toList(),
+        'localVariables': localVariables,
+      };
+}
+
+/// 状态转换。
+class FloaterTransition {
+  final String from;
+  final String to;
+  final String ballName;
+  final String event;
+
+  const FloaterTransition({
+    required this.from,
+    required this.to,
+    required this.ballName,
+    required this.event,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'from': from,
+        'to': to,
+        'ballName': ballName,
+        'event': event,
+      };
+}
+
 /// 动画目标描述：单球名、球名列表或几何展开。
 typedef FloaterAnimateTargets = List<String>;
 
@@ -134,6 +184,23 @@ class AssignStatement extends FloaterStatement {
       };
 }
 
+/// let 局部变量声明：let name: Type = value。
+class LetStatement extends FloaterStatement {
+  final String name;
+  final FloaterType type;
+  final FloaterExpression value;
+
+  LetStatement({required this.name, required this.type, required this.value});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'let',
+        'name': name,
+        'typeInfo': type.toJson(),
+        'value': value.toJson(),
+      };
+}
+
 /// 属性赋值：ballName.prop = value。
 class SetPropertyStatement extends FloaterStatement {
   final String ballName;
@@ -150,6 +217,27 @@ class SetPropertyStatement extends FloaterStatement {
   Map<String, dynamic> toJson() => {
         'type': 'setProperty',
         'ballName': ballName,
+        'property': property,
+        'value': value.toJson(),
+      };
+}
+
+/// 批量属性赋值：sub1..4.visible = value。
+class MultiSetPropertyStatement extends FloaterStatement {
+  final List<String> ballNames;
+  final String property;
+  final FloaterExpression value;
+
+  MultiSetPropertyStatement({
+    required this.ballNames,
+    required this.property,
+    required this.value,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'multiSetProperty',
+        'ballNames': ballNames,
         'property': property,
         'value': value.toJson(),
       };

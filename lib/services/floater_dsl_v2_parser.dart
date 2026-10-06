@@ -63,6 +63,8 @@ class _BlockParser {
     final variables = <FloaterVariable>[];
     final balls = <FloaterBallV2>[];
     final events = <FloaterEvent>[];
+    final states = <FloaterStateBlock>[];
+    final transitions = <FloaterTransition>[];
     String pluginId = '';
 
     while (!_isAtEnd) {
@@ -77,6 +79,8 @@ class _BlockParser {
           if (item is FloaterVariable) variables.add(item);
           else if (item is FloaterBallV2) balls.add(item);
           else if (item is FloaterEvent) events.add(item);
+          else if (item is FloaterStateBlock) states.add(item);
+          else if (item is FloaterTransition) transitions.add(item);
         }
       } else {
         throw _error('顶层只能出现 floater 声明', line.originalLine);
@@ -88,6 +92,8 @@ class _BlockParser {
       variables: variables,
       balls: balls,
       events: events,
+      states: states,
+      transitions: transitions,
     );
   }
 
@@ -118,18 +124,16 @@ class _BlockParser {
 
       final trimmed = _trimIndent(line.text);
 
-      if (trimmed.startsWith('val ') || trimmed.startsWith('var ')) {
+      if (trimmed.startsWith('val ') || trimmed.startsWith('var ') || trimmed.startsWith('let ')) {
         items.add(_parseVariable(trimmed, line.originalLine));
       } else if (trimmed.startsWith('ball ')) {
         items.add(_parseBall(trimmed, line.originalLine, indent));
       } else if (trimmed.startsWith('on ')) {
         items.add(_parseEvent(trimmed, line.originalLine, indent));
       } else if (trimmed.startsWith('state ')) {
-        // 阶段 3 暂不实现
-        throw _error('state 语法在阶段 1 尚未支持', line.originalLine);
+        items.add(_parseState(trimmed, line.originalLine, indent));
       } else if (trimmed.startsWith('transition ')) {
-        // 阶段 3 暂不实现
-        throw _error('transition 语法在阶段 1 尚未支持', line.originalLine);
+        items.add(_parseTransition(trimmed, line.originalLine));
       } else {
         throw _error('未知顶层语句: $trimmed', line.originalLine);
       }
@@ -139,12 +143,14 @@ class _BlockParser {
   }
 
   FloaterVariable _parseVariable(String line, int lineNo) {
-    final reg = RegExp(r'^(val|var)\s+(\w+)\s*:\s*(\w+)\s*=\s*(.+)\s*$');
+    final reg = RegExp(r'^(val|var|let)\s+(\w+)\s*:\s*(\w+)\s*=\s*(.+)\s*$');
     final match = reg.firstMatch(line);
     if (match == null) {
-      throw _error('变量声明格式错误，应为 val/var name: Type = expr', lineNo);
+      throw _error('变量声明格式错误，应为 val/var/let name: Type = expr', lineNo);
     }
-    final mutable = match.group(1) == 'var';
+    final keyword = match.group(1)!;
+    final mutable = keyword == 'var';
+    final local = keyword == 'let';
     final name = match.group(2)!;
     final typeName = match.group(3)!;
     final exprStr = match.group(4)!;
@@ -154,6 +160,7 @@ class _BlockParser {
       type: FloaterType.fromName(typeName),
       value: _inferLiteralValue(expr),
       mutable: mutable,
+      local: local,
     );
   }
 
@@ -209,6 +216,37 @@ class _BlockParser {
     );
   }
 
+  FloaterStateBlock _parseState(String line, int lineNo, int parentIndent) {
+    final reg = RegExp(r'^state\s+(\w+)\s*\{');
+    final match = reg.firstMatch(line);
+    if (match == null) {
+      throw _error('state 格式错误，应为 state name { ... }', lineNo);
+    }
+    final name = match.group(1)!;
+    final body = _parseStatementBlock(parentIndent);
+    final localVariables = body.whereType<LetStatement>()
+        .map((s) => s.name)
+        .where(_isValidIdentifier)
+        .toList();
+    return FloaterStateBlock(name: name, body: body, localVariables: localVariables);
+  }
+
+  FloaterTransition _parseTransition(String line, int lineNo) {
+    final reg = RegExp(r'^transition\s+(\w+)\s*->\s*(\w+)\s+on\s+([\w.]+)\.(\w+)\s*$');
+    final match = reg.firstMatch(line);
+    if (match == null) {
+      throw _error('transition 格式错误，应为 transition from -> to on ballName.event', lineNo);
+    }
+    return FloaterTransition(
+      from: match.group(1)!,
+      to: match.group(2)!,
+      ballName: match.group(3)!,
+      event: match.group(4)!,
+    );
+  }
+
+  bool _isValidIdentifier(String s) => RegExp(r'^\w+$').hasMatch(s);
+
   FloaterEvent _parseEvent(String line, int lineNo, int parentIndent) {
     final reg = RegExp(r'^on\s+([\w.]+)\.(\w+)\s*\{');
     final match = reg.firstMatch(line);
@@ -251,6 +289,10 @@ class _BlockParser {
     final trimmed = _trimIndent(line.text);
     _advance();
 
+    if (trimmed.startsWith('let ')) {
+      return _parseLetStatement(trimmed, line.originalLine);
+    }
+
     if (trimmed.startsWith('print ')) {
       final exprStr = trimmed.substring(6).trim();
       return PrintStatement(expression: FloaterExpressionParser.parse(exprStr, ballNames: _ballNames));
@@ -273,13 +315,16 @@ class _BlockParser {
       return _parseFor(trimmed, line.originalLine, _indentOf(line.text));
     }
 
-    // 赋值语句：name = expr 或 ballName.prop = expr
-    final assignReg = RegExp(r'^(\w+(?:\.\w+)*)\s*=\s*(.+)\s*$');
+    // 赋值语句：name = expr 或 ballName.prop = expr 或 sub1..4.prop = expr
+    final assignReg = RegExp(r'^(\w+(?:\.\.\d+)?(?:\.\w+)*)\s*=\s*(.+)\s*$');
     final match = assignReg.firstMatch(trimmed);
     if (match != null) {
       final left = match.group(1)!;
       final exprStr = match.group(2)!;
       final expr = FloaterExpressionParser.parse(exprStr, ballNames: _ballNames);
+      if (left.contains('..')) {
+        return _parseMultiSetProperty(left, expr, line.originalLine);
+      }
       if (left.contains('.')) {
         final parts = left.split('.');
         if (parts.length != 2) {
@@ -295,6 +340,36 @@ class _BlockParser {
     }
 
     throw _error('未知语句: $trimmed', line.originalLine);
+  }
+
+  FloaterStatement _parseMultiSetProperty(String left, FloaterExpression expr, int lineNo) {
+    final rangeMatch = RegExp(r'^(\w+)\.\.(\d+)\.(\w+)$').firstMatch(left);
+    if (rangeMatch == null) {
+      throw _error('批量赋值格式错误，应为 sub1..4.visible = value', lineNo);
+    }
+    final baseName = rangeMatch.group(1)!;
+    final end = int.tryParse(rangeMatch.group(2)!) ?? 0;
+    final property = rangeMatch.group(3)!;
+    if (end < 1) throw _error('批量声明结束序号必须 >=1', lineNo);
+    final names = List.generate(end, (i) => '$baseName${i + 1}');
+    return MultiSetPropertyStatement(ballNames: names, property: property, value: expr);
+  }
+
+  FloaterStatement _parseLetStatement(String line, int lineNo) {
+    final reg = RegExp(r'^let\s+(\w+)\s*:\s*(\w+)\s*=\s*(.+)\s*$');
+    final match = reg.firstMatch(line);
+    if (match == null) {
+      throw _error('let 格式错误，应为 let name: Type = expr', lineNo);
+    }
+    final name = match.group(1)!;
+    final typeName = match.group(2)!;
+    final exprStr = match.group(3)!;
+    final expr = FloaterExpressionParser.parse(exprStr, ballNames: _ballNames);
+    return LetStatement(
+      name: name,
+      type: FloaterType.fromName(typeName),
+      value: expr,
+    );
   }
 
   FloaterStatement _parseAnimate(String line, int lineNo) {
@@ -330,9 +405,18 @@ class _BlockParser {
     final trimmed = targetStr.trim();
     if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
       final inner = trimmed.substring(1, trimmed.length - 1);
-      return inner.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      return inner.split(',').expand((s) => _expandBallRange(s.trim())).where((s) => s.isNotEmpty).toList();
     }
-    return [trimmed];
+    return _expandBallRange(trimmed);
+  }
+
+  List<String> _expandBallRange(String s) {
+    final match = RegExp(r'^(\w+)\.\.(\d+)$').firstMatch(s);
+    if (match == null) return [s];
+    final baseName = match.group(1)!;
+    final end = int.tryParse(match.group(2)!) ?? 0;
+    if (end < 1) return [s];
+    return List.generate(end, (i) => '$baseName${i + 1}');
   }
 
   FloaterStatement _parseIf(String line, int lineNo, int parentIndent) {
