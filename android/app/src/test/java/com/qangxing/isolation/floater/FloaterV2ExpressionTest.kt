@@ -8,7 +8,10 @@ class FloaterV2ExpressionTest {
 
     @Test
     fun fromJson_literal() {
-        val expr = FloaterV2Expression.fromJson(mapOf("op" to "literal", "type" to "Dp", "value" to 56))
+        val expr = FloaterV2Expression.fromJson(mapOf(
+            "op" to "literal",
+            "value" to mapOf("type" to "Dp", "value" to 56)
+        ))
         assertTrue(expr is LiteralExpression)
         val literal = expr as LiteralExpression
         assertEquals(FloaterValue.Dp(56.0), literal.value)
@@ -27,10 +30,10 @@ class FloaterV2ExpressionTest {
             "op" to "call",
             "name" to "Fan",
             "args" to listOf(
-                mapOf("op" to "literal", "type" to "Dp", "value" to 100)
+                mapOf("op" to "literal", "value" to mapOf("type" to "Dp", "value" to 100))
             ),
             "namedArgs" to mapOf(
-                "radius" to mapOf("op" to "literal", "type" to "Dp", "value" to 80)
+                "radius" to mapOf("op" to "literal", "value" to mapOf("type" to "Dp", "value" to 80))
             )
         ))
         assertTrue(expr is CallExpression)
@@ -45,12 +48,12 @@ class FloaterV2ExpressionTest {
         val expr = FloaterV2Expression.fromJson(mapOf(
             "op" to "index",
             "target" to mapOf("op" to "var", "name" to "fan"),
-            "index" to mapOf("op" to "literal", "type" to "Int", "value" to 0)
+            "index" to mapOf("op" to "literal", "value" to mapOf("type" to "Int", "value" to 0))
         ))
         assertTrue(expr is IndexExpression)
         val index = expr as IndexExpression
         assertTrue(index.target is VarExpression)
-        assertEquals(0, (index.index as LiteralExpression).value)
+        assertEquals(FloaterValue.IntVal(0), (index.index as LiteralExpression).value)
     }
 
     @Test
