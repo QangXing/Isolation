@@ -221,7 +221,7 @@ class FloaterV2Engine(
                     .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
                 is FloaterValue.Ring -> (0 until geometry.count.value.coerceAtMost(targetCount))
                     .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
-                is FloaterValue.Grid -> (0 until geometry.count.value.coerceAtMost(targetCount))
+                is FloaterValue.Grid -> (0 until targetCount)
                     .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
                 else -> emptyList()
             }
