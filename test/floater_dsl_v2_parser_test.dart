@@ -32,8 +32,9 @@ floater "test" {
       expect(program.balls.length, 1);
       expect(program.balls[0].name, 'mainBall');
       expect(program.balls[0].role, 'Main');
-      expect(program.balls[0].properties['size']?.expression.type, FloaterType.dp);
-      expect(program.balls[0].properties['size']?.expression.value, 56);
+      final sizeExpr = program.balls[0].properties['size']?.expression as LiteralExpression;
+      expect(sizeExpr.type, FloaterType.dp);
+      expect(sizeExpr.value, 56);
     });
 
     test('parses state, transition, let and bulk assignment', () {
