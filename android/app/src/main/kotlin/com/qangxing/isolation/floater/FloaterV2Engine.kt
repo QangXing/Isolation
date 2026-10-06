@@ -165,7 +165,81 @@ class FloaterV2Engine(
                     executeStatements(statement.body)
                 }
             }
+            is AnimateStatement -> executeAnimate(statement)
             else -> {}
+        }
+    }
+
+    private fun executeAnimate(statement: AnimateStatement) {
+        val durationValue = evaluateExpression(statement.duration)
+        val durationMs = when (durationValue) {
+            is FloaterValue.Duration -> durationValue.toLong()
+            is FloaterValue.IntVal -> durationValue.value.toLong()
+            else -> 0L
+        }
+        if (durationMs <= 0) return
+
+        val interpolator = easingToInterpolator(statement.easing)
+        val destinations = resolveAnimationDestinations(statement.destination, statement.targets.size)
+        if (destinations.isEmpty()) return
+
+        val latch = java.util.concurrent.CountDownLatch(if (statement.await) statement.targets.size else 0)
+        for ((i, target) in statement.targets.withIndex()) {
+            val dest = destinations.getOrNull(i % destinations.size) ?: continue
+            val params = service.getPluginBallParams(target) ?: continue
+            val fromX = (params["x"] as? Number)?.toInt() ?: 0
+            val fromY = (params["y"] as? Number)?.toInt() ?: 0
+            service.animatePluginBallPosition(
+                name = target,
+                fromX = fromX,
+                fromY = fromY,
+                toX = dest.x,
+                toY = dest.y,
+                durationMs = durationMs,
+                interpolator = interpolator,
+                onEnd = { latch.countDown() }
+            )
+        }
+        if (statement.await) {
+            latch.await()
+        }
+    }
+
+    /**
+     * 解析动画目标位置列表。
+     * - 单个 Point：所有目标移动到同一点。
+     * - fan[].topLeft 等几何展开：返回与目标数量相等的 Point 列表。
+     */
+    private fun resolveAnimationDestinations(destination: FloaterV2Expression, targetCount: Int): List<Point> {
+        // 处理 fan[].anchor / ring[].anchor / grid[].anchor
+        if (destination is AnchorExpression && destination.target is IndexExpression && destination.target.index == null) {
+            val geometry = evaluateExpression(destination.target.target)
+            val anchor = destination.anchor
+            val size = resolveAnchorSize(destination.target)
+            return when (geometry) {
+                is FloaterValue.Fan -> (0 until geometry.count.value.coerceAtMost(targetCount))
+                    .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
+                is FloaterValue.Ring -> (0 until geometry.count.value.coerceAtMost(targetCount))
+                    .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
+                is FloaterValue.Grid -> (0 until geometry.count.value.coerceAtMost(targetCount))
+                    .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
+                else -> emptyList()
+            }
+        }
+        val value = evaluateExpression(destination)
+        if (value is FloaterValue.Point) {
+            return listOf(value.toScreenPixels(service))
+        }
+        return emptyList()
+    }
+
+    private fun easingToInterpolator(easing: String): android.animation.TimeInterpolator {
+        return when (easing) {
+            "accelerate" -> android.view.animation.AccelerateInterpolator()
+            "decelerate" -> android.view.animation.DecelerateInterpolator()
+            "overshoot" -> OvershootInterpolator()
+            "bounce" -> android.view.animation.BounceInterpolator()
+            else -> android.view.animation.LinearInterpolator()
         }
     }
 
@@ -207,13 +281,95 @@ class FloaterV2Engine(
     fun evaluateExpression(expr: FloaterV2Expression): FloaterValue {
         return when (expr) {
             is LiteralExpression -> expr.value
-            is VarExpression -> variables[expr.name] ?: FloaterValue.Unknown
+            is VarExpression -> resolveVariable(expr.name)
             is PropertyExpression -> readBallProperty(expr.ballName, expr.property)
             is BinaryExpression -> evaluateBinary(expr)
             is UnaryExpression -> evaluateUnary(expr)
             is CallExpression -> evaluateCall(expr)
+            is IndexExpression -> evaluateIndex(expr)
+            is AnchorExpression -> evaluateAnchor(expr)
         }
     }
+
+    private fun resolveVariable(name: String): FloaterValue {
+        val stored = variables[name]
+        if (stored != null && stored !is FloaterValue.Unknown) {
+            return stored
+        }
+        // 变量值可能是延迟表达式（如 Fan(...) 构造函数），首次访问时求值
+        val variable = program?.variables?.find { it.name == name }
+        val rawValue = variable?.rawValue
+        if (rawValue?.containsKey("op") == true) {
+            val value = evaluateExpression(FloaterV2Expression.fromJson(rawValue))
+            variables[name] = value
+            return value
+        }
+        return stored ?: FloaterValue.Unknown
+    }
+
+    private fun evaluateIndex(expr: IndexExpression): FloaterValue {
+        val target = evaluateExpression(expr.target)
+        val index = expr.index?.let { evaluateExpression(it).toInt() }
+        return when (target) {
+            is FloaterValue.Fan -> {
+                if (index == null) target else target.slotCenterPx(service, index).toFloaterPoint()
+            }
+            is FloaterValue.Ring -> {
+                if (index == null) target else target.slotCenterPx(service, index).toFloaterPoint()
+            }
+            is FloaterValue.Grid -> {
+                if (index == null) target else target.slotCenterPx(service, index).toFloaterPoint()
+            }
+            else -> FloaterValue.Unknown
+        }
+    }
+
+    private fun evaluateAnchor(expr: AnchorExpression): FloaterValue {
+        val target = expr.target
+        // 球属性访问优先：target 是 VarExpression 且对应球存在
+        if (target is VarExpression && service.getPluginBallParams(target.name) != null) {
+            return readBallProperty(target.name, expr.anchor)
+        }
+        // 几何对象的锚点访问
+        val targetValue = evaluateExpression(target)
+        val size = resolveAnchorSize(target)
+        return when (targetValue) {
+            is FloaterValue.Fan -> {
+                // fan[] 整体访问在 animate 中批量处理；单个 slot 已被 IndexExpression 求值成 Point
+                if (expr.target is IndexExpression && expr.target.index != null) {
+                    val center = targetValue.slotCenterPx(service, expr.target.index.let { evaluateExpression(it).toInt() })
+                    applyAnchorOffset(center, expr.anchor, size).toFloaterPoint()
+                } else FloaterValue.Unknown
+            }
+            is FloaterValue.Point -> applyAnchorOffset(targetValue.toScreenPixels(service), expr.anchor, size).toFloaterPoint()
+            else -> FloaterValue.Unknown
+        }
+    }
+
+    /** 根据上下文（如 IndexExpression 对应的球）推断用于 anchor 偏移的尺寸。 */
+    private fun resolveAnchorSize(target: FloaterV2Expression): android.util.Size? {
+        if (target is IndexExpression) {
+            // fan[] 场景下无法从表达式推断单个球尺寸，返回 null 让 applyAnchorOffset 使用中心
+            return null
+        }
+        return null
+    }
+
+    private fun applyAnchorOffset(center: Point, anchor: String, size: android.util.Size?): Point {
+        val halfW = (size?.width ?: 0) / 2
+        val halfH = (size?.height ?: 0) / 2
+        return when (anchor) {
+            "topLeft" -> Point(center.x - halfW, center.y - halfH)
+            "topRight" -> Point(center.x + halfW, center.y - halfH)
+            "bottomLeft" -> Point(center.x - halfW, center.y + halfH)
+            "bottomRight" -> Point(center.x + halfW, center.y + halfH)
+            "center" -> center
+            else -> center
+        }
+    }
+
+    private fun Point.toFloaterPoint(): FloaterValue.Point =
+        FloaterValue.Point(FloaterValue.Px(x.toDouble()), FloaterValue.Px(y.toDouble()))
 
     private fun readBallProperty(ballName: String, property: String): FloaterValue {
         val params = service.getPluginBallParams(ballName) ?: return FloaterValue.Unknown
@@ -369,11 +525,71 @@ class FloaterV2Engine(
                 } else FloaterValue.Unknown
             }
             "index" -> {
-                // fan[0] 等索引，阶段 2 实现
+                // fan[0] 已由 evaluateIndex 处理
                 FloaterValue.Unknown
+            }
+            "Fan" -> buildFan(args, expr.namedArgs)
+            "Ring" -> buildRing(args, expr.namedArgs)
+            "Grid" -> buildGrid(args, expr.namedArgs)
+            "screen" -> {
+                val key = args.firstOrNull()?.let { (it as? FloaterValue.Str)?.value }
+                    ?: expr.namedArgs["of"]?.let { (evaluateExpression(it) as? FloaterValue.Str)?.value }
+                val screen = service.getScreenUsableSize()
+                when (key) {
+                    "size" -> FloaterValue.Size(
+                        FloaterValue.Px(screen.width.toDouble()),
+                        FloaterValue.Px(screen.height.toDouble())
+                    )
+                    "center" -> FloaterValue.Point(
+                        FloaterValue.Px((screen.width / 2).toDouble()),
+                        FloaterValue.Px((screen.height / 2).toDouble())
+                    )
+                    "width" -> FloaterValue.Px(screen.width.toDouble())
+                    "height" -> FloaterValue.Px(screen.height.toDouble())
+                    "centerX" -> FloaterValue.Px((screen.width / 2).toDouble())
+                    "centerY" -> FloaterValue.Px((screen.height / 2).toDouble())
+                    else -> FloaterValue.Unknown
+                }
             }
             else -> FloaterValue.Unknown
         }
+    }
+
+    private fun buildFan(args: List<FloaterValue>, namedArgs: Map<String, FloaterV2Expression>): FloaterValue.Fan {
+        val center = argValue(namedArgs, args, 0, "center") as? FloaterValue.Point
+            ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0))
+        val radius = argValue(namedArgs, args, 1, "radius") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0)
+        val startAngle = argValue(namedArgs, args, 2, "startAngle") as? FloaterValue.Angle ?: FloaterValue.Angle(0.0)
+        val sweep = argValue(namedArgs, args, 3, "sweep") as? FloaterValue.Angle ?: FloaterValue.Angle(0.0)
+        val count = argValue(namedArgs, args, 4, "count") as? FloaterValue.IntVal ?: FloaterValue.IntVal(0)
+        return FloaterValue.Fan(center, radius, startAngle, sweep, count)
+    }
+
+    private fun buildRing(args: List<FloaterValue>, namedArgs: Map<String, FloaterV2Expression>): FloaterValue.Ring {
+        val center = argValue(namedArgs, args, 0, "center") as? FloaterValue.Point
+            ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0))
+        val radius = argValue(namedArgs, args, 1, "radius") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0)
+        val count = argValue(namedArgs, args, 2, "count") as? FloaterValue.IntVal ?: FloaterValue.IntVal(0)
+        return FloaterValue.Ring(center, radius, count)
+    }
+
+    private fun buildGrid(args: List<FloaterValue>, namedArgs: Map<String, FloaterV2Expression>): FloaterValue.Grid {
+        val origin = argValue(namedArgs, args, 0, "origin") as? FloaterValue.Point
+            ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0))
+        val columns = argValue(namedArgs, args, 1, "columns") as? FloaterValue.IntVal ?: FloaterValue.IntVal(1)
+        val spacing = argValue(namedArgs, args, 2, "spacing") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0)
+        return FloaterValue.Grid(origin, columns, spacing)
+    }
+
+    private fun argValue(
+        namedArgs: Map<String, FloaterV2Expression>,
+        positional: List<FloaterValue>,
+        index: Int,
+        name: String
+    ): FloaterValue? {
+        namedArgs[name]?.let { return evaluateExpression(it) }
+        if (index < positional.size) return positional[index]
+        return null
     }
 
     private fun valueToString(value: FloaterValue): String = when (value) {
@@ -388,6 +604,9 @@ class FloaterV2Engine(
         is FloaterValue.Point -> "(${valueToString(value.x)}, ${valueToString(value.y)})"
         is FloaterValue.Size -> "(${valueToString(value.width)} x ${valueToString(value.height)})"
         is FloaterValue.Color -> "#${Integer.toHexString(value.argb)}"
+        is FloaterValue.Fan -> "Fan(count=${value.count.value})"
+        is FloaterValue.Ring -> "Ring(count=${value.count.value})"
+        is FloaterValue.Grid -> "Grid(cols=${value.columns.value})"
         is FloaterValue.Unknown -> "unknown"
     }
 
@@ -399,6 +618,7 @@ class FloaterV2Engine(
         is FloaterValue.FloatVal -> value
         is FloaterValue.Duration -> valueMs
         is FloaterValue.Angle -> valueDeg
+        is FloaterValue.Fan, is FloaterValue.Ring, is FloaterValue.Grid -> null
         else -> null
     }
 

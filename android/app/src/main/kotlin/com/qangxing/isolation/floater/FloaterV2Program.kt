@@ -31,14 +31,17 @@ data class FloaterV2Variable(
     val name: String,
     val type: FloaterType,
     val value: FloaterValue,
+    val rawValue: Map<String, Any?>,
     val mutable: Boolean
 ) {
     companion object {
         fun fromJson(json: Map<String, Any?>): FloaterV2Variable {
+            val rawValue = json["value"] as? Map<String, Any?> ?: emptyMap<String, Any?>()
             return FloaterV2Variable(
                 name = json["name"] as? String ?: "",
                 type = ((json["type"] as? Map<String, Any?>)?.get("kind") as? String ?: "Unknown").toFloaterType(),
-                value = floaterValueFromJson(json["value"] as? Map<String, Any?> ?: emptyMap()),
+                value = floaterValueFromJson(rawValue),
+                rawValue = rawValue,
                 mutable = json["mutable"] as? Boolean ?: false
             )
         }
@@ -141,6 +144,13 @@ sealed class FloaterV2Statement {
                     to = FloaterV2Expression.fromJson(json["to"] as Map<String, Any?>),
                     body = (json["body"] as? List<*>)?.map { fromJson(it as Map<String, Any?>) } ?: emptyList()
                 )
+                "animate" -> AnimateStatement(
+                    targets = (json["targets"] as? List<*>)?.map { it as String } ?: emptyList(),
+                    destination = FloaterV2Expression.fromJson(json["destination"] as Map<String, Any?>),
+                    duration = FloaterV2Expression.fromJson(json["duration"] as Map<String, Any?>),
+                    easing = json["easing"] as? String ?: "linear",
+                    await = json["await"] as? Boolean ?: false
+                )
                 else -> UnknownStatement
             }
         }
@@ -180,6 +190,14 @@ data class ForStatement(
     val body: List<FloaterV2Statement>
 ) : FloaterV2Statement()
 
+data class AnimateStatement(
+    val targets: List<String>,
+    val destination: FloaterV2Expression,
+    val duration: FloaterV2Expression,
+    val easing: String,
+    val await: Boolean
+) : FloaterV2Statement()
+
 /**
  * v2 表达式 AST。
  */
@@ -210,6 +228,14 @@ sealed class FloaterV2Expression {
                         k as String to fromJson(v as Map<String, Any?>)
                     }?.toMap() ?: emptyMap<String, FloaterV2Expression>()
                 )
+                "index" -> IndexExpression(
+                    target = fromJson(json["target"] as Map<String, Any?>),
+                    index = json["index"]?.let { fromJson(it as Map<String, Any?>) }
+                )
+                "anchor" -> AnchorExpression(
+                    target = fromJson(json["target"] as Map<String, Any?>),
+                    anchor = json["anchor"] as? String ?: "center"
+                )
                 else -> LiteralExpression(FloaterValue.Unknown)
             }
         }
@@ -234,4 +260,14 @@ data class CallExpression(
     val name: String,
     val args: List<FloaterV2Expression>,
     val namedArgs: Map<String, FloaterV2Expression>
+) : FloaterV2Expression()
+
+data class IndexExpression(
+    val target: FloaterV2Expression,
+    val index: FloaterV2Expression?
+) : FloaterV2Expression()
+
+data class AnchorExpression(
+    val target: FloaterV2Expression,
+    val anchor: String
 ) : FloaterV2Expression()

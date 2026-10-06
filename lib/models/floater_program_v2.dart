@@ -111,6 +111,9 @@ class FloaterEvent {
       };
 }
 
+/// 动画目标描述：单球名、球名列表或几何展开。
+typedef FloaterAnimateTargets = List<String>;
+
 /// 语句基类。
 sealed class FloaterStatement {
   Map<String, dynamic> toJson();
@@ -175,6 +178,38 @@ class WaitStatement extends FloaterStatement {
   Map<String, dynamic> toJson() => {
         'type': 'wait',
         'duration': duration.toJson(),
+      };
+}
+
+/// 动画语句。
+///
+/// 支持：
+/// - `animate [sub1, sub2] to (100dp, 200dp) duration 260ms easing overshoot`
+/// - `await animate [sub1, sub2] to fan[].topLeft duration 260ms easing overshoot`
+/// - `animate mainBall to (100dp, 200dp) duration 200ms`
+class AnimateStatement extends FloaterStatement {
+  final FloaterAnimateTargets targets;
+  final FloaterExpression destination;
+  final FloaterExpression duration;
+  final String easing;
+  final bool await;
+
+  AnimateStatement({
+    required this.targets,
+    required this.destination,
+    required this.duration,
+    this.easing = 'linear',
+    this.await = false,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'animate',
+        'targets': targets,
+        'destination': destination.toJson(),
+        'duration': duration.toJson(),
+        'easing': easing,
+        'await': await,
       };
 }
 
@@ -327,6 +362,40 @@ class CallExpression extends FloaterExpression {
       };
 }
 
+/// 索引访问：fan[0]、fan[]。
+class IndexExpression extends FloaterExpression {
+  final FloaterExpression target;
+  final FloaterExpression? index;
+
+  /// [index] 为 null 表示 fan[]，即访问全部 slot。
+  IndexExpression({required this.target, this.index});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'index',
+        'target': target.toJson(),
+        if (index != null) 'index': index!.toJson(),
+      };
+}
+
+/// 锚点访问：fan[0].topLeft、mainBall.center。
+///
+/// 当目标为球名时，执行引擎会按球属性处理；当目标为几何对象时，
+/// 按几何对象的 anchor 偏移计算坐标。
+class AnchorExpression extends FloaterExpression {
+  final FloaterExpression target;
+  final String anchor;
+
+  AnchorExpression({required this.target, required this.anchor});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'anchor',
+        'target': target.toJson(),
+        'anchor': anchor,
+      };
+}
+
 /// 类型定义。
 enum FloaterTypeKind {
   dp,
@@ -340,6 +409,9 @@ enum FloaterTypeKind {
   point,
   size,
   color,
+  fan,
+  ring,
+  grid,
   unknown,
 }
 
@@ -359,6 +431,9 @@ class FloaterType {
   static const FloaterType point = FloaterType(FloaterTypeKind.point);
   static const FloaterType size = FloaterType(FloaterTypeKind.size);
   static const FloaterType color = FloaterType(FloaterTypeKind.color);
+  static const FloaterType fan = FloaterType(FloaterTypeKind.fan);
+  static const FloaterType ring = FloaterType(FloaterTypeKind.ring);
+  static const FloaterType grid = FloaterType(FloaterTypeKind.grid);
   static const FloaterType unknown = FloaterType(FloaterTypeKind.unknown);
 
   factory FloaterType.fromName(String name) {
@@ -385,6 +460,12 @@ class FloaterType {
         return FloaterType.size;
       case 'Color':
         return FloaterType.color;
+      case 'Fan':
+        return FloaterType.fan;
+      case 'Ring':
+        return FloaterType.ring;
+      case 'Grid':
+        return FloaterType.grid;
       default:
         return FloaterType.unknown;
     }
@@ -414,6 +495,12 @@ class FloaterType {
         return 'Size';
       case FloaterTypeKind.color:
         return 'Color';
+      case FloaterTypeKind.fan:
+        return 'Fan';
+      case FloaterTypeKind.ring:
+        return 'Ring';
+      case FloaterTypeKind.grid:
+        return 'Grid';
       case FloaterTypeKind.unknown:
         return 'Unknown';
     }

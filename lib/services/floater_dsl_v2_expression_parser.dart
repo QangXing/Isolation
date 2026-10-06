@@ -10,9 +10,11 @@ import '../models/floater_program_v2.dart';
 /// - `#ff3366`、`#ff3366aa` 表示 Color
 /// - 命名参数 `name: value`
 class FloaterExpressionParser {
-  static FloaterExpression parse(String source) {
+  /// [ballNames] 用于区分 `mainBall.center`（球属性访问）和 `fan[0].topLeft`
+  /// （几何锚点访问）。当左侧标识符是已声明的球名时，生成 [PropertyExpression]。
+  static FloaterExpression parse(String source, {Set<String> ballNames = const {}}) {
     final tokens = _tokenize(source);
-    final parser = _Parser(tokens);
+    final parser = _Parser(tokens, ballNames);
     final expr = parser._parseExpression();
     if (!parser._isAtEnd) {
       throw _error(
@@ -304,9 +306,10 @@ class _Token {
 
 class _Parser {
   final List<_Token> tokens;
+  final Set<String> ballNames;
   int _current = 0;
 
-  _Parser(this.tokens);
+  _Parser(this.tokens, this.ballNames);
 
   bool get _isAtEnd => _peek().type == _TokenType.eof;
 
@@ -412,7 +415,11 @@ class _Parser {
     while (true) {
       if (_match([_TokenType.dot])) {
         final name = _consume(_TokenType.identifier, '属性访问需要名称').lexeme;
-        expr = PropertyExpression(ballName: _extractIdentifierName(expr), property: name);
+        if (expr is VarExpression && ballNames.contains(expr.name)) {
+          expr = PropertyExpression(ballName: expr.name, property: name);
+        } else {
+          expr = AnchorExpression(target: expr, anchor: name);
+        }
       } else if (_match([_TokenType.leftParen])) {
         // 函数调用
         final callName = _extractIdentifierName(expr);
@@ -432,13 +439,13 @@ class _Parser {
         _consume(_TokenType.rightParen, '函数调用缺少右括号');
         expr = CallExpression(name: callName, args: args, namedArgs: namedArgs);
       } else if (_match([_TokenType.leftBracket])) {
-        // 索引访问，例如 fan[0]
-        final indexExpr = _parseExpression();
+        // 索引访问，例如 fan[0] 或 fan[]
+        FloaterExpression? indexExpr;
+        if (!_check(_TokenType.rightBracket)) {
+          indexExpr = _parseExpression();
+        }
         _consume(_TokenType.rightBracket, '索引缺少右括号');
-        expr = CallExpression(
-          name: 'index',
-          args: [expr, indexExpr],
-        );
+        expr = IndexExpression(target: expr, index: indexExpr);
       } else {
         break;
       }

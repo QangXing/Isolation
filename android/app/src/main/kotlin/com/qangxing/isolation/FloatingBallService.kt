@@ -1186,6 +1186,48 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
+    /**
+     * 动画移动插件球到目标位置。
+     */
+    internal fun animatePluginBallPosition(
+        name: String,
+        fromX: Int,
+        fromY: Int,
+        toX: Int,
+        toY: Int,
+        durationMs: Long,
+        interpolator: android.animation.TimeInterpolator,
+        onEnd: (() -> Unit)? = null
+    ) {
+        val ball = pluginBalls[name] ?: run {
+            onEnd?.invoke()
+            return
+        }
+        mainHandler.post {
+            val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = durationMs
+                setInterpolator(interpolator)
+                addUpdateListener { animation ->
+                    val t = animation.animatedValue as Float
+                    val x = (fromX + (toX - fromX) * t).toInt()
+                    val y = (fromY + (toY - fromY) * t).toInt()
+                    updatePluginBallPosition(name, x, y)
+                }
+                addListener(object : android.animation.Animator.AnimatorListener {
+                    override fun onAnimationStart(animation: android.animation.Animator) {}
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        onEnd?.invoke()
+                    }
+                    override fun onAnimationCancel(animation: android.animation.Animator) {
+                        onEnd?.invoke()
+                    }
+                    override fun onAnimationRepeat(animation: android.animation.Animator) {}
+                })
+            }
+            animator.start()
+        }
+    }
+
     private fun applyPluginBallConfig(ball: PluginBall) {
         val sizePx = dpToPx(ball.sizeDp)
         ball.params.width = sizePx

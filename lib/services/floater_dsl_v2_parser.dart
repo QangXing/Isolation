@@ -34,6 +34,7 @@ class _Line {
 
 class _BlockParser {
   final List<_Line> lines;
+  final Set<String> _ballNames = {};
   int _index = 0;
 
   _BlockParser(this.lines);
@@ -147,7 +148,7 @@ class _BlockParser {
     final name = match.group(2)!;
     final typeName = match.group(3)!;
     final exprStr = match.group(4)!;
-    final expr = FloaterExpressionParser.parse(exprStr);
+    final expr = FloaterExpressionParser.parse(exprStr, ballNames: _ballNames);
     return FloaterVariable(
       name: name,
       type: FloaterType.fromName(typeName),
@@ -173,6 +174,8 @@ class _BlockParser {
       // 批量声明返回第一个球，外部需要展开。这里为了简化，先不支持批量。
       throw _error('批量声明 (sub1..4) 在阶段 1 暂不实现', lineNo);
     }
+
+    _ballNames.add(nameSpec);
 
     final properties = <String, FloaterProperty>{};
     final eventHandlers = <String, List<FloaterStatement>>{};
@@ -250,12 +253,16 @@ class _BlockParser {
 
     if (trimmed.startsWith('print ')) {
       final exprStr = trimmed.substring(6).trim();
-      return PrintStatement(expression: FloaterExpressionParser.parse(exprStr));
+      return PrintStatement(expression: FloaterExpressionParser.parse(exprStr, ballNames: _ballNames));
     }
 
     if (trimmed.startsWith('wait ')) {
       final exprStr = trimmed.substring(5).trim();
-      return WaitStatement(duration: FloaterExpressionParser.parse(exprStr));
+      return WaitStatement(duration: FloaterExpressionParser.parse(exprStr, ballNames: _ballNames));
+    }
+
+    if (trimmed.startsWith('animate ') || trimmed.startsWith('await animate ')) {
+      return _parseAnimate(trimmed, line.originalLine);
     }
 
     if (trimmed.startsWith('if ')) {
@@ -272,7 +279,7 @@ class _BlockParser {
     if (match != null) {
       final left = match.group(1)!;
       final exprStr = match.group(2)!;
-      final expr = FloaterExpressionParser.parse(exprStr);
+      final expr = FloaterExpressionParser.parse(exprStr, ballNames: _ballNames);
       if (left.contains('.')) {
         final parts = left.split('.');
         if (parts.length != 2) {
@@ -290,6 +297,44 @@ class _BlockParser {
     throw _error('未知语句: $trimmed', line.originalLine);
   }
 
+  FloaterStatement _parseAnimate(String line, int lineNo) {
+    final reg = RegExp(r'^(await\s+)?animate\s+(.+?)\s+to\s+(.+?)\s+duration\s+(.+?)(?:\s+easing\s+(\w+))?\s*$');
+    final match = reg.firstMatch(line);
+    if (match == null) {
+      throw _error(
+        'animate 格式错误，应为 animate [targets] to destination duration 260ms [easing overshoot]',
+        lineNo,
+      );
+    }
+    final await = match.group(1) != null;
+    final targetStr = match.group(2)!;
+    final destStr = match.group(3)!;
+    final durationStr = match.group(4)!;
+    final easing = match.group(5) ?? 'linear';
+    final targets = _parseAnimateTargets(targetStr);
+    if (targets.isEmpty) {
+      throw _error('animate 目标不能为空', lineNo);
+    }
+    final destination = FloaterExpressionParser.parse(destStr, ballNames: _ballNames);
+    final duration = FloaterExpressionParser.parse(durationStr, ballNames: _ballNames);
+    return AnimateStatement(
+      targets: targets,
+      destination: destination,
+      duration: duration,
+      easing: easing,
+      await: await,
+    );
+  }
+
+  List<String> _parseAnimateTargets(String targetStr) {
+    final trimmed = targetStr.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      final inner = trimmed.substring(1, trimmed.length - 1);
+      return inner.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    }
+    return [trimmed];
+  }
+
   FloaterStatement _parseIf(String line, int lineNo, int parentIndent) {
     final reg = RegExp(r'^if\s*\((.*?)\)\s*\{');
     final match = reg.firstMatch(line);
@@ -297,7 +342,7 @@ class _BlockParser {
       throw _error('if 格式错误，应为 if (expr) { ... }', lineNo);
     }
     final condStr = match.group(1)!;
-    final condition = FloaterExpressionParser.parse(condStr);
+    final condition = FloaterExpressionParser.parse(condStr, ballNames: _ballNames);
     final thenBody = _parseStatementBlock(parentIndent);
 
     List<FloaterStatement>? elseBody;
@@ -344,7 +389,7 @@ class _BlockParser {
     }
     final key = match.group(1)!;
     final exprStr = match.group(2)!;
-    final expr = FloaterExpressionParser.parse(exprStr);
+    final expr = FloaterExpressionParser.parse(exprStr, ballNames: _ballNames);
     final declaredType = _guessPropertyType(key, expr);
     return _PropEntry(
       key,

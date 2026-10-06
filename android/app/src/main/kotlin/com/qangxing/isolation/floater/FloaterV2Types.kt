@@ -95,13 +95,84 @@ sealed class FloaterValue {
         override val type = FloaterType.Color
     }
 
+    /**
+     * 扇形几何布局。
+     */
+    data class Fan(
+        val center: Point,
+        val radius: Dp,
+        val startAngle: Angle,
+        val sweep: Angle,
+        val count: IntVal
+    ) : FloaterValue() {
+        override val type = FloaterType.Fan
+
+        /** 第 [index] 个 slot 的中心坐标（像素）。 */
+        fun slotCenterPx(context: Context, index: Int): android.graphics.Point {
+            val n = count.value.coerceAtLeast(1)
+            val step = if (n > 1) sweep.valueDeg / (n - 1) else 0.0
+            val angleDeg = startAngle.valueDeg + step * index
+            val rad = Math.toRadians(angleDeg)
+            val radiusPx = radius.toPx(context)
+            val centerPx = center.toScreenPixels(context)
+            val x = centerPx.x + radiusPx * kotlin.math.cos(rad)
+            val y = centerPx.y + radiusPx * kotlin.math.sin(rad)
+            return android.graphics.Point(x.roundToInt(), y.roundToInt())
+        }
+    }
+
+    /**
+     * 环形几何布局。
+     */
+    data class Ring(
+        val center: Point,
+        val radius: Dp,
+        val count: IntVal
+    ) : FloaterValue() {
+        override val type = FloaterType.Ring
+
+        fun slotCenterPx(context: Context, index: Int): android.graphics.Point {
+            val n = count.value.coerceAtLeast(1)
+            val angleDeg = if (n > 1) 360.0 / n * index else 0.0
+            val rad = Math.toRadians(angleDeg)
+            val radiusPx = radius.toPx(context)
+            val centerPx = center.toScreenPixels(context)
+            val x = centerPx.x + radiusPx * kotlin.math.cos(rad)
+            val y = centerPx.y + radiusPx * kotlin.math.sin(rad)
+            return android.graphics.Point(x.roundToInt(), y.roundToInt())
+        }
+    }
+
+    /**
+     * 网格几何布局。
+     */
+    data class Grid(
+        val origin: Point,
+        val columns: IntVal,
+        val spacing: Dp
+    ) : FloaterValue() {
+        override val type = FloaterType.Grid
+
+        fun slotCenterPx(context: Context, index: Int): android.graphics.Point {
+            val cols = columns.value.coerceAtLeast(1)
+            val row = index / cols
+            val col = index % cols
+            val spacingPx = spacing.toPx(context)
+            val originPx = origin.toScreenPixels(context)
+            return android.graphics.Point(
+                originPx.x + col * spacingPx,
+                originPx.y + row * spacingPx
+            )
+        }
+    }
+
     data object Unknown : FloaterValue() {
         override val type = FloaterType.Unknown
     }
 }
 
 enum class FloaterType {
-    Dp, Px, Int, Float, Bool, String, Duration, Angle, Point, Size, Color, Unknown
+    Dp, Px, Int, Float, Bool, String, Duration, Angle, Point, Size, Color, Fan, Ring, Grid, Unknown
 }
 
 fun String.toFloaterType(): FloaterType = when (this) {
@@ -116,6 +187,9 @@ fun String.toFloaterType(): FloaterType = when (this) {
     "Point" -> FloaterType.Point
     "Size" -> FloaterType.Size
     "Color" -> FloaterType.Color
+    "Fan" -> FloaterType.Fan
+    "Ring" -> FloaterType.Ring
+    "Grid" -> FloaterType.Grid
     else -> FloaterType.Unknown
 }
 
@@ -146,8 +220,42 @@ fun floaterValueFromJson(json: Map<String, Any?>): FloaterValue {
             )
         }
         FloaterType.Color -> FloaterValue.Color(parseColor(raw as String))
+        FloaterType.Fan -> {
+            val map = raw as? Map<String, Any?> ?: return FloaterValue.Unknown
+            if (map.containsKey("op")) return FloaterValue.Unknown
+            FloaterValue.Fan(
+                center = map.floaterValue("center") as? FloaterValue.Point ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
+                radius = map.floaterValue("radius") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0),
+                startAngle = map.floaterValue("startAngle") as? FloaterValue.Angle ?: FloaterValue.Angle(0.0),
+                sweep = map.floaterValue("sweep") as? FloaterValue.Angle ?: FloaterValue.Angle(0.0),
+                count = map.floaterValue("count") as? FloaterValue.IntVal ?: FloaterValue.IntVal(0)
+            )
+        }
+        FloaterType.Ring -> {
+            val map = raw as? Map<String, Any?> ?: return FloaterValue.Unknown
+            if (map.containsKey("op")) return FloaterValue.Unknown
+            FloaterValue.Ring(
+                center = map.floaterValue("center") as? FloaterValue.Point ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
+                radius = map.floaterValue("radius") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0),
+                count = map.floaterValue("count") as? FloaterValue.IntVal ?: FloaterValue.IntVal(0)
+            )
+        }
+        FloaterType.Grid -> {
+            val map = raw as? Map<String, Any?> ?: return FloaterValue.Unknown
+            if (map.containsKey("op")) return FloaterValue.Unknown
+            FloaterValue.Grid(
+                origin = map.floaterValue("origin") as? FloaterValue.Point ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
+                columns = map.floaterValue("columns") as? FloaterValue.IntVal ?: FloaterValue.IntVal(1),
+                spacing = map.floaterValue("spacing") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0)
+            )
+        }
         FloaterType.Unknown -> FloaterValue.Unknown
     }
+}
+
+private fun Map<String, Any?>.floaterValue(key: String): FloaterValue? {
+    val value = this[key] as? Map<String, Any?> ?: return null
+    return floaterValueFromJson(value)
 }
 
 private fun parseColor(hex: String): Int {
