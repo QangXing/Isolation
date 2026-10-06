@@ -291,22 +291,22 @@ on sub1.click { print("功能 1") }
 
 ### 阶段 1：类型系统 + 声明式球声明
 
-- [ ] 重写 Floater AST 模型
-- [ ] 重写 Floater Parser（支持类型、ball 声明、val/var、表达式）
-- [ ] Kotlin 执行引擎支持类型系统、属性声明式求值
-- [ ] 旧 DSL 兼容层（可选，但建议保留一段时间）
-- [ ] 更新 fan-menu 示例
+- [x] 重写 Floater AST 模型
+- [x] 重写 Floater Parser（支持类型、ball 声明、val/var/let、表达式）
+- [x] Kotlin 执行引擎支持类型系统、属性声明式求值
+- [x] 旧 DSL 兼容层（保留 v1 parser）
+- [x] 更新 fan-menu 示例
 
 ### 阶段 2：动画 + 内置几何
 
-- [ ] 新动画调度器（支持多球同步、await）
-- [ ] Fan / Ring / Grid 几何对象
-- [ ] `animate`、`await animate` 语法
+- [x] 新动画调度器（支持多球同步、await）
+- [x] Fan / Ring / Grid 几何对象
+- [x] `animate`、`await animate` 语法
 
 ### 阶段 3：状态机
 
-- [ ] `state` / `transition` 语法与执行
-- [ ] 移除旧全局变量写法
+- [x] `state` / `transition` 语法与执行
+- [x] 移除旧全局变量写法
 
 ---
 
@@ -318,7 +318,7 @@ on sub1.click { print("功能 1") }
 
 ---
 
-## 13. 阶段 1 示例：类型 + 声明式球
+## 13. 阶段 3 示例：状态机 + 动画 + 批量声明
 
 ```dsl
 floater "fan-menu-v2" {
@@ -334,13 +334,27 @@ floater "fan-menu-v2" {
     ball sub1..4: Deputy {
         size = 48dp
         radius = 24dp
+        position = mainBall.center
         visible = false
         anchor = topLeft
     }
 
-    on mainBall.click {
-        print(mainBall.center.x)
-        print(mainBall.center.y)
+    state collapsed {
+        sub1..4.visible = false
     }
+
+    state expanded {
+        let fan: Fan = Fan(center: mainBall.center, radius: 140dp, startAngle: 0deg, sweep: 90deg, count: 4)
+        sub1..4.visible = true
+        await animate [sub1..4] to fan[].topLeft duration 260ms easing overshoot
+    }
+
+    transition collapsed -> expanded on mainBall.click
+    transition expanded -> collapsed on mainBall.click
+
+    on sub1.click { print("功能 1") }
+    on sub2.click { print("功能 2") }
+    on sub3.click { print("功能 3") }
+    on sub4.click { print("功能 4") }
 }
 ```

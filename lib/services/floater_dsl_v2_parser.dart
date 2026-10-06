@@ -127,7 +127,7 @@ class _BlockParser {
       if (trimmed.startsWith('val ') || trimmed.startsWith('var ') || trimmed.startsWith('let ')) {
         items.add(_parseVariable(trimmed, line.originalLine));
       } else if (trimmed.startsWith('ball ')) {
-        items.add(_parseBall(trimmed, line.originalLine, indent));
+        items.addAll(_parseBall(trimmed, line.originalLine, indent));
       } else if (trimmed.startsWith('on ')) {
         items.add(_parseEvent(trimmed, line.originalLine, indent));
       } else if (trimmed.startsWith('state ')) {
@@ -164,7 +164,7 @@ class _BlockParser {
     );
   }
 
-  FloaterBallV2 _parseBall(String line, int lineNo, int parentIndent) {
+  List<FloaterBallV2> _parseBall(String line, int lineNo, int parentIndent) {
     final reg = RegExp(r'^ball\s+(\w+(?:\.\.\d+)?)\s*:\s*(\w+)\s*\{');
     final match = reg.firstMatch(line);
     if (match == null) {
@@ -176,14 +176,19 @@ class _BlockParser {
     // 处理批量声明 sub1..4
     final rangeMatch = RegExp(r'^(\w+)(\.\.(\d+))$').firstMatch(nameSpec);
     if (rangeMatch != null) {
+      final baseName = rangeMatch.group(1)!;
       final end = int.parse(rangeMatch.group(3)!);
       if (end < 1) throw _error('批量声明结束序号必须 >=1', lineNo);
-      // 批量声明返回第一个球，外部需要展开。这里为了简化，先不支持批量。
-      throw _error('批量声明 (sub1..4) 在阶段 1 暂不实现', lineNo);
+      final names = List.generate(end, (i) => '$baseName${i + 1}');
+      _ballNames.addAll(names);
+      return names.map((name) => _buildBall(name, role, parentIndent)).toList();
     }
 
     _ballNames.add(nameSpec);
+    return [_buildBall(nameSpec, role, parentIndent)];
+  }
 
+  FloaterBallV2 _buildBall(String name, String role, int parentIndent) {
     final properties = <String, FloaterProperty>{};
     final eventHandlers = <String, List<FloaterStatement>>{};
 
@@ -209,7 +214,7 @@ class _BlockParser {
     }
 
     return FloaterBallV2(
-      name: nameSpec,
+      name: name,
       role: role,
       properties: properties,
       eventHandlers: eventHandlers,

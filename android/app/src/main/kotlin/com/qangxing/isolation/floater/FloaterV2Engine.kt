@@ -7,6 +7,7 @@ import android.os.Looper
 import android.util.Size
 import android.view.animation.OvershootInterpolator
 import com.qangxing.isolation.FloatingBallService
+import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 /**
@@ -21,6 +22,7 @@ class FloaterV2Engine(
     private val variables = mutableMapOf<String, FloaterValue>()
     private var currentState: String? = null
     private val uiHandler = Handler(Looper.getMainLooper())
+    private val executor = Executors.newSingleThreadExecutor()
 
     /**
      * 加载并初始化 v2 程序。
@@ -48,22 +50,26 @@ class FloaterV2Engine(
         parsed.balls.forEach { ball ->
             ball.eventHandlers.forEach { (eventName, body) ->
                 service.setPluginBallEventHandler(ball.name, eventName) {
-                    executeStatements(body)
+                    executor.execute { executeStatements(body) }
                 }
             }
         }
 
-        // 绑定状态转换（transition 优先级高于 on 事件）
+        // 绑定状态转换
         parsed.transitions.forEach { transition ->
             service.setPluginBallEventHandler(transition.ballName, transition.event) {
-                if (currentState == transition.from) {
-                    enterState(transition.to)
+                executor.execute {
+                    if (currentState == transition.from) {
+                        enterState(transition.to)
+                    }
                 }
             }
         }
 
         // 进入第一个 state（如果声明了状态机）
-        parsed.states.firstOrNull()?.let { enterState(it.name) }
+        parsed.states.firstOrNull()?.let {
+            executor.execute { enterState(it.name) }
+        }
     }
 
     /**
@@ -74,6 +80,9 @@ class FloaterV2Engine(
         val previous = program.states.find { it.name == currentState }
         previous?.localVariables?.forEach { variables.remove(it) }
 
+        // 取消所有正在运行的位移动画，避免状态切换时动画冲突
+        service.cancelAllPluginBallAnimations()
+
         currentState = stateName
         val state = program.states.find { it.name == stateName } ?: return
         executeStatements(state.body)
@@ -83,11 +92,13 @@ class FloaterV2Engine(
      * 卸载当前程序。
      */
     fun unload() {
+        service.cancelAllPluginBallAnimations()
         program?.balls?.forEach { ball ->
             service.removePluginBall(ball.name)
         }
         program = null
         variables.clear()
+        executor.shutdownNow()
     }
 
     private fun createBallFromDeclaration(ball: FloaterV2Ball) {
@@ -110,11 +121,30 @@ class FloaterV2Engine(
             else -> sizeDp / 2
         }
 
+        val anchor = (props["anchor"]?.let { evaluateExpression(it.expression) } as? FloaterValue.Str)?.value ?: "topLeft"
+
         val positionValue = props["position"]?.let { evaluateExpression(it.expression) }
         val positionPx = when (positionValue) {
             is FloaterValue.Point -> positionValue.toScreenPixels(service)
             else -> Point(100 * service.resources.displayMetrics.density.roundToInt(),
                 300 * service.resources.displayMetrics.density.roundToInt())
+        }
+
+        // 根据 anchor 语义把 position 转换为 view 左上角坐标
+        val sizePx = (sizeDp * service.resources.displayMetrics.density).roundToInt()
+        val initialX = when (anchor) {
+            "center" -> positionPx.x - sizePx / 2
+            "topRight" -> positionPx.x - sizePx
+            "bottomLeft" -> positionPx.x
+            "bottomRight" -> positionPx.x - sizePx
+            else -> positionPx.x
+        }
+        val initialY = when (anchor) {
+            "center" -> positionPx.y - sizePx / 2
+            "topRight" -> positionPx.y
+            "bottomLeft" -> positionPx.y - sizePx
+            "bottomRight" -> positionPx.y - sizePx
+            else -> positionPx.y
         }
 
         val visible = (props["visible"]?.let { evaluateExpression(it.expression) } as? FloaterValue.Bool)?.value ?: true
@@ -128,8 +158,8 @@ class FloaterV2Engine(
             sizeDp = sizeDp,
             cornerRadiusDp = radiusDp,
             imagePath = image,
-            initialX = positionPx.x,
-            initialY = positionPx.y,
+            initialX = initialX,
+            initialY = initialY,
             visible = visible,
             draggable = draggable,
             opacity = opacity
@@ -140,7 +170,7 @@ class FloaterV2Engine(
         val targetName = event.target
         val eventName = event.event
         service.setPluginBallEventHandler(targetName, eventName) {
-            executeStatements(event.body)
+            executor.execute { executeStatements(event.body) }
         }
     }
 
@@ -215,7 +245,7 @@ class FloaterV2Engine(
         if (durationMs <= 0) return
 
         val interpolator = easingToInterpolator(statement.easing)
-        val destinations = resolveAnimationDestinations(statement.destination, statement.targets.size)
+        val destinations = resolveAnimationDestinations(statement.destination, statement.targets)
         if (destinations.isEmpty()) return
 
         val latch = java.util.concurrent.CountDownLatch(if (statement.await) statement.targets.size else 0)
@@ -245,19 +275,19 @@ class FloaterV2Engine(
      * - 单个 Point：所有目标移动到同一点。
      * - fan[].topLeft 等几何展开：返回与目标数量相等的 Point 列表。
      */
-    private fun resolveAnimationDestinations(destination: FloaterV2Expression, targetCount: Int): List<Point> {
+    private fun resolveAnimationDestinations(destination: FloaterV2Expression, targets: List<String>): List<Point> {
         // 处理 fan[].anchor / ring[].anchor / grid[].anchor
         if (destination is AnchorExpression && destination.target is IndexExpression && destination.target.index == null) {
             val geometry = evaluateExpression(destination.target.target)
             val anchor = destination.anchor
-            val size = resolveAnchorSize(destination.target)
+            val targetCount = targets.size
             return when (geometry) {
                 is FloaterValue.Fan -> (0 until geometry.count.value.coerceAtMost(targetCount))
-                    .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
+                    .mapIndexed { i, it -> applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, targetSize(targets[i])) }
                 is FloaterValue.Ring -> (0 until geometry.count.value.coerceAtMost(targetCount))
-                    .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
+                    .mapIndexed { i, it -> applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, targetSize(targets[i])) }
                 is FloaterValue.Grid -> (0 until targetCount)
-                    .map { applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, size) }
+                    .mapIndexed { i, it -> applyAnchorOffset(geometry.slotCenterPx(service, it), anchor, targetSize(targets[i])) }
                 else -> emptyList()
             }
         }
@@ -266,6 +296,13 @@ class FloaterV2Engine(
             return listOf(value.toScreenPixels(service))
         }
         return emptyList()
+    }
+
+    private fun targetSize(name: String): Size? {
+        val params = service.getPluginBallParams(name) ?: return null
+        val w = (params["width"] as? Number)?.toInt() ?: 0
+        val h = (params["height"] as? Number)?.toInt() ?: 0
+        return if (w > 0 && h > 0) Size(w, h) else null
     }
 
     private fun easingToInterpolator(easing: String): android.animation.TimeInterpolator {
@@ -304,6 +341,26 @@ class FloaterV2Engine(
                 }
                 if (dp != null) {
                     service.updatePluginBallSize(ballName, dp)
+                }
+            }
+            "radius" -> {
+                val dp = when (value) {
+                    is FloaterValue.Dp -> value.value.toInt()
+                    is FloaterValue.IntVal -> value.value
+                    else -> null
+                }
+                if (dp != null) {
+                    service.updatePluginBallCornerRadius(ballName, dp)
+                }
+            }
+            "image" -> {
+                if (value is FloaterValue.Str) {
+                    service.updatePluginBallImage(ballName, value.value)
+                }
+            }
+            "draggable" -> {
+                if (value is FloaterValue.Bool) {
+                    service.setPluginBallDraggable(ballName, value.value)
                 }
             }
             else -> {}
@@ -528,8 +585,18 @@ class FloaterV2Engine(
                 if (args.size >= 2) FloaterValue.Size(args[0], args[1]) else FloaterValue.Unknown
             }
             "screen" -> {
+                val key = args.firstOrNull()?.let { (it as? FloaterValue.Str)?.value }
+                    ?: expr.namedArgs["of"]?.let { (evaluateExpression(it) as? FloaterValue.Str)?.value }
                 val screen = service.getScreenUsableSize()
-                when (args.firstOrNull()?.let { (it as? FloaterValue.Str)?.value }) {
+                when (key) {
+                    "size" -> FloaterValue.Size(
+                        FloaterValue.Px(screen.width.toDouble()),
+                        FloaterValue.Px(screen.height.toDouble())
+                    )
+                    "center" -> FloaterValue.Point(
+                        FloaterValue.Px((screen.width / 2).toDouble()),
+                        FloaterValue.Px((screen.height / 2).toDouble())
+                    )
                     "width" -> FloaterValue.Px(screen.width.toDouble())
                     "height" -> FloaterValue.Px(screen.height.toDouble())
                     "centerX" -> FloaterValue.Px((screen.width / 2).toDouble())
@@ -566,26 +633,6 @@ class FloaterV2Engine(
             "Fan" -> buildFan(args, expr.namedArgs)
             "Ring" -> buildRing(args, expr.namedArgs)
             "Grid" -> buildGrid(args, expr.namedArgs)
-            "screen" -> {
-                val key = args.firstOrNull()?.let { (it as? FloaterValue.Str)?.value }
-                    ?: expr.namedArgs["of"]?.let { (evaluateExpression(it) as? FloaterValue.Str)?.value }
-                val screen = service.getScreenUsableSize()
-                when (key) {
-                    "size" -> FloaterValue.Size(
-                        FloaterValue.Px(screen.width.toDouble()),
-                        FloaterValue.Px(screen.height.toDouble())
-                    )
-                    "center" -> FloaterValue.Point(
-                        FloaterValue.Px((screen.width / 2).toDouble()),
-                        FloaterValue.Px((screen.height / 2).toDouble())
-                    )
-                    "width" -> FloaterValue.Px(screen.width.toDouble())
-                    "height" -> FloaterValue.Px(screen.height.toDouble())
-                    "centerX" -> FloaterValue.Px((screen.width / 2).toDouble())
-                    "centerY" -> FloaterValue.Px((screen.height / 2).toDouble())
-                    else -> FloaterValue.Unknown
-                }
-            }
             else -> FloaterValue.Unknown
         }
     }

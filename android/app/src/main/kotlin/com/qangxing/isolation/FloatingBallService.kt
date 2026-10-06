@@ -331,7 +331,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
         var followDy: Int = 0,
         var draggable: Boolean = false,
         var opacity: Float = 1f,
-        var eventHandlers: MutableMap<String, () -> Unit> = mutableMapOf()
+        var eventHandlers: MutableMap<String, MutableList<() -> Unit>> = mutableMapOf()
     ) {
         /** 是否为主球 */
         val isMain: Boolean
@@ -345,6 +345,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
     )
 
     internal val pluginBalls = mutableMapOf<String, PluginBall>()
+    private val activeAnimators = mutableMapOf<String, ValueAnimator>()
     private var floaterV2Engine: com.qangxing.isolation.floater.FloaterV2Engine? = null
 
     private fun bubbleAnchor(): BallAnchor? {
@@ -1158,7 +1159,11 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     internal fun setPluginBallEventHandler(name: String, event: String, handler: () -> Unit) {
-        pluginBalls[name]?.eventHandlers?.put(event, handler)
+        pluginBalls[name]?.eventHandlers?.getOrPut(event) { mutableListOf() }?.add(handler)
+    }
+
+    internal fun clearPluginBallEventHandlers(name: String, event: String) {
+        pluginBalls[name]?.eventHandlers?.remove(event)
     }
 
     internal fun getPluginBallParams(name: String): Map<String, Any>? {
@@ -1186,6 +1191,26 @@ class FloatingBallService : Service(), MacroExecutorListener {
         }
     }
 
+    internal fun updatePluginBallCornerRadius(name: String, cornerRadiusDp: Int) {
+        pluginBalls[name]?.let { ball ->
+            ball.cornerRadiusDp = cornerRadiusDp
+            applyPluginBallConfig(ball)
+        }
+    }
+
+    internal fun updatePluginBallImage(name: String, imagePath: String?) {
+        pluginBalls[name]?.let { ball ->
+            ball.imagePath = imagePath
+            applyPluginBallConfig(ball)
+        }
+    }
+
+    internal fun setPluginBallDraggable(name: String, draggable: Boolean) {
+        pluginBalls[name]?.let { ball ->
+            ball.draggable = draggable
+        }
+    }
+
     /**
      * 动画移动插件球到目标位置。
      */
@@ -1204,6 +1229,7 @@ class FloatingBallService : Service(), MacroExecutorListener {
             return
         }
         mainHandler.post {
+            activeAnimators[name]?.cancel()
             val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = durationMs
                 setInterpolator(interpolator)
@@ -1216,15 +1242,27 @@ class FloatingBallService : Service(), MacroExecutorListener {
                 addListener(object : android.animation.Animator.AnimatorListener {
                     override fun onAnimationStart(animation: android.animation.Animator) {}
                     override fun onAnimationEnd(animation: android.animation.Animator) {
+                        activeAnimators.remove(name)
                         onEnd?.invoke()
                     }
                     override fun onAnimationCancel(animation: android.animation.Animator) {
+                        activeAnimators.remove(name)
                         onEnd?.invoke()
                     }
                     override fun onAnimationRepeat(animation: android.animation.Animator) {}
                 })
             }
+            activeAnimators[name] = animator
             animator.start()
+        }
+    }
+
+    internal fun cancelAllPluginBallAnimations() {
+        mainHandler.post {
+            for ((name, animator) in activeAnimators) {
+                animator.cancel()
+            }
+            activeAnimators.clear()
         }
     }
 
@@ -1364,9 +1402,9 @@ class FloatingBallService : Service(), MacroExecutorListener {
     }
 
     internal fun dispatchPluginBallEvent(name: String, event: String) {
-        // v2 事件处理器
-        pluginBalls[name]?.eventHandlers?.get(event)?.let { handler ->
-            mainHandler.post(handler)
+        // v2 事件处理器：直接调用，由 v2 engine 自行决定执行线程
+        pluginBalls[name]?.eventHandlers?.get(event)?.forEach { handler ->
+            handler()
         }
 
         // v1 事件注册表

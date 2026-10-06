@@ -8,31 +8,7 @@ floater "fan-menu-v2" {
         anchor = topLeft
     }
 
-    ball sub1: Deputy {
-        size = 48dp
-        radius = 24dp
-        position = mainBall.center
-        visible = false
-        anchor = topLeft
-    }
-
-    ball sub2: Deputy {
-        size = 48dp
-        radius = 24dp
-        position = mainBall.center
-        visible = false
-        anchor = topLeft
-    }
-
-    ball sub3: Deputy {
-        size = 48dp
-        radius = 24dp
-        position = mainBall.center
-        visible = false
-        anchor = topLeft
-    }
-
-    ball sub4: Deputy {
+    ball sub1..4: Deputy {
         size = 48dp
         radius = 24dp
         position = mainBall.center
