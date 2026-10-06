@@ -58,6 +58,80 @@ for (int i = 0; i < 3; i = i + 1) {
     expect(serialized, code);
   });
 
+  test('longPressAt round-trip', () {
+    final code = 'longPressAt(500, 800, 1500)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'longPressAt');
+    expect(parsed.first['x'], 500);
+    expect(parsed.first['y'], 800);
+    expect(parsed.first['duration'], 1500);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('longPressAt default duration round-trip', () {
+    final code = 'longPressAt(500, 800)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'longPressAt');
+    expect(parsed.first['x'], 500);
+    expect(parsed.first['y'], 800);
+    expect(parsed.first.containsKey('duration'), isFalse);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('longPressAt named duration round-trip', () {
+    final code = 'longPressAt(500, 800, duration=1000)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'longPressAt');
+    expect(parsed.first['x'], 500);
+    expect(parsed.first['y'], 800);
+    expect(parsed.first['duration'], 1000);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, 'longPressAt(500, 800, 1000)');
+  });
+
+  test('longPressAt variable coordinates round-trip', () {
+    final code = 'longPressAt(btnX, btnY, 2000)';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'longPressAt');
+    final x = parsed.first['x'] as Map<String, dynamic>;
+    final y = parsed.first['y'] as Map<String, dynamic>;
+    expect(x['op'], 'var');
+    expect(x['name'], 'btnX');
+    expect(y['name'], 'btnY');
+    expect(parsed.first['duration'], 2000);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('longPressAt no-arg in find block round-trip', () {
+    final code = '''
+findText("应用图标") {
+    longPressAt()
+}
+'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    expect(parsed.first['type'], 'findText');
+    final children = parsed.first['children'] as List;
+    expect(children.single['type'], 'longPressAt');
+    expect(children.single.containsKey('x'), isFalse);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('longPressAt with single argument is invalid', () {
+    expect(
+      () => MacroProgramParser.parse('longPressAt(500)'),
+      throwsA(isA<MacroParseError>()),
+    );
+  });
+
   test('launch command round-trip', () {
     final code = '''
 launch("com.example.app", timeout=3000) {
@@ -115,6 +189,39 @@ waitForText("加载完成") {
     expect(parsed.first['text'], '加载完成');
     final serialized = MacroProgramParser.serialize(parsed).trim();
     expect(serialized, code);
+  });
+
+  test('clickNode with text becomes waitForColor + findText block', () {
+    final step = {
+      'type': 'clickNode',
+      'target': {'text': '签到'},
+      'color': {'x': 540, 'y': 960, 'color': 0xFF3366},
+    };
+    final converted = MacroProgramParser.convertLegacySteps([step]);
+    expect(converted.length, 1);
+    final waitForColor = converted.first;
+    expect(waitForColor['type'], 'waitForColor');
+    expect(waitForColor['color'], 0xFF3366);
+    final children = waitForColor['children'] as List;
+    expect(children.first['type'], 'findText');
+    expect(children.first['text'], '签到');
+  });
+
+  test('clickNode without text falls back to coordinate click', () {
+    final step = {
+      'type': 'clickNode',
+      'x': 100,
+      'y': 200,
+      'target': {
+        'bounds': [80, 180, 120, 220],
+        'className': 'android.view.View',
+      },
+    };
+    final converted = MacroProgramParser.convertLegacySteps([step]);
+    expect(converted.length, 1);
+    expect(converted.first['type'], 'click');
+    expect(converted.first['x'], 100);
+    expect(converted.first['y'], 200);
   });
 
   test('waitForColor round-trip', () {
@@ -268,6 +375,50 @@ audio("ding.mp3")'''.trim();
     expect(parsed[1]['type'], 'size');
     expect(parsed[2]['type'], 'image');
     expect(parsed[3]['type'], 'audio');
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('ball animation presets round-trip', () {
+    final code = '''bounce("main")
+shake("main", 24, 500)
+pulse("helper", 1.2)'''.trim();
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 3);
+    expect(parsed[0]['type'], 'bounce');
+    expect(parsed[0]['name'], 'main');
+    expect(parsed[0].containsKey('height'), isFalse);
+    expect(parsed[1]['type'], 'shake');
+    expect(parsed[1]['amplitude'], 24);
+    expect(parsed[1]['duration'], 500);
+    expect(parsed[2]['type'], 'pulse');
+    expect(parsed[2]['name'], 'helper');
+    expect(parsed[2]['scale'], 1.2);
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('animate command round-trip', () {
+    final code = 'animate("main", "x", 500, 300, "overshoot")';
+    final parsed = MacroProgramParser.parse(code);
+    expect(parsed.length, 1);
+    final step = parsed.first;
+    expect(step['type'], 'animate');
+    expect(step['name'], 'main');
+    expect(step['property'], 'x');
+    expect(step['to'], 500);
+    expect(step['duration'], 300);
+    expect(step['easing'], 'overshoot');
+    final serialized = MacroProgramParser.serialize(parsed).trim();
+    expect(serialized, code);
+  });
+
+  test('animate with expression target round-trip', () {
+    final code = 'animate("helper", "y", y + 100, 200)';
+    final parsed = MacroProgramParser.parse(code);
+    final step = parsed.first;
+    expect(step['type'], 'animate');
+    expect(step['easing'], '');
     final serialized = MacroProgramParser.serialize(parsed).trim();
     expect(serialized, code);
   });

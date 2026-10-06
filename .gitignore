@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Accidental nested repo (see commit history)
+/Isolation
+
+# Gradle distribution archives are downloaded by the wrapper, never commit them
+android/gradle/*.zip

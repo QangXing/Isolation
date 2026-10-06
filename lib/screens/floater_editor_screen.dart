@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
+import '../screens/professional_editor_screen.dart';
+import '../services/floater_dsl_v2_expression_parser.dart';
+import '../services/floater_dsl_v2_parser.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
 import '../widgets/code_editor.dart';
@@ -21,26 +26,46 @@ class _FloaterEditorScreenState extends State<FloaterEditorScreen> {
   String _initialName = '';
   String _initialDescription = '';
 
-  static const String _template = '''cornerRadius(16)
-size(56)
-image("default.png")
+  static const String _template = '''ball(main, "mainBall") {
+    size(64)
+    cornerRadius(16)
+    image("main.png")
+    location("mainBall", 100, 200)
+    status(show, "mainBall")
 
-floater("click") {
-    image("click.png")
-    audio("click.mp3")
-    print("点击于 " + clickX + ", " + clickY)
-} else {
-    print("点击执行失败")
+    singleClick {
+        pulse("mainBall")
+        toggle("helper")
+    }
+
+    doubleClick {
+        launch("com.example.app", timeout=3000) {
+        }
+    }
+
+    tripleClick(Turn_off_macros)
+
+    longPress {
+        shake("mainBall")
+        print("长按主球")
+    }
 }
 
-floater("swipe") {
-    print("从 " + swipeFromX + "," + swipeFromY + " 滑到 " + swipeToX + "," + swipeToY)
-}
+ball(deputy, "helper") {
+    size(48)
+    cornerRadius(24)
+    image("helper.png")
+    location("helper", 0, 0)
+    status(hide, "helper")
 
-floater("findText") {
-    print("找到文字：" + foundText)
-} else {
-    print("未找到文字")
+    // 跟随主球，保持 (mainX + 80, mainY) 的相对偏移；主球拖拽时副球同步移动
+    follow("mainBall", 80, 0)
+
+    singleClick(Launch_macro)
+
+    doubleClick {
+        bounce("helper")
+    }
 }
 ''';
 
@@ -121,16 +146,40 @@ floater("findText") {
         borderRadius: BorderRadius.circular(16),
       ),
       clipBehavior: Clip.hardEdge,
-      child: CodeEditor(
-        controller: _codeController,
-        showLineNumbers: true,
-        showIndentGuides: true,
-        decoration: const InputDecoration(
-          border: InputBorder.none,
-          hintText: '在此输入悬浮球 DSL…',
-          hintStyle: TextStyle(color: Color(0xFF757575)),
-        ),
-        onChanged: (_) => setState(() {}),
+      child: Stack(
+        children: [
+          CodeEditor(
+            controller: _codeController,
+            showLineNumbers: true,
+            showIndentGuides: true,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              hintText: '在此输入悬浮球 DSL…',
+              hintStyle: TextStyle(color: Color(0xFF757575)),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: GestureDetector(
+              onTap: _openProfessionalEditor,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.open_in_full,
+                  size: 16,
+                  color: Color(0xFFE0E0E0),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -162,17 +211,53 @@ floater("findText") {
     );
   }
 
+  Future<void> _openProfessionalEditor() async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ProfessionalEditorScreen(
+          initialText: _codeController.text,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
+    if (result != null && mounted) {
+      _codeController.text = result;
+      setState(() {});
+    }
+  }
+
   void _validate() {
     try {
-      final steps = MacroProgramParser.parse(_codeController.text);
+      final source = _codeController.text;
+      final isV2 = source.trim().startsWith('floater ');
+      final ballCount = isV2
+          ? FloaterDslV2Parser.parse(source).balls.length
+          : MacroProgramParser.parseFloaterProgram(source).balls.length;
+      final hasMain = isV2
+          ? FloaterDslV2Parser.parse(source).balls.any((b) => b.role == 'Main')
+          : MacroProgramParser.parseFloaterProgram(source).mainBall != null;
+      final formatted = _formatDsl(source);
+      if (formatted != source) {
+        _codeController.text = formatted;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('校验通过：${steps.length} 个顶层指令'),
+          content: Text(
+            '校验通过（${isV2 ? "v2" : "v1"}）：$ballCount 个球（主球 ${hasMain ? "√" : "×"}）',
+          ),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.black87,
         ),
       );
     } on MacroParseError catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } on FloaterParseError catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString()),
@@ -191,13 +276,53 @@ floater("findText") {
     }
   }
 
+  /// 对 DSL 源码进行简单格式化：根据大括号增减 4 空格缩进。
+  String _formatDsl(String source) {
+    final lines = LineSplitter().convert(source);
+    final buffer = StringBuffer();
+    var indent = 0;
+    for (final raw in lines) {
+      final line = raw.trim();
+      if (line.isEmpty) {
+        buffer.writeln();
+        continue;
+      }
+      final openBraces = '{'.allMatches(line).length;
+      final closeBraces = '}'.allMatches(line).length;
+      if (closeBraces > 0) {
+        indent = (indent - closeBraces).clamp(0, indent).toInt();
+      }
+      buffer.writeln('${'    ' * indent}$line');
+      if (openBraces > 0) {
+        indent += openBraces;
+      }
+    }
+    return buffer.toString();
+  }
+
   Future<void> _showSaveDialog(BuildContext context) async {
     final nameController = TextEditingController(text: _initialName);
     final descController = TextEditingController(text: _initialDescription);
 
     try {
-      MacroProgramParser.parse(_codeController.text);
+      final source = _codeController.text;
+      if (source.trim().startsWith('floater ')) {
+        FloaterDslV2Parser.parse(source);
+      } else {
+        MacroProgramParser.parseFloaterProgram(source);
+      }
     } on MacroParseError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    } on FloaterParseError catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -297,28 +422,6 @@ floater("findText") {
       }
     }
   }
-}
-
-class _IndentGuidePainter extends CustomPainter {
-  final double indentWidth;
-  final Color color;
-
-  _IndentGuidePainter({required this.indentWidth, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1;
-    final maxLevels = (size.width / indentWidth).ceil();
-    for (int i = 1; i < maxLevels; i++) {
-      final x = i * indentWidth;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _ActionButton extends StatelessWidget {

@@ -1,0 +1,611 @@
+/// Floater DSL v2 程序 AST 模型。
+///
+/// v2 采用声明式语法 + 强类型：
+/// - 球的尺寸、位置、可见性等通过属性声明
+/// - 所有数值都带类型（dp/px/deg/ms 等）
+/// - 事件体是语句列表
+class FloaterProgramV2 {
+  final String pluginId;
+  final List<FloaterVariable> variables;
+  final List<FloaterBallV2> balls;
+  final List<FloaterEvent> events;
+  final List<FloaterStateBlock> states;
+  final List<FloaterTransition> transitions;
+
+  const FloaterProgramV2({
+    required this.pluginId,
+    required this.variables,
+    required this.balls,
+    required this.events,
+    this.states = const [],
+    this.transitions = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+        'dslVersion': 2,
+        'pluginId': pluginId,
+        'variables': variables.map((v) => v.toJson()).toList(),
+        'balls': balls.map((b) => b.toJson()).toList(),
+        'events': events.map((e) => e.toJson()).toList(),
+        'states': states.map((s) => s.toJson()).toList(),
+        'transitions': transitions.map((t) => t.toJson()).toList(),
+      };
+}
+
+/// 变量声明：val 不可变，var 可变，let 为状态内局部变量。
+class FloaterVariable {
+  final String name;
+  final FloaterType type;
+  final FloaterValue value;
+  final bool mutable;
+  final bool local;
+
+  const FloaterVariable({
+    required this.name,
+    required this.type,
+    required this.value,
+    required this.mutable,
+    this.local = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'type': type.toJson(),
+        'value': value.toJson(),
+        'mutable': mutable,
+        'local': local,
+      };
+}
+
+/// 单个球声明。
+class FloaterBallV2 {
+  final String name;
+  final String role;
+  final Map<String, FloaterProperty> properties;
+  final Map<String, List<FloaterStatement>> eventHandlers;
+
+  const FloaterBallV2({
+    required this.name,
+    required this.role,
+    required this.properties,
+    required this.eventHandlers,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'role': role,
+        'properties': properties.map((k, v) => MapEntry(k, v.toJson())),
+        'eventHandlers': eventHandlers.map(
+          (k, v) => MapEntry(k, v.map((s) => s.toJson()).toList()),
+        ),
+      };
+}
+
+/// 球的属性，记录声明时的类型、表达式和源码位置（用于报错）。
+/// 属性值在运行时求值，因此保存表达式 AST 而非立即字面量。
+class FloaterProperty {
+  final FloaterType declaredType;
+  final FloaterExpression expression;
+  final int line;
+
+  const FloaterProperty({
+    required this.declaredType,
+    required this.expression,
+    required this.line,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'declaredType': declaredType.toJson(),
+        'expression': expression.toJson(),
+        'line': line,
+      };
+}
+
+/// 事件处理器。
+class FloaterEvent {
+  final String target;
+  final String event;
+  final List<FloaterStatement> body;
+
+  const FloaterEvent({
+    required this.target,
+    required this.event,
+    required this.body,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'target': target,
+        'event': event,
+        'body': body.map((s) => s.toJson()).toList(),
+      };
+}
+
+/// 状态块。
+class FloaterStateBlock {
+  final String name;
+  final List<FloaterStatement> body;
+  final List<String> localVariables;
+
+  const FloaterStateBlock({
+    required this.name,
+    required this.body,
+    this.localVariables = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'body': body.map((s) => s.toJson()).toList(),
+        'localVariables': localVariables,
+      };
+}
+
+/// 状态转换。
+class FloaterTransition {
+  final String from;
+  final String to;
+  final String ballName;
+  final String event;
+
+  const FloaterTransition({
+    required this.from,
+    required this.to,
+    required this.ballName,
+    required this.event,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'from': from,
+        'to': to,
+        'ballName': ballName,
+        'event': event,
+      };
+}
+
+/// 动画目标描述：单球名、球名列表或几何展开。
+typedef FloaterAnimateTargets = List<String>;
+
+/// 语句基类。
+sealed class FloaterStatement {
+  Map<String, dynamic> toJson();
+}
+
+/// 变量赋值：name = value。
+class AssignStatement extends FloaterStatement {
+  final String target;
+  final FloaterExpression value;
+
+  AssignStatement({required this.target, required this.value});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'assign',
+        'target': target,
+        'value': value.toJson(),
+      };
+}
+
+/// let 局部变量声明：let name: Type = value。
+class LetStatement extends FloaterStatement {
+  final String name;
+  final FloaterType type;
+  final FloaterExpression value;
+
+  LetStatement({required this.name, required this.type, required this.value});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'let',
+        'name': name,
+        'typeInfo': type.toJson(),
+        'value': value.toJson(),
+      };
+}
+
+/// 属性赋值：ballName.prop = value。
+class SetPropertyStatement extends FloaterStatement {
+  final String ballName;
+  final String property;
+  final FloaterExpression value;
+
+  SetPropertyStatement({
+    required this.ballName,
+    required this.property,
+    required this.value,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'setProperty',
+        'ballName': ballName,
+        'property': property,
+        'value': value.toJson(),
+      };
+}
+
+/// 批量属性赋值：sub1..4.visible = value。
+class MultiSetPropertyStatement extends FloaterStatement {
+  final List<String> ballNames;
+  final String property;
+  final FloaterExpression value;
+
+  MultiSetPropertyStatement({
+    required this.ballNames,
+    required this.property,
+    required this.value,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'multiSetProperty',
+        'ballNames': ballNames,
+        'property': property,
+        'value': value.toJson(),
+      };
+}
+
+/// print 语句。
+class PrintStatement extends FloaterStatement {
+  final FloaterExpression expression;
+
+  PrintStatement({required this.expression});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'print',
+        'expression': expression.toJson(),
+      };
+}
+
+/// wait 语句。
+class WaitStatement extends FloaterStatement {
+  final FloaterExpression duration;
+
+  WaitStatement({required this.duration});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'wait',
+        'duration': duration.toJson(),
+      };
+}
+
+/// 动画语句。
+///
+/// 支持：
+/// - `animate [sub1, sub2] to (100dp, 200dp) duration 260ms easing overshoot`
+/// - `await animate [sub1, sub2] to fan[].topLeft duration 260ms easing overshoot`
+/// - `animate mainBall to (100dp, 200dp) duration 200ms`
+class AnimateStatement extends FloaterStatement {
+  final FloaterAnimateTargets targets;
+  final FloaterExpression destination;
+  final FloaterExpression duration;
+  final String easing;
+  final bool await;
+
+  AnimateStatement({
+    required this.targets,
+    required this.destination,
+    required this.duration,
+    this.easing = 'linear',
+    this.await = false,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'animate',
+        'targets': targets,
+        'destination': destination.toJson(),
+        'duration': duration.toJson(),
+        'easing': easing,
+        'await': await,
+      };
+}
+
+/// if 语句。
+class IfStatement extends FloaterStatement {
+  final FloaterExpression condition;
+  final List<FloaterStatement> thenBody;
+  final List<FloaterStatement>? elseBody;
+
+  IfStatement({
+    required this.condition,
+    required this.thenBody,
+    this.elseBody,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'if',
+        'condition': condition.toJson(),
+        'thenBody': thenBody.map((s) => s.toJson()).toList(),
+        if (elseBody != null)
+          'elseBody': elseBody!.map((s) => s.toJson()).toList(),
+      };
+}
+
+/// for 循环。
+class ForStatement extends FloaterStatement {
+  final String variable;
+  final FloaterExpression from;
+  final FloaterExpression to;
+  final List<FloaterStatement> body;
+
+  ForStatement({
+    required this.variable,
+    required this.from,
+    required this.to,
+    required this.body,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'for',
+        'variable': variable,
+        'from': from.toJson(),
+        'to': to.toJson(),
+        'body': body.map((s) => s.toJson()).toList(),
+      };
+}
+
+/// 表达式基类。
+sealed class FloaterExpression {
+  Map<String, dynamic> toJson();
+}
+
+/// 字面量表达式。
+class LiteralExpression extends FloaterExpression {
+  final FloaterValue value;
+
+  LiteralExpression({required this.value});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'literal',
+        'value': value.toJson(),
+      };
+}
+
+/// 变量引用。
+class VarExpression extends FloaterExpression {
+  final String name;
+
+  VarExpression({required this.name});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'var',
+        'name': name,
+      };
+}
+
+/// 属性访问：ballName.prop。
+class PropertyExpression extends FloaterExpression {
+  final String ballName;
+  final String property;
+
+  PropertyExpression({required this.ballName, required this.property});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'property',
+        'ballName': ballName,
+        'property': property,
+      };
+}
+
+/// 二元表达式。
+class BinaryExpression extends FloaterExpression {
+  final String operator;
+  final FloaterExpression left;
+  final FloaterExpression right;
+
+  BinaryExpression({
+    required this.operator,
+    required this.left,
+    required this.right,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'binary',
+        'operator': operator,
+        'left': left.toJson(),
+        'right': right.toJson(),
+      };
+}
+
+/// 一元表达式。
+class UnaryExpression extends FloaterExpression {
+  final String operator;
+  final FloaterExpression right;
+
+  UnaryExpression({required this.operator, required this.right});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'unary',
+        'operator': operator,
+        'right': right.toJson(),
+      };
+}
+
+/// 函数调用。
+class CallExpression extends FloaterExpression {
+  final String name;
+  final List<FloaterExpression> args;
+  final Map<String, FloaterExpression> namedArgs;
+
+  CallExpression({
+    required this.name,
+    this.args = const [],
+    this.namedArgs = const {},
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'call',
+        'name': name,
+        'args': args.map((a) => a.toJson()).toList(),
+        'namedArgs': namedArgs.map((k, v) => MapEntry(k, v.toJson())),
+      };
+}
+
+/// 索引访问：fan[0]、fan[]。
+class IndexExpression extends FloaterExpression {
+  final FloaterExpression target;
+  final FloaterExpression? index;
+
+  /// [index] 为 null 表示 fan[]，即访问全部 slot。
+  IndexExpression({required this.target, this.index});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'index',
+        'target': target.toJson(),
+        if (index != null) 'index': index!.toJson(),
+      };
+}
+
+/// 锚点访问：fan[0].topLeft、mainBall.center。
+///
+/// 当目标为球名时，执行引擎会按球属性处理；当目标为几何对象时，
+/// 按几何对象的 anchor 偏移计算坐标。
+class AnchorExpression extends FloaterExpression {
+  final FloaterExpression target;
+  final String anchor;
+
+  AnchorExpression({required this.target, required this.anchor});
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'op': 'anchor',
+        'target': target.toJson(),
+        'anchor': anchor,
+      };
+}
+
+/// 类型定义。
+enum FloaterTypeKind {
+  dp,
+  px,
+  int,
+  float,
+  bool,
+  string,
+  duration,
+  angle,
+  point,
+  size,
+  color,
+  fan,
+  ring,
+  grid,
+  unknown,
+}
+
+class FloaterType {
+  final FloaterTypeKind kind;
+
+  const FloaterType(this.kind);
+
+  static const FloaterType dp = FloaterType(FloaterTypeKind.dp);
+  static const FloaterType px = FloaterType(FloaterTypeKind.px);
+  static const FloaterType int = FloaterType(FloaterTypeKind.int);
+  static const FloaterType float = FloaterType(FloaterTypeKind.float);
+  static const FloaterType bool = FloaterType(FloaterTypeKind.bool);
+  static const FloaterType string = FloaterType(FloaterTypeKind.string);
+  static const FloaterType duration = FloaterType(FloaterTypeKind.duration);
+  static const FloaterType angle = FloaterType(FloaterTypeKind.angle);
+  static const FloaterType point = FloaterType(FloaterTypeKind.point);
+  static const FloaterType size = FloaterType(FloaterTypeKind.size);
+  static const FloaterType color = FloaterType(FloaterTypeKind.color);
+  static const FloaterType fan = FloaterType(FloaterTypeKind.fan);
+  static const FloaterType ring = FloaterType(FloaterTypeKind.ring);
+  static const FloaterType grid = FloaterType(FloaterTypeKind.grid);
+  static const FloaterType unknown = FloaterType(FloaterTypeKind.unknown);
+
+  factory FloaterType.fromName(String name) {
+    switch (name) {
+      case 'Dp':
+        return FloaterType.dp;
+      case 'Px':
+        return FloaterType.px;
+      case 'Int':
+        return FloaterType.int;
+      case 'Float':
+        return FloaterType.float;
+      case 'Bool':
+        return FloaterType.bool;
+      case 'String':
+        return FloaterType.string;
+      case 'Duration':
+        return FloaterType.duration;
+      case 'Angle':
+        return FloaterType.angle;
+      case 'Point':
+        return FloaterType.point;
+      case 'Size':
+        return FloaterType.size;
+      case 'Color':
+        return FloaterType.color;
+      case 'Fan':
+        return FloaterType.fan;
+      case 'Ring':
+        return FloaterType.ring;
+      case 'Grid':
+        return FloaterType.grid;
+      default:
+        return FloaterType.unknown;
+    }
+  }
+
+  String get name {
+    switch (kind) {
+      case FloaterTypeKind.dp:
+        return 'Dp';
+      case FloaterTypeKind.px:
+        return 'Px';
+      case FloaterTypeKind.int:
+        return 'Int';
+      case FloaterTypeKind.float:
+        return 'Float';
+      case FloaterTypeKind.bool:
+        return 'Bool';
+      case FloaterTypeKind.string:
+        return 'String';
+      case FloaterTypeKind.duration:
+        return 'Duration';
+      case FloaterTypeKind.angle:
+        return 'Angle';
+      case FloaterTypeKind.point:
+        return 'Point';
+      case FloaterTypeKind.size:
+        return 'Size';
+      case FloaterTypeKind.color:
+        return 'Color';
+      case FloaterTypeKind.fan:
+        return 'Fan';
+      case FloaterTypeKind.ring:
+        return 'Ring';
+      case FloaterTypeKind.grid:
+        return 'Grid';
+      case FloaterTypeKind.unknown:
+        return 'Unknown';
+    }
+  }
+
+  Map<String, dynamic> toJson() => {'kind': name};
+}
+
+/// 带类型的值。
+class FloaterValue {
+  final FloaterType type;
+  final dynamic value;
+
+  const FloaterValue({required this.type, required this.value});
+
+  Map<String, dynamic> toJson() => {
+        'type': type.name,
+        'value': value,
+      };
+}

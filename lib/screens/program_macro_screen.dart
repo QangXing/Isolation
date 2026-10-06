@@ -1,12 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/macro.dart';
 import '../providers/plugin_provider.dart';
 import '../services/macro_program_parser.dart';
 import '../services/macro_syntax_highlighter.dart';
 import '../widgets/code_editor.dart';
-import 'image_crop_screen.dart';
 import 'professional_editor_screen.dart';
 
 class ProgramMacroScreen extends StatefulWidget {
@@ -31,6 +29,7 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
 
   static const List<String> _commands = [
     'click',
+    'longPressAt',
     'swipe',
     'swipeRel',
     'input',
@@ -246,11 +245,6 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
               onTap: () => _insert('launch("com.example.app", timeout=3000) {\n    \n}'),
             ),
             _InstructionChip(
-              label: '#include',
-              icon: Icons.link_rounded,
-              onTap: () => _insert('#include <名称>'),
-            ),
-            _InstructionChip(
               label: 'floater',
               icon: Icons.circle_notifications_rounded,
               onTap: () => _insert('floater("click") {\n    image("click.png")\n    audio("click.mp3")\n    print(clickX)\n} else {\n    print("失败")\n}'),
@@ -337,7 +331,8 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
     }
 
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return;
@@ -345,16 +340,13 @@ class _ProgramMacroScreenState extends State<ProgramMacroScreen> {
     final sourcePath = result.files.single.path;
     if (sourcePath == null) return;
 
-    if (!mounted) return;
-    final croppedPath = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => ImageCropScreen(sourcePath: sourcePath),
-      ),
-    );
-    if (croppedPath == null) return;
-
     final provider = context.read<PluginProvider>();
-    final fileName = await provider.importMacroAsset(widget.pluginId!, croppedPath);
+    final originalName = result.files.single.name;
+    final fileName = await provider.importMacroAsset(
+      widget.pluginId!,
+      sourcePath,
+      desiredName: originalName,
+    );
     await _loadAssets();
     if (mounted) {
       setState(() {});
@@ -767,28 +759,6 @@ class _InstructionChip extends StatelessWidget {
       ),
     );
   }
-}
-
-class _IndentGuidePainter extends CustomPainter {
-  final double indentWidth;
-  final Color color;
-
-  _IndentGuidePainter({required this.indentWidth, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1;
-    final maxLevels = (size.width / indentWidth).ceil();
-    for (int i = 1; i < maxLevels; i++) {
-      final x = i * indentWidth;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _ActionButton extends StatelessWidget {

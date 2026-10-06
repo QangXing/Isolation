@@ -1,0 +1,9 @@
+{
+  "id": "com.qangxing.isolation.floater.fanmenu",
+  "type": "floaterPlugin",
+  "name": "扇形展开编程球",
+  "version": "1.0.0",
+  "description": "单击主球扇形展开 4 个功能副球，再次单击收回；根据主球所在屏幕象限自动调整展开方向。",
+  "author": "user",
+  "iconName": "apps"
+}

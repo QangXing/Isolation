@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.isolation"
+    namespace = "com.qangxing.isolation"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -16,11 +16,11 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.isolation"
+        applicationId = "com.qangxing.isolation"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = 24
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -54,6 +54,9 @@ tasks.withType<JavaCompile> {
 
 dependencies {
     implementation("org.opencv:opencv:4.12.0")
+    implementation("com.github.bumptech.glide:glide:4.16.0")
+    implementation("dev.rikka.shizuku:api:13.1.0")
+    implementation("dev.rikka.shizuku:provider:13.1.0")
     testImplementation("junit:junit:4.13.2")
 }
 

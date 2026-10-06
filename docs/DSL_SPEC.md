@@ -21,6 +21,7 @@
 |---|---|---|
 | `click(x, y)` | 点击指定坐标 | `click(500, 800)` |
 | `click()` | 点击最近一次查询/查找得到的坐标，只能出现在查找块内 | `findText("签到") { click() }` |
+| `longPressAt(x, y, duration)` | 在指定坐标长按，`duration` 为按压时长（毫秒），默认 800；查找块内可写 `longPressAt()` 长按最近命中坐标 | `longPressAt(500, 800, 1500)` |
 | `swipe(dx, dy, duration)` | 从屏幕中心按相对偏移滑动 | `swipe(0, 300, 400)` |
 | `swipe(x1, y1, x2, y2, duration)` | 从起点滑动到终点 | `swipe(500, 180, 100, 180, 300)` |
 | `swipeRel(fromX, fromY, dx, dy, duration)` | 从指定起点按相对偏移滑动 | `swipeRel(500, 800, 0, -300, 400)` |
@@ -413,6 +414,7 @@ floater("click") {
 | 事件 | 注入变量 | 说明 |
 |---|---|---|
 | `click` | `clickX`、`clickY` | 点击发生时的屏幕坐标 |
+| `longPressAt` | `longPressX`、`longPressY`、`longPressDuration` | 长按发生时的屏幕坐标与按压时长（毫秒） |
 | `swipe` / `swipeRel` | `swipeFromX`、`swipeFromY`、`swipeToX`、`swipeToY` | 滑动的起点与终点坐标 |
 | `findText` / `waitForText` | `foundText` | 命中目标的文字内容 |
 | `findColor` / `waitForColor` / `findImage` / `waitForImage` | `foundX`、`foundY` | 命中目标在屏幕上的坐标 |
@@ -455,7 +457,7 @@ my_floater/
 
 ```json
 {
-  "id": "com.example.isolation.floater.my",
+  "id": "com.qangxing.isolation.floater.my",
   "type": "floaterPlugin",
   "name": "我的悬浮球",
   "version": "1.0.0",

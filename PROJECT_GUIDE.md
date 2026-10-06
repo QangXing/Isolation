@@ -23,7 +23,7 @@ Isolation 是一款 Android 平台的**跨应用自动化宏插件应用**，将
 |----|------|
 | UI 层 | Flutter（Dart） |
 | 原生层 | Kotlin（Android） |
-| 通信 | MethodChannel `com.example.isolation` |
+| 通信 | MethodChannel `com.qangxing.isolation` |
 | 状态管理 | provider |
 | 持久化 | shared_preferences + 应用私有目录文件 |
 | 打包 | `.isoplugin`（zip 压缩包） |
@@ -81,7 +81,7 @@ Isolation 是一款 Android 平台的**跨应用自动化宏插件应用**，将
 
 ```json
 {
-  "id": "com.example.isolation.macro.xxx",
+  "id": "com.qangxing.isolation.macro.xxx",
   "name": "宏名称",
   "version": "1.0.0",
   "actions": [{ "type": "macro", "label": "运行", "macroFile": "macro.json" }]
