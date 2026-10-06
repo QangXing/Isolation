@@ -11,8 +11,7 @@ class FloaterV2ExpressionTest {
         val expr = FloaterV2Expression.fromJson(mapOf("op" to "literal", "type" to "Dp", "value" to 56))
         assertTrue(expr is LiteralExpression)
         val literal = expr as LiteralExpression
-        assertEquals(FloaterType.Dp, literal.type)
-        assertEquals(56, literal.value)
+        assertEquals(FloaterValue.Dp(56.0), literal.value)
     }
 
     @Test
