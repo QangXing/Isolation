@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.graphics.Point
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.util.Size
 import android.view.animation.OvershootInterpolator
 import com.qangxing.isolation.FloatingBallService
@@ -18,6 +19,9 @@ import kotlin.math.roundToInt
 class FloaterV2Engine(
     private val service: FloatingBallService
 ) {
+    private companion object {
+        const val TAG = "FloaterV2Engine"
+    }
     private var program: FloaterV2Program? = null
     private val variables = mutableMapOf<String, FloaterValue>()
     private var currentState: String? = null
@@ -383,20 +387,30 @@ class FloaterV2Engine(
         }
     }
 
+    private val resolvingVariables = mutableSetOf<String>()
+
     private fun resolveVariable(name: String): FloaterValue {
-        val stored = variables[name]
-        if (stored != null && stored !is FloaterValue.Unknown) {
-            return stored
+        if (!resolvingVariables.add(name)) {
+            Log.w(TAG, "检测到变量循环引用: $name")
+            return FloaterValue.Unknown
         }
-        // 变量值可能是延迟表达式（如 Fan(...) 构造函数），首次访问时求值
-        val variable = program?.variables?.find { it.name == name }
-        val rawValue = variable?.rawValue
-        if (rawValue?.containsKey("op") == true) {
-            val value = evaluateExpression(FloaterV2Expression.fromJson(rawValue))
-            variables[name] = value
-            return value
+        try {
+            val stored = variables[name]
+            if (stored != null && stored !is FloaterValue.Unknown) {
+                return stored
+            }
+            // 变量值可能是延迟表达式（如 Fan(...) 构造函数），首次访问时求值
+            val variable = program?.variables?.find { it.name == name }
+            val rawValue = variable?.rawValue
+            if (rawValue?.containsKey("op") == true) {
+                val value = evaluateExpression(FloaterV2Expression.fromJson(rawValue))
+                variables[name] = value
+                return value
+            }
+            return stored ?: FloaterValue.Unknown
+        } finally {
+            resolvingVariables.remove(name)
         }
-        return stored ?: FloaterValue.Unknown
     }
 
     private fun evaluateIndex(expr: IndexExpression): FloaterValue {

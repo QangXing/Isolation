@@ -224,29 +224,29 @@ fun floaterValueFromJson(json: Map<String, Any?>): FloaterValue {
             val map = raw as? Map<String, Any?> ?: return FloaterValue.Unknown
             if (map.containsKey("op")) return FloaterValue.Unknown
             FloaterValue.Fan(
-                center = map.floaterValue("center") as? FloaterValue.Point ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
-                radius = map.floaterValue("radius") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0),
-                startAngle = map.floaterValue("startAngle") as? FloaterValue.Angle ?: FloaterValue.Angle(0.0),
-                sweep = map.floaterValue("sweep") as? FloaterValue.Angle ?: FloaterValue.Angle(0.0),
-                count = map.floaterValue("count") as? FloaterValue.IntVal ?: FloaterValue.IntVal(0)
+                center = parsePointValue(map["center"]) ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
+                radius = parseDpValue(map["radius"]) ?: FloaterValue.Dp(0.0),
+                startAngle = parseAngleValue(map["startAngle"]) ?: FloaterValue.Angle(0.0),
+                sweep = parseAngleValue(map["sweep"]) ?: FloaterValue.Angle(0.0),
+                count = parseIntValue(map["count"]) ?: FloaterValue.IntVal(0)
             )
         }
         FloaterType.Ring -> {
             val map = raw as? Map<String, Any?> ?: return FloaterValue.Unknown
             if (map.containsKey("op")) return FloaterValue.Unknown
             FloaterValue.Ring(
-                center = map.floaterValue("center") as? FloaterValue.Point ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
-                radius = map.floaterValue("radius") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0),
-                count = map.floaterValue("count") as? FloaterValue.IntVal ?: FloaterValue.IntVal(0)
+                center = parsePointValue(map["center"]) ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
+                radius = parseDpValue(map["radius"]) ?: FloaterValue.Dp(0.0),
+                count = parseIntValue(map["count"]) ?: FloaterValue.IntVal(0)
             )
         }
         FloaterType.Grid -> {
             val map = raw as? Map<String, Any?> ?: return FloaterValue.Unknown
             if (map.containsKey("op")) return FloaterValue.Unknown
             FloaterValue.Grid(
-                origin = map.floaterValue("origin") as? FloaterValue.Point ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
-                columns = map.floaterValue("columns") as? FloaterValue.IntVal ?: FloaterValue.IntVal(1),
-                spacing = map.floaterValue("spacing") as? FloaterValue.Dp ?: FloaterValue.Dp(0.0)
+                origin = parsePointValue(map["origin"]) ?: FloaterValue.Point(FloaterValue.Px(0.0), FloaterValue.Px(0.0)),
+                columns = parseIntValue(map["columns"]) ?: FloaterValue.IntVal(1),
+                spacing = parseDpValue(map["spacing"]) ?: FloaterValue.Dp(0.0)
             )
         }
         FloaterType.Unknown -> FloaterValue.Unknown
@@ -256,6 +256,63 @@ fun floaterValueFromJson(json: Map<String, Any?>): FloaterValue {
 private fun Map<String, Any?>.floaterValue(key: String): FloaterValue? {
     val value = this[key] as? Map<String, Any?> ?: return null
     return floaterValueFromJson(value)
+}
+
+private fun parseScalarValue(value: Any?): FloaterValue? {
+    return when (value) {
+        is FloaterValue -> value
+        is Number -> FloaterValue.Dp(value.toDouble())
+        is String -> FloaterValue.Str(value)
+        is Boolean -> FloaterValue.Bool(value)
+        is Map<*, *> -> {
+            val map = value as Map<String, Any?>
+            if (map.containsKey("op")) return null
+            floaterValueFromJson(map)
+        }
+        else -> null
+    }
+}
+
+private fun parsePointValue(value: Any?): FloaterValue.Point? {
+    return when (value) {
+        is FloaterValue.Point -> value
+        is Map<*, *> -> floaterValueFromJson(value as Map<String, Any?>) as? FloaterValue.Point
+        is List<*> -> {
+            if (value.size >= 2) {
+                val x = parseScalarValue(value[0])
+                val y = parseScalarValue(value[1])
+                if (x != null && y != null) FloaterValue.Point(x, y) else null
+            } else null
+        }
+        else -> null
+    }
+}
+
+private fun parseDpValue(value: Any?): FloaterValue.Dp? {
+    return when (value) {
+        is FloaterValue.Dp -> value
+        is Number -> FloaterValue.Dp(value.toDouble())
+        is Map<*, *> -> floaterValueFromJson(value as Map<String, Any?>) as? FloaterValue.Dp
+        else -> null
+    }
+}
+
+private fun parseAngleValue(value: Any?): FloaterValue.Angle? {
+    return when (value) {
+        is FloaterValue.Angle -> value
+        is Number -> FloaterValue.Angle(value.toDouble())
+        is Map<*, *> -> floaterValueFromJson(value as Map<String, Any?>) as? FloaterValue.Angle
+        else -> null
+    }
+}
+
+private fun parseIntValue(value: Any?): FloaterValue.IntVal? {
+    return when (value) {
+        is FloaterValue.IntVal -> value
+        is Number -> FloaterValue.IntVal(value.toInt())
+        is Map<*, *> -> floaterValueFromJson(value as Map<String, Any?>) as? FloaterValue.IntVal
+        else -> null
+    }
 }
 
 private fun parseColor(hex: String): Int {
