@@ -20,7 +20,7 @@ floater "test" {
     }
 }
 ''';
-      final program = FloaterDslV2Parser(dsl).parseProgram();
+      final program = FloaterDslV2Parser.parse(dsl);
 
       expect(program.pluginId, 'test');
       expect(program.variables.length, 2);
@@ -63,7 +63,7 @@ floater "state-test" {
     transition expanded -> collapsed on mainBall.click
 }
 ''';
-      final program = FloaterDslV2Parser(dsl).parseProgram();
+      final program = FloaterDslV2Parser.parse(dsl);
 
       expect(program.states.length, 2);
       expect(program.states[0].name, 'collapsed');
@@ -104,7 +104,7 @@ floater "event-test" {
     }
 }
 ''';
-      final program = FloaterDslV2Parser(dsl).parseProgram();
+      final program = FloaterDslV2Parser.parse(dsl);
 
       expect(program.balls[0].eventHandlers.keys, contains('click'));
       expect(program.events.length, 1);
@@ -121,7 +121,7 @@ floater "geometry-test" {
     val grid: Grid = Grid(origin: (0dp, 0dp), columns: 2, spacing: 16dp)
 }
 ''';
-      final program = FloaterDslV2Parser(dsl).parseProgram();
+      final program = FloaterDslV2Parser.parse(dsl);
 
       expect(program.variables.length, 3);
       expect(program.variables[0].value.type, FloaterType.fan);
